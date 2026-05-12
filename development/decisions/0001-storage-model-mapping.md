@@ -73,7 +73,8 @@ Chosen options:
 
 2. **Layout**: **Group-per-savepoint**. The root group carries `global_meta_info`
    as typed attributes. A `/_fields` subgroup mirrors Serialbox's `field_map`
-   with one zero-size scalar variable per registered field, whose attributes
+   with one dummy scalar variable per registered field (`NF90_INT`, value `0`,
+   used only as an attribute carrier), whose attributes
    hold the field's type id, dims and halos. A `/savepoints` subgroup contains
    one ordered subgroup per savepoint (`sp_000000`, `sp_000001`, …) whose
    attributes hold the savepoint's name and metainfo, and which contains one
@@ -110,22 +111,27 @@ documented separately in `development/references/storage_mapping.md`.
 
 ### Confirmation
 
-The mapping is validated by a round-trip test that:
+The mapping is validated by a round-trip test (`tests/test_round_trip.py`) that:
 
-1. Takes a small hand-written pair of `MetaData-<prefix>.json` /
-   `ArchiveMetaData-<prefix>.json` plus binary blobs from a real Serialbox
-   dump;
-2. Translates them into a preserf NetCDF4 store and a preserf NCZarr-V2 store
-   following this ADR's layout;
-3. Re-reads both stores and reconstructs the original Serialbox JSON
-   structures (`global_meta_info`, `savepoint_vector`, `field_map`, plus the
-   per-savepoint field arrays) bit-identical except for type-id integer
-   renumbering documented in the mapping reference.
+1. Builds an in-memory `SerialboxDump` covering the parts of the Serialbox
+   data model relevant to v1 of the mapping: all six metainfo `TypeID`s in
+   scalar and array form, repeated savepoint names distinguished by metainfo,
+   heterogeneous fields-per-savepoint, and multi-dimensional field arrays;
+2. Translates the dump into a preserf NetCDF4 store and a preserf NCZarr-V2
+   store following this ADR's layout;
+3. Re-reads both stores and reconstructs the dump bit-identical to the
+   original — including the `TypeID` integers (which preserf preserves
+   verbatim via the `__preserf_type_id` shadow attribute).
 
-A separate Fortran smoke test exercises the new helper module against both
-backends to confirm that `ppser_initialize` / `fs_register_field` /
-`fs_create_savepoint` / `fs_write_field` / `fs_read_field` produce
-byte-identical reads after a write/close/reopen cycle.
+A separate `test_serialbox_disk_round_trip` exercises the in-memory dump
+through `SerialboxDump.write` / `SerialboxDump.read` on the disk format
+described by `BinaryArchive.cpp`, giving an isolated sanity check on the
+fixture builder before the preserf storage layer is involved.
+
+Validation against a real Serialbox dump (produced by an actual Serialbox
+run rather than by `SerialboxDump.write`) and a Fortran-side smoke test
+against the new helper module are tracked as follow-ups and will be added
+once the `m_preserf` / `utils_preserf` modules land.
 
 ## Pros and Cons of the Options
 

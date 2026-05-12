@@ -153,13 +153,20 @@ def _scalar_python(prim: TypeID, raw: Any) -> Any:
 
 
 def _write_metainfo_attrs(
-    target: nc.Dataset | nc.Group | nc.Variable[Any], mi: MetainfoMap
+    target: nc.Dataset | nc.Group | nc.Variable[Any],
+    mi: MetainfoMap,
+    reserved: frozenset[str] = frozenset(),
 ) -> None:
     for key, val in mi.items():
         if key.startswith("_preserf_") or key.endswith("__preserf_type_id"):
             raise ValueError(
                 f"user metainfo key '{key}' collides with reserved namespace "
                 "(prefix '_preserf_' or suffix '__preserf_type_id')"
+            )
+        if key in reserved:
+            raise ValueError(
+                f"user metainfo key '{key}' collides with a reserved "
+                f"schema attribute name ({sorted(reserved)})"
             )
         _set_typed_attr(target, key, val)
 
@@ -218,7 +225,7 @@ def _write_field_registry(parent: nc.Group, fname: str, info: FieldMetainfo) -> 
     var[...] = np.int32(0)
     var.setncattr("type_id", np.int32(int(info.type_id)))
     var.setncattr("dims", np.asarray(info.dims, dtype=np.int32))
-    _write_metainfo_attrs(var, info.meta_info)
+    _write_metainfo_attrs(var, info.meta_info, reserved=_RESERVED_FIELD_REGISTRY)
 
 
 _SAVEPOINT_INDEX_LIMIT = 1_000_000  # see storage_mapping.md §5
@@ -236,7 +243,7 @@ def _write_savepoint(
     grp = parent.createGroup(name)
     grp.setncattr("_preserf_savepoint_index", np.int32(idx))
     grp.setncattr("name", sp.name)
-    _write_metainfo_attrs(grp, sp.meta_info)
+    _write_metainfo_attrs(grp, sp.meta_info, reserved=_RESERVED_SAVEPOINT)
 
     if sp.fields:
         field_id_pairs: list[str] = []

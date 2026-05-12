@@ -365,14 +365,18 @@ class SerialboxDump:
                     )
                 arr = np.ascontiguousarray(raw, dtype=info.element_dtype())
                 payload += arr.tobytes(order="C")
-            # Update fields_table offsets to reflect the on-disk layout we just wrote.
-            entries = self.fields_table.setdefault(fname, [])
-            while len(entries) < len(ordered_ids):
-                entries.append(FieldOffsetEntry(offset=0, checksum=""))
-            for fid, off in zip(ordered_ids, offsets, strict=True):
-                entries[fid] = FieldOffsetEntry(
-                    offset=off, checksum=entries[fid].checksum
+            # Rebuild fields_table from ordered_ids so it exactly reflects the
+            # on-disk layout we just wrote — stale entries left over from a
+            # previous larger payload would otherwise mislead the reader into
+            # expecting more snapshots than the .dat file actually contains.
+            prior = {i: e for i, e in enumerate(self.fields_table.get(fname, []))}
+            self.fields_table[fname] = [
+                FieldOffsetEntry(
+                    offset=off,
+                    checksum=prior[fid].checksum if fid in prior else "",
                 )
+                for fid, off in zip(ordered_ids, offsets, strict=True)
+            ]
             (directory / f"{self.prefix}_{fname}.dat").write_bytes(bytes(payload))
 
         # Re-write archive metadata now that offsets are final.

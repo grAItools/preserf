@@ -49,8 +49,9 @@ The eight Serialbox `TypeID` values (`src/serialbox/core/Type.h:55-74`) are:
 <store>                               (root of the netCDF file or NCZarr store)
 ├── (root attributes — see §3)
 ├── /_fields                          (group; mirrors Serialbox field_map)
-│   ├── <fieldname>                   (zero-size scalar variable per registered field)
-│   │   └── attributes: type_id, dims, ranks, halos, user metainfo (§4)
+│   ├── <fieldname>                   (dummy scalar variable per registered field;
+│   │   │                              carries field schema as attributes, value 0)
+│   │   └── attributes: type_id, dims, halos, user metainfo (§4)
 │   └── …
 └── /savepoints                       (group; ordered savepoint vector)
     ├── /sp_000000                    (one subgroup per savepoint, zero-padded index)
@@ -267,5 +268,9 @@ Resulting NetCDF4 / NCZarr store:
 * **Zarr V3.** Layout in this document is wire-compatible with Zarr V3 —
   the only changes will be in the mode string passed to `nf90_create`.
 * **String data fields.** Serialbox's `TypeID::String` for *data* (not
-  metainfo) is rare but supported via `NF90_STRING`. Needs an explicit
-  round-trip test once a sample dump is available.
+  metainfo) is **not yet supported** in this schema version: the reference
+  implementation's `numpy_dtype_for` rejects it and there is no
+  `NF90_STRING` write path for field variables. String metainfo (scalar
+  and array) is fully supported. String data-field support is deferred;
+  when added it will land as `NF90_STRING` variables under the same
+  group-per-savepoint layout, with no schema-version bump expected.
