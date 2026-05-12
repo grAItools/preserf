@@ -579,7 +579,7 @@ expansion) matches one of the predefined shortcut codes, it is expanded into
 | `IJK`    | `ie je ke 0 nboundlines nboundlines nboundlines nboundlines 0 0 0 0` |
 | `IJK1`   | `ie je ke1 0 nboundlines nboundlines nboundlines nboundlines 0 1 0 0` |
 
-Shortcut matching regex: `^(^$|[IJK][IJK1-9]*)` (case-insensitive after
+Shortcut matching regex: `^($|[IJK][IJK1-9]*)` (case-insensitive after
 uppercasing).
 
 If the third argument is not a recognized shortcut, all dimension arguments
