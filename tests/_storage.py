@@ -5,9 +5,11 @@ Implements the schema documented in
 same code path produces either a NetCDF4/HDF5 file or a Zarr V2 store via
 NCZarr (selected by the URL / mode string).
 
-This module is a Python reference implementation used by the round-trip
-test. The eventual Fortran helper module mirrors this layout via
-``netcdf-fortran``.
+Lives under ``tests/`` rather than ``src/preserf/`` because this is a
+Python reference implementation used only by the round-trip test. It
+depends on ``netCDF4`` and ``numpy``, which are dev-only dependencies
+and not part of preserf's installable surface. The eventual Fortran
+helper module mirrors this layout via ``netcdf-fortran``.
 """
 
 from __future__ import annotations

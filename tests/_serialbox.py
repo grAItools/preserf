@@ -1,9 +1,14 @@
-"""Serialbox on-disk format reader / writer.
+"""Serialbox on-disk format reader / writer (test-time reference).
 
 Implements the JSON schemas and per-field binary layout used by
 Serialbox's ``BinaryArchive``. The data model is mirrored as small
 typed dataclasses so it can be round-tripped through the preserf
-storage layout (see ``preserf._storage``).
+storage layout (see ``tests._storage``).
+
+Lives under ``tests/`` rather than ``src/preserf/`` because this is a
+reference implementation used only by the round-trip test. It depends
+on ``numpy``, which is a dev-only dependency, and it is never imported
+by preserf's public API or installed entry points.
 
 References (from the cloned Serialbox sources):
 * ``src/serialbox/core/Type.h`` for the ``TypeID`` enum.
