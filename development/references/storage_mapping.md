@@ -86,9 +86,12 @@ the **same name** and a netCDF type chosen per §1. Array-valued metainfo is
 stored as a vector attribute (netCDF attributes are vector-valued natively;
 this carries through NCZarr V2 unchanged).
 
-If a user metainfo key starts with `_preserf_`, preserf prefixes it with `__`
-on write (and strips one underscore on read) to keep the reserved namespace
-clean. This collision case is reported as a warning.
+User metainfo keys starting with `_preserf_` collide with preserf's reserved
+attribute namespace and are **rejected** at write time with a `ValueError`.
+Callers must rename the offending key before serialising. (An earlier draft
+of this document proposed an automatic `__`-prefix escape; that was dropped
+because it complicates the read path and the directives never produce
+`_preserf_*` keys in practice.)
 
 ---
 

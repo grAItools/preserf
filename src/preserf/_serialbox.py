@@ -283,7 +283,7 @@ class SerialboxDump:
             path = directory / f"{prefix}_{fname}.dat"
             blob = path.read_bytes()
             dump.field_data[fname] = {}
-            for entry in entries:
+            for idx, entry in enumerate(entries):
                 buf = blob[entry.offset : entry.offset + elt_bytes]
                 if len(buf) != elt_bytes:
                     raise ValueError(
@@ -295,7 +295,7 @@ class SerialboxDump:
                     if shape
                     else np.frombuffer(buf, dtype=dtype).reshape(())
                 )
-                dump.field_data[fname][entries.index(entry)] = arr.copy()
+                dump.field_data[fname][idx] = arr.copy()
 
         return dump
 
@@ -342,6 +342,15 @@ class SerialboxDump:
             if not data_by_id:
                 continue
             ordered_ids = sorted(data_by_id.keys())
+            # Serialbox guarantees fieldIDs are dense 0..N-1 (BinaryArchive.cpp:323
+            # assigns id = fieldOffsetTable.size() on each append). Refuse to
+            # write malformed sparse maps loudly instead of silently leaving
+            # zero-offset placeholders behind.
+            if ordered_ids != list(range(len(ordered_ids))):
+                raise ValueError(
+                    f"field '{fname}' has non-dense fieldIDs {ordered_ids}; "
+                    f"Serialbox requires 0..{len(ordered_ids) - 1}"
+                )
             payload = bytearray()
             offsets: list[int] = []
             for fid in ordered_ids:

@@ -292,6 +292,11 @@ def read_dump(url: str) -> SerialboxDump:
             id_map: dict[str, int] = {}
             if field_ids_attr is not None:
                 flat = list(field_ids_attr)
+                if len(flat) % 2 != 0:
+                    raise ValueError(
+                        f"savepoint '{name}': _preserf_field_ids has odd "
+                        f"length {len(flat)}; expected pairs of (fieldname, id)"
+                    )
                 for i in range(0, len(flat), 2):
                     id_map[str(flat[i])] = int(flat[i + 1])
 
