@@ -86,12 +86,27 @@ the **same name** and a netCDF type chosen per §1. Array-valued metainfo is
 stored as a vector attribute (netCDF attributes are vector-valued natively;
 this carries through NCZarr V2 unchanged).
 
-User metainfo keys starting with `_preserf_` collide with preserf's reserved
-attribute namespace and are **rejected** at write time with a `ValueError`.
+User metainfo keys are **rejected** at write time with a `ValueError` if they:
+
+* start with the prefix `_preserf_` (collides with preserf housekeeping
+  attributes — see §3.1, §5), or
+* end with the suffix `__preserf_type_id` (collides with the per-attribute
+  shadow tag preserf writes alongside every typed metainfo entry to preserve
+  the original Serialbox `TypeID` — see §3.3).
+
 Callers must rename the offending key before serialising. (An earlier draft
 of this document proposed an automatic `__`-prefix escape; that was dropped
 because it complicates the read path and the directives never produce
-`_preserf_*` keys in practice.)
+colliding keys in practice.)
+
+### 3.3 Type-id shadow tags
+
+Every typed metainfo attribute `<key>` is accompanied by a sibling attribute
+`<key>__preserf_type_id` (`NF90_INT`) holding the original Serialbox
+`TypeID` integer. This is what lets the reader distinguish e.g. `Int32`
+from `Int64` even after the value has been round-tripped through netCDF /
+Zarr type promotion. Readers MUST skip any attribute whose name ends in
+`__preserf_type_id` when collecting user metainfo.
 
 ---
 
@@ -116,8 +131,12 @@ Attributes (all required unless marked optional):
 | `kplushalo`      | `NF90_INT`      | "                                                |
 | `lminushalo`     | `NF90_INT`      | "                                                |
 | `lplushalo`      | `NF90_INT`      | "                                                |
-| `bytes_per_element` | `NF90_INT`   | optional; only when the original `fs_register_field` received an explicit length |
 | user metainfo    | typed           | any extra `key=value` set via the field's metainfo map; same naming rules as §3.2 |
+
+> The `bytes_per_element` attribute that the original `fs_register_field`
+> can carry is intentionally **not** part of the v1 schema yet — it would
+> need a corresponding field on the in-memory `FieldMetainfo` to round-trip.
+> Will be added when the Fortran helper module starts emitting it.
 
 The dimension names of actual field-data variables (§6) are **derived** from
 this metadata at write time: `<fieldname>_dim0`, `<fieldname>_dim1`, …,
@@ -217,11 +236,10 @@ Resulting NetCDF4 / NCZarr store:
                                                 author="alice"
 /_fields/
   u                                     scalar NF90_INT, value 0
-    attrs: type_id=5, dims=[ie,je,ke,0],
+    attrs: type_id=5, dims=[ie,je,ke],
            iminushalo=nboundlines, iplushalo=nboundlines,
            jminushalo=nboundlines, jplushalo=nboundlines,
-           kminushalo=0, kplushalo=0,
-           lminushalo=0, lplushalo=0
+           kminushalo=0, kplushalo=0
 /savepoints/
   sp_000000/                            attrs: name="step1", ntstep=1,
                                                _preserf_savepoint_index=0

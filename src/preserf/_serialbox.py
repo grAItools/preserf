@@ -227,9 +227,9 @@ class SerialboxDump:
 
     @classmethod
     def read(cls, directory: Path, prefix: str) -> SerialboxDump:
-        with (directory / f"MetaData-{prefix}.json").open() as f:
+        with (directory / f"MetaData-{prefix}.json").open(encoding="utf-8") as f:
             meta = json.load(f)
-        with (directory / f"ArchiveMetaData-{prefix}.json").open() as f:
+        with (directory / f"ArchiveMetaData-{prefix}.json").open(encoding="utf-8") as f:
             arch = json.load(f)
 
         sv = meta.get("savepoint_vector", {}) or {}
@@ -330,10 +330,10 @@ class SerialboxDump:
             },
         }
         (directory / f"MetaData-{self.prefix}.json").write_text(
-            json.dumps(meta, indent=2)
+            json.dumps(meta, indent=2), encoding="utf-8"
         )
         (directory / f"ArchiveMetaData-{self.prefix}.json").write_text(
-            json.dumps(arch, indent=2)
+            json.dumps(arch, indent=2), encoding="utf-8"
         )
 
         # Re-pack the .dat blobs in fieldID order, computing offsets as we go.
@@ -381,5 +381,5 @@ class SerialboxDump:
             for fname, entries in self.fields_table.items()
         }
         (directory / f"ArchiveMetaData-{self.prefix}.json").write_text(
-            json.dumps(arch, indent=2)
+            json.dumps(arch, indent=2), encoding="utf-8"
         )

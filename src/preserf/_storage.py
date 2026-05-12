@@ -67,7 +67,9 @@ def open_url_for(
         return str(directory / f"{prefix}.nc"), "NETCDF4"
     if backend == "nczarr-v2":
         store = (directory / f"{prefix}.zarr").resolve()
-        return f"file://{store}#mode=nczarr,zarr2", "NETCDF4"
+        # Use as_uri() so the URL is well-formed on Windows too
+        # (file:///C:/... rather than the broken file://C:\...).
+        return f"{store.as_uri()}#mode=nczarr,zarr2", "NETCDF4"
     raise ValueError(f"unknown backend: {backend!r}")
 
 
@@ -154,14 +156,15 @@ def _write_metainfo_attrs(
     target: nc.Dataset | nc.Group | nc.Variable[Any], mi: MetainfoMap
 ) -> None:
     for key, val in mi.items():
-        if key.startswith("_preserf_"):
+        if key.startswith("_preserf_") or key.endswith("__preserf_type_id"):
             raise ValueError(
-                f"user metainfo key '{key}' collides with reserved namespace"
+                f"user metainfo key '{key}' collides with reserved namespace "
+                "(prefix '_preserf_' or suffix '__preserf_type_id')"
             )
         _set_typed_attr(target, key, val)
 
 
-_RESERVED_FIELD_REGISTRY = frozenset({"type_id", "dims", "bytes_per_element"})
+_RESERVED_FIELD_REGISTRY = frozenset({"type_id", "dims"})
 _RESERVED_SAVEPOINT = frozenset({"name"})
 
 
@@ -254,6 +257,13 @@ def _write_field_variable(
     grp: nc.Group, fname: str, info: FieldMetainfo, data: np.ndarray
 ) -> None:
     dtype = numpy_dtype_for(info.type_id)
+    expected_count = info.element_count()
+    if data.size != expected_count:
+        raise ValueError(
+            f"field '{fname}' write got array of size {data.size} (shape "
+            f"{data.shape}) but FieldMetainfo declares dims {info.dims} "
+            f"({expected_count} elements)"
+        )
     dim_names: list[str] = []
     for axis, size in enumerate(info.dims):
         dname = f"{fname}_dim{axis}"
