@@ -75,6 +75,11 @@ def numpy_dtype_for(tid: TypeID) -> np.dtype[Any]:
     prim = primitive_of(tid)
     if prim == TypeID.String:
         raise ValueError("string fields are not supported by numpy_dtype_for")
+    if prim not in _PRIMITIVE_TO_NUMPY:
+        raise ValueError(
+            f"TypeID {int(tid)} ({tid.name}) has no numpy dtype mapping; "
+            "expected one of Boolean/Int32/Int64/Float32/Float64"
+        )
     return _PRIMITIVE_TO_NUMPY[prim]
 
 

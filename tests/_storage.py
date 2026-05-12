@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, Any, Literal
 import netCDF4 as nc
 import numpy as np
 
+import preserf
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -207,7 +209,7 @@ def write_dump(dump: SerialboxDump, directory: Path, *, backend: str) -> str:
         root.setncattr("_preserf_schema_version", np.int32(SCHEMA_VERSION))
         root.setncattr("_preserf_serialbox_prefix", str(dump.prefix))
         root.setncattr("_preserf_savepoint_count", np.int32(len(dump.savepoints)))
-        root.setncattr("_preserf_writer", "preserf round-trip test 0.1")
+        root.setncattr("_preserf_writer", f"preserf {preserf.__version__}")
         _write_metainfo_attrs(root, dump.global_meta_info)
 
         fields_grp = root.createGroup("_fields")
@@ -266,12 +268,11 @@ def _write_field_variable(
     grp: nc.Group, fname: str, info: FieldMetainfo, data: np.ndarray
 ) -> None:
     dtype = numpy_dtype_for(info.type_id)
-    expected_count = info.element_count()
-    if data.size != expected_count:
+    expected_shape = tuple(int(d) for d in info.dims)
+    if data.shape != expected_shape:
         raise ValueError(
-            f"field '{fname}' write got array of size {data.size} (shape "
-            f"{data.shape}) but FieldMetainfo declares dims {info.dims} "
-            f"({expected_count} elements)"
+            f"field '{fname}' write got array of shape {data.shape} "
+            f"but FieldMetainfo declares dims {info.dims}"
         )
     dim_names: list[str] = []
     for axis, size in enumerate(info.dims):
