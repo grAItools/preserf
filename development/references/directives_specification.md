@@ -756,12 +756,12 @@ call ppser_write_tracer_by_name('<name>', stype='<stype>', timelevel=<timelevel>
 
 For **index-based** access (single index):
 ```fortran
-call ppser_write_tracer_bx_idx(<expr>, stype='<stype>', timelevel=<timelevel>)
+call ppser_write_tracer_by_idx(<expr>, stype='<stype>', timelevel=<timelevel>)
 ```
 
 For **index-based** access (range):
 ```fortran
-call ppser_write_tracer_bx_idx(<expr1>, <expr2>, stype='<stype>', timelevel=<timelevel>)
+call ppser_write_tracer_by_idx(<expr1>, <expr2>, stype='<stype>', timelevel=<timelevel>)
 ```
 
 For **all** tracers:
@@ -772,7 +772,7 @@ call ppser_write_tracer_all(stype='', timelevel=<timelevel>)
 The `stype` argument is always present (empty string if not specified). The
 `timelevel` argument is only present if specified.
 
-**API calls**: `ppser_write_tracer_by_name`, `ppser_write_tracer_bx_idx`,
+**API calls**: `ppser_write_tracer_by_name`, `ppser_write_tracer_by_idx`,
 `ppser_write_tracer_all`
 
 ---
