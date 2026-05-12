@@ -351,11 +351,19 @@ class SerialboxDump:
                     f"field '{fname}' has non-dense fieldIDs {ordered_ids}; "
                     f"Serialbox requires 0..{len(ordered_ids) - 1}"
                 )
+            expected_count = info.element_count()
             payload = bytearray()
             offsets: list[int] = []
             for fid in ordered_ids:
                 offsets.append(len(payload))
-                arr = np.ascontiguousarray(data_by_id[fid], dtype=info.element_dtype())
+                raw = data_by_id[fid]
+                if raw.size != expected_count:
+                    raise ValueError(
+                        f"field '{fname}' snapshot {fid} has size {raw.size} "
+                        f"but FieldMetainfo declares dims {info.dims} "
+                        f"({expected_count} elements)"
+                    )
+                arr = np.ascontiguousarray(raw, dtype=info.element_dtype())
                 payload += arr.tobytes(order="C")
             # Update fields_table offsets to reflect the on-disk layout we just wrote.
             entries = self.fields_table.setdefault(fname, [])

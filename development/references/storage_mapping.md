@@ -128,10 +128,13 @@ unless a more specific naming convention is configured (future work — see
 
 ## 5. `/savepoints/sp_NNNNNN`: a single savepoint
 
-* The subgroup name is `sp_` followed by a zero-padded 6-digit index (the
-  savepoint's position in `savepoint_vector.savepoints[]`). Zero-padding to
-  6 digits supports up to one million savepoints in lexical order; the
-  width can be widened on overflow at write time.
+* The subgroup name is `sp_` followed by a zero-padded **6-digit** index
+  (the savepoint's position in `savepoint_vector.savepoints[]`). The width
+  is fixed at 6 digits, which caps a single preserf store at **1,000,000
+  savepoints** and lets readers rely on lexical group-name ordering matching
+  numerical ordering. Writes that would exceed this cap must fail; widening
+  the field is a forwards-incompatible schema change (would require bumping
+  `_preserf_schema_version`).
 * The savepoint's **Serialbox `name`** is stored as the `name` attribute of
   the group (`NF90_STRING`). It is *not* used as the group identifier
   because Serialbox permits multiple savepoints to share a `name` (they are

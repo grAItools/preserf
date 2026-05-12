@@ -87,6 +87,10 @@ def _set_typed_attr(
     Int64) round-trips losslessly through both backends.
     """
     prim = primitive_of(mv.type_id)
+    if prim == TypeID.Invalid:
+        raise ValueError(
+            f"metainfo key '{key}' has TypeID.Invalid; this is not serialisable"
+        )
     if prim == TypeID.String:
         # netCDF strings: store scalars as plain str, arrays as Python lists
         # of str (netCDF4 stores them as NC_STRING vector).
@@ -95,6 +99,11 @@ def _set_typed_attr(
         else:
             target.setncattr(key, str(mv.value))
     else:
+        if prim not in _PRIMITIVE_DTYPE:
+            raise ValueError(
+                f"metainfo key '{key}' has unsupported TypeID "
+                f"{int(mv.type_id)} ({mv.type_id.name})"
+            )
         dtype = _PRIMITIVE_DTYPE[prim]
         if is_array_type(mv.type_id):
             arr = np.asarray(mv.value, dtype=dtype)
@@ -209,9 +218,17 @@ def _write_field_registry(parent: nc.Group, fname: str, info: FieldMetainfo) -> 
     _write_metainfo_attrs(var, info.meta_info)
 
 
+_SAVEPOINT_INDEX_LIMIT = 1_000_000  # see storage_mapping.md §5
+
+
 def _write_savepoint(
     parent: nc.Group, idx: int, sp: Savepoint, dump: SerialboxDump
 ) -> None:
+    if idx >= _SAVEPOINT_INDEX_LIMIT:
+        raise ValueError(
+            f"savepoint index {idx} exceeds the schema cap of "
+            f"{_SAVEPOINT_INDEX_LIMIT}; bump _preserf_schema_version to widen"
+        )
     name = f"sp_{idx:06d}"
     grp = parent.createGroup(name)
     grp.setncattr("_preserf_savepoint_index", np.int32(idx))
@@ -245,10 +262,10 @@ def _write_field_variable(
         dim_names.append(dname)
     if not dim_names:
         # 0-D / scalar variable.
-        var = grp.createVariable(fname, dtype.str.lstrip("<>="), ())
+        var = grp.createVariable(fname, dtype, ())
         var[...] = data.astype(dtype, copy=False)
     else:
-        var = grp.createVariable(fname, dtype.str.lstrip("<>="), tuple(dim_names))
+        var = grp.createVariable(fname, dtype, tuple(dim_names))
         var[...] = data.astype(dtype, copy=False).reshape([int(d) for d in info.dims])
 
 
@@ -260,6 +277,17 @@ def _write_field_variable(
 def read_dump(url: str) -> SerialboxDump:
     root = nc.Dataset(url, "r")
     try:
+        if "_preserf_schema_version" not in root.ncattrs():
+            raise ValueError(
+                f"{url}: missing required '_preserf_schema_version' attribute; "
+                "this does not look like a preserf store"
+            )
+        version = int(root.getncattr("_preserf_schema_version"))
+        if version != SCHEMA_VERSION:
+            raise ValueError(
+                f"{url}: unsupported preserf schema version {version}; "
+                f"this build supports version {SCHEMA_VERSION}"
+            )
         prefix = str(root.getncattr("_preserf_serialbox_prefix"))
         dump = SerialboxDump(prefix=prefix)
         dump.global_meta_info = _read_metainfo_attrs(root)
