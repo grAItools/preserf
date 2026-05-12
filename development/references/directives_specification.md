@@ -558,9 +558,11 @@ and the length/size parameters come from the subsequent positional arguments.
 
 **Dimension Shortcuts**: If the third positional argument (after type
 expansion) matches one of the predefined shortcut codes, it is expanded into
-12 dimension/halo parameters:
+12 dimension/halo parameters, in the following order:
+`iSize`, `jSize`, `kSize`, `lSize`, `iMinusHalo`, `iPlusHalo`, `jMinusHalo`,
+`jPlusHalo`, `kMinusHalo`, `kPlusHalo`, `lMinusHalo`, `lPlusHalo`.
 
-| Shortcut | Expansion (iSize jSize kSize lSize iMinusHalo iPlusHalo jMinusHalo jPlusHalo kMinusHalo kPlusHalo lMinusHalo lPlusHalo) |
+| Shortcut | Expansion |
 |----------|-----|
 | *(empty)* | `1 0 0 0 0 0 0 0 0 0 0 0` |
 | `I`      | `ie 0 0 0 nboundlines nboundlines 0 0 0 0 0 0` |
