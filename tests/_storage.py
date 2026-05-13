@@ -259,6 +259,11 @@ def _write_savepoint(
     if sp.fields:
         field_id_pairs: list[str] = []
         for fname, fid in sp.fields.items():
+            if fname not in dump.field_map:
+                raise ValueError(
+                    f"savepoint #{idx} ('{sp.name}') references unregistered "
+                    f"field '{fname}'; add it to dump.field_map first"
+                )
             info = dump.field_map[fname]
             arr = dump.field_data.get(fname, {}).get(fid)
             if arr is None:
@@ -319,6 +324,11 @@ def read_dump(url: str) -> SerialboxDump:
         dump = SerialboxDump(prefix=prefix)
         dump.global_meta_info = _read_metainfo_attrs(root)
 
+        if "_fields" not in root.groups:
+            raise ValueError(
+                f"{url}: missing required '/_fields' group; this does not "
+                "look like a preserf store"
+            )
         fields_grp = root.groups["_fields"]
         for fname, var in fields_grp.variables.items():
             tid = TypeID(int(var.getncattr("type_id")))
@@ -332,6 +342,11 @@ def read_dump(url: str) -> SerialboxDump:
             dump.field_map[fname] = info
 
         # Build savepoints in index order; group names are sorted lexically.
+        if "savepoints" not in root.groups:
+            raise ValueError(
+                f"{url}: missing required '/savepoints' group; this does not "
+                "look like a preserf store"
+            )
         sp_grp = root.groups["savepoints"]
         for name in sorted(sp_grp.groups):
             grp = sp_grp.groups[name]
@@ -356,6 +371,12 @@ def read_dump(url: str) -> SerialboxDump:
                     id_map[str(flat[i])] = int(flat[i + 1])
 
             for fname, var in grp.variables.items():
+                if fname not in dump.field_map:
+                    raise ValueError(
+                        f"{url}: savepoint '{name}' contains variable "
+                        f"'{fname}' but no matching entry exists under "
+                        "'/_fields' (store is internally inconsistent)"
+                    )
                 info = dump.field_map[fname]
                 arr = np.asarray(var[...]).astype(info.element_dtype(), copy=False)
                 if info.dims:

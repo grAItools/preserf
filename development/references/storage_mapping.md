@@ -118,21 +118,28 @@ Each field registered via `!$SER REGISTER` (`fs_register_field`) produces a
 field, under `/_fields`. The variable exists only to carry attributes; its
 data is never read.
 
-Attributes (all required unless marked optional):
+Attributes:
 
-| Attribute        | Type            | Source                                           |
-|------------------|-----------------|--------------------------------------------------|
-| `type_id`        | `NF90_INT`      | Serialbox TypeID (1..6) — see §1                 |
-| `dims`           | vector `NF90_INT` | `dims[]` from `FieldMetainfoImpl`              |
-| `iminushalo`     | `NF90_INT`      | halo metainfo emitted by pp_ser shortcuts        |
-| `iplushalo`      | `NF90_INT`      | "                                                |
-| `jminushalo`     | `NF90_INT`      | "                                                |
-| `jplushalo`      | `NF90_INT`      | "                                                |
-| `kminushalo`     | `NF90_INT`      | "                                                |
-| `kplushalo`      | `NF90_INT`      | "                                                |
-| `lminushalo`     | `NF90_INT`      | "                                                |
-| `lplushalo`      | `NF90_INT`      | "                                                |
-| user metainfo    | typed           | any extra `key=value` set via the field's metainfo map; same naming rules as §3.2 |
+| Attribute        | Type              | Req? | Source                                           |
+|------------------|-------------------|------|--------------------------------------------------|
+| `type_id`        | `NF90_INT`        | yes  | Serialbox TypeID (1..6) — see §1                 |
+| `dims`           | vector `NF90_INT` | yes  | `dims[]` from `FieldMetainfoImpl`                |
+| `iminushalo`     | `NF90_INT`        | no   | halo metainfo emitted by pp_ser shortcuts        |
+| `iplushalo`      | `NF90_INT`        | no   | "                                                |
+| `jminushalo`     | `NF90_INT`        | no   | "                                                |
+| `jplushalo`      | `NF90_INT`        | no   | "                                                |
+| `kminushalo`     | `NF90_INT`        | no   | "                                                |
+| `kplushalo`      | `NF90_INT`        | no   | "                                                |
+| `lminushalo`     | `NF90_INT`        | no   | "                                                |
+| `lplushalo`      | `NF90_INT`        | no   | "                                                |
+| user metainfo    | typed             | no   | any extra `key=value` set via the field's metainfo map; same naming rules as §3.2 |
+
+Halo attributes are **optional** and may be partially present: a writer
+emits only the halos that `pp_ser` (or the caller) actually provided.
+Readers MUST treat any missing halo attribute as **absent** rather than
+implying a default of `0`. Whether and how absent halos translate into
+runtime behaviour (e.g. zero-halo assumption inside the Fortran helper) is
+defined by the consumer, not by this storage schema.
 
 > The `bytes_per_element` attribute that the original `fs_register_field`
 > can carry is intentionally **not** part of the v1 schema yet — it would
