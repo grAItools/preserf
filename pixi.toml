@@ -22,9 +22,9 @@ pytest = ">=8.0"
 ruff = ">=0.8"
 
 [feature.dev.tasks]
-pylint = "ruff check src tests"
+lint = "ruff check src tests"
 pytest = "pytest"
-pytypecheck = "mypy src"
+typecheck = "mypy src"
 
 [environments]
 default = { features = [], solve-group = "default" }
