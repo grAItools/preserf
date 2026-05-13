@@ -238,7 +238,10 @@ contains
         ncerr = nf90_put_att(savepoint%grpid, NF90_GLOBAL, &
                              '_preserf_savepoint_index', idx_attr)
         call preserf_check_nf_with_msg(ncerr, 'put_att _preserf_savepoint_index')
-        ncerr = nf90_put_att(savepoint%grpid, NF90_GLOBAL, 'name', trim(name))
+        ! Don't trim() the caller's name — preserve trailing blanks the
+        ! same way string metainfo values do (storage_mapping.md §1 +
+        ! §5: NC_CHAR string round-trip is lossless).
+        ncerr = nf90_put_att(savepoint%grpid, NF90_GLOBAL, 'name', name)
         call preserf_check_nf_with_msg(ncerr, 'put_att name')
 
         ser%next_sp_index = ser%next_sp_index + 1
@@ -485,6 +488,7 @@ contains
         character(len=*),   intent(in) :: fieldname
         real(real64),       intent(inout) :: data(:)
         real(real64),       intent(in) :: perturb
+        if (serialisation_enabled == 0) return
         call read_perturb_not_implemented(fieldname, s, sp, perturb, &
                                           size(data, kind=int64))
     end subroutine
@@ -495,6 +499,7 @@ contains
         character(len=*),   intent(in) :: fieldname
         real(real64),       intent(inout) :: data(:, :)
         real(real64),       intent(in) :: perturb
+        if (serialisation_enabled == 0) return
         call read_perturb_not_implemented(fieldname, s, sp, perturb, &
                                           size(data, kind=int64))
     end subroutine
@@ -505,6 +510,7 @@ contains
         character(len=*),   intent(in) :: fieldname
         real(real64),       intent(inout) :: data(:, :, :)
         real(real64),       intent(in) :: perturb
+        if (serialisation_enabled == 0) return
         call read_perturb_not_implemented(fieldname, s, sp, perturb, &
                                           size(data, kind=int64))
     end subroutine
@@ -558,10 +564,13 @@ contains
                 tid = TID_INT32  ! unreachable; satisfies compiler
             end select
         case ('int64', 'long')
+            call require_byte_length(trim(datatype), bytes_per_element, 8)
             tid = TID_INT64
         case ('float', 'single')
+            call require_byte_length(trim(datatype), bytes_per_element, 4)
             tid = TID_FLOAT32
         case ('double')
+            call require_byte_length(trim(datatype), bytes_per_element, 8)
             tid = TID_FLOAT64
         case ('real')
             select case (bytes_per_element)
@@ -593,6 +602,21 @@ contains
         error stop 1
     end subroutine reject_byte_length
 
+    !> Require a fixed-width datatype string (e.g. 'double', 'int64') to
+    !> be paired with the matching byte length. Catches callers that
+    !> pass a fixed-width type name but a mismatched bytes_per_element
+    !> (e.g. `datatype='double', bytes_per_element=4`), which would
+    !> otherwise silently produce registry metadata that disagrees with
+    !> the caller's element size.
+    subroutine require_byte_length(datatype, got, expected)
+        character(len=*), intent(in) :: datatype
+        integer, intent(in) :: got, expected
+        character(len=16) :: expected_str
+        if (got == expected) return
+        write (expected_str, '(i0)') expected
+        call reject_byte_length(datatype, got, trim(expected_str))
+    end subroutine require_byte_length
+
     !> Build the active dims vector in netCDF C-order (slowest-varying
     !> axis first) from the Fortran-natural (iSize, jSize, kSize, lSize)
     !> tuple. The Fortran tuple convention (per directives_specification.md
@@ -613,6 +637,18 @@ contains
             iSize, jSize, kSize, lSize)
         if (lSize > 0 .and. kSize <= 0) call active_dims_inconsistent( &
             iSize, jSize, kSize, lSize)
+
+        ! At least iSize must be strictly positive — a (0,0,0,0) or
+        ! negative-iSize tuple would otherwise produce a rank-0 dims
+        ! attribute, but the helper API doesn't support 0-D fields and
+        ! a negative size has no defined meaning here.
+        if (iSize <= 0) then
+            write (*, '(a,4(i0,a))') &
+                'preserf: invalid dim tuple (', &
+                iSize, ',', jSize, ',', kSize, ',', lSize, &
+                '); iSize must be > 0'
+            error stop 1
+        end if
 
         rank = 0
         if (iSize > 0) rank = 1
@@ -731,8 +767,14 @@ contains
             ! See block comment above — this lands as NC_CHAR on disk
             ! under netcdf-fortran 4.5.x. Documented in
             ! storage_mapping.md §1.
+            !
+            ! NOTE: pass s_val through *without* trim() so trailing
+            ! blanks the caller deliberately included are preserved.
+            ! storage_mapping.md §1's lossless-string contract requires
+            ! this; key sanitization happens above via trim(key), but
+            ! the user value is opaque.
             if (.not. present(s_val)) call missing_value_arg(key, 's_val')
-            ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, trim(s_val))
+            ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, s_val)
         case default
             write (*, '(a,i0)') 'preserf: unsupported nc_type ', nc_type
             error stop 1

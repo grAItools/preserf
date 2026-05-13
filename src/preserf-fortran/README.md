@@ -46,8 +46,9 @@ the `!$SER INIT(mode='w')` / `REGISTER` / `SAVEPOINT` / `DATA` /
   registered `/_fields/<name>` metadata before touching the store.
 - `fs_read_field` is overloaded for `real(real64)` in 1D / 2D / 3D in
   both the 4-argument form and the 5-argument read-perturb form
-  (`fs_read_field(s, sp, name, data, perturb)`). v0.1 reads the field
-  as-is and ignores the perturbation magnitude.
+  (`fs_read_field(s, sp, name, data, perturb)`). The 5-arg overloads
+  exist so pp_ser-emitted CASE(2) branches compile, but they
+  `error stop` at runtime — see "Known limitations" §1 below.
 - `fs_enable_serialization` / `fs_disable_serialization` gate every
   fs_* I/O entry point at runtime; `fs_serialization_status()` exposes
   the flag for tests.
