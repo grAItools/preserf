@@ -113,6 +113,16 @@ contains
         character(len=*), intent(in), optional :: prefix_ref
 
         call preserf_open_serializer(ppser_serializer, directory, prefix, mode)
+
+        ! The reference serializer is only opened when BOTH `directory_ref`
+        ! and `prefix_ref` are supplied — passing just one is a mistake
+        ! that would silently leave ppser_serializer_ref unopened and
+        ! produce a delayed failure during read-perturb DATA branches.
+        if (present(directory_ref) .neqv. present(prefix_ref)) then
+            write (*, '(a)') 'preserf: ppser_initialize requires either both '//&
+                'directory_ref and prefix_ref, or neither'
+            error stop 1
+        end if
         if (present(directory_ref) .and. present(prefix_ref)) then
             call preserf_open_serializer(ppser_serializer_ref, &
                                          directory_ref, prefix_ref, 'r')

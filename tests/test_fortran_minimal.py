@@ -77,7 +77,28 @@ def test_fortran_writes_python_reads(tmp_path: Path, fortran_binary: Path) -> No
     )
     assert "preserf-fortran: hello-world OK" in result.stdout
 
-    dump = read_dump(str(out_dir / "fhello.nc"))
+    nc_path = out_dir / "fhello.nc"
+
+    # Direct attribute checks on the raw netCDF root. read_dump() skips
+    # housekeeping attributes (those starting with `_preserf_`), so a
+    # bug in the Fortran writer for `_preserf_writer` or the close-time
+    # `_preserf_savepoint_count` refresh wouldn't surface through the
+    # SerialboxDump-shaped assertions below.
+    import netCDF4  # local import; netCDF4 is a dev-only dependency
+
+    raw = netCDF4.Dataset(str(nc_path), "r")
+    try:
+        assert raw.getncattr("_preserf_schema_version") == 1
+        assert raw.getncattr("_preserf_serialbox_prefix") == "fhello"
+        # `_preserf_savepoint_count` is refreshed in preserf_close_serializer;
+        # the test writes exactly one savepoint and expects that to be reflected.
+        assert raw.getncattr("_preserf_savepoint_count") == 1
+        writer = raw.getncattr("_preserf_writer")
+        assert isinstance(writer, str) and writer.startswith("preserf ")
+    finally:
+        raw.close()
+
+    dump = read_dump(str(nc_path))
 
     # Prefix and writer attribute
     assert dump.prefix == "fhello"

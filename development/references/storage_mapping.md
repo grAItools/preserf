@@ -195,10 +195,12 @@ unless a more specific naming convention is configured (future work — see
   numerical ordering. Writes that would exceed this cap must fail; widening
   the field is a forwards-incompatible schema change (would require bumping
   `_preserf_schema_version`).
-* The savepoint's **Serialbox `name`** is stored as the `name` attribute of
-  the group (`NF90_STRING`). It is *not* used as the group identifier
-  because Serialbox permits multiple savepoints to share a `name` (they are
-  disambiguated by metainfo).
+* The savepoint's **Serialbox `name`** is stored as the `name` attribute
+  of the group (`NF90_STRING` from Python writers, or `NF90_CHAR` from
+  Fortran writers — same asymmetry as the housekeeping strings in §3.1
+  and String metainfo in §1; readers MUST accept either). It is *not*
+  used as the group identifier because Serialbox permits multiple
+  savepoints to share a `name` (they are disambiguated by metainfo).
 * Each Serialbox metainfo key on the savepoint becomes one group attribute,
   typed per §1. The reserved-namespace rule from §3.2 applies.
 

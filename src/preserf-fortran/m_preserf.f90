@@ -190,13 +190,35 @@ contains
         character(len=*), intent(in) :: name
         type(t_savepoint), intent(out) :: savepoint
         type(t_serializer), intent(inout), optional :: s
-        type(t_serializer), pointer :: ser
+
+        ! Assign a sentinel up-front so a disabled-serialisation early
+        ! return still leaves `savepoint` in a defined state — the
+        ! intent(out) declaration otherwise makes the caller's variable
+        ! undefined on entry, which would not be a true no-op.
+        savepoint%grpid = -1
+        savepoint%idx = -1
+
+        if (serialisation_enabled == 0) return
+
+        if (present(s)) then
+            call create_savepoint_on(s, name, savepoint)
+        else
+            call create_savepoint_on(ppser_serializer, name, savepoint)
+        end if
+    end subroutine fs_create_savepoint
+
+    !> Body of fs_create_savepoint, parameterised on the target serializer.
+    !> Pulled out of fs_create_savepoint to avoid taking a pointer to a
+    !> non-TARGET optional dummy (which would be undefined per Fortran
+    !> 2008 association lifetime rules).
+    subroutine create_savepoint_on(ser, name, savepoint)
+        type(t_serializer), intent(inout) :: ser
+        character(len=*), intent(in) :: name
+        type(t_savepoint), intent(inout) :: savepoint
         character(len=9) :: group_name
         integer :: ncerr
         integer(int32) :: idx_attr
 
-        if (serialisation_enabled == 0) return
-        ser => default_serializer(s)
         if (ser%savepoints_grpid == -1) then
             write (*, '(a)') 'preserf: fs_create_savepoint called before ppser_initialize'
             error stop 1
@@ -220,7 +242,7 @@ contains
         call preserf_check_nf_with_msg(ncerr, 'put_att name')
 
         ser%next_sp_index = ser%next_sp_index + 1
-    end subroutine fs_create_savepoint
+    end subroutine create_savepoint_on
 
     ! ========================================================================
     ! METAINFO — scalar overloads (savepoint)
@@ -353,7 +375,7 @@ contains
 
         if (serialisation_enabled == 0) return
         call require_open(s, 'fs_write_field')
-        call validate_write_shape(s, fieldname, shape(data), TID_FLOAT64)
+        call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'write')
         call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
         call ensure_variable(sp%grpid, fieldname, NF90_DOUBLE, dimids, varid)
         ncerr = nf90_put_var(sp%grpid, varid, data)
@@ -370,7 +392,7 @@ contains
 
         if (serialisation_enabled == 0) return
         call require_open(s, 'fs_write_field')
-        call validate_write_shape(s, fieldname, shape(data), TID_FLOAT64)
+        call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'write')
         call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
         call ensure_variable(sp%grpid, fieldname, NF90_DOUBLE, dimids, varid)
         ncerr = nf90_put_var(sp%grpid, varid, data)
@@ -387,7 +409,7 @@ contains
 
         if (serialisation_enabled == 0) return
         call require_open(s, 'fs_write_field')
-        call validate_write_shape(s, fieldname, shape(data), TID_FLOAT64)
+        call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'write')
         call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
         call ensure_variable(sp%grpid, fieldname, NF90_DOUBLE, dimids, varid)
         ncerr = nf90_put_var(sp%grpid, varid, data)
@@ -401,10 +423,11 @@ contains
         type(t_serializer), intent(in) :: s
         type(t_savepoint),  intent(in) :: sp
         character(len=*),   intent(in) :: fieldname
-        real(real64),       intent(out) :: data(:)
+        real(real64),       intent(inout) :: data(:)
         integer :: ncerr, varid
         if (serialisation_enabled == 0) return
         call require_open(s, 'fs_read_field')
+        call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'read')
         ncerr = nf90_inq_varid(sp%grpid, trim(fieldname), varid)
         call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
         ncerr = nf90_get_var(sp%grpid, varid, data)
@@ -415,10 +438,11 @@ contains
         type(t_serializer), intent(in) :: s
         type(t_savepoint),  intent(in) :: sp
         character(len=*),   intent(in) :: fieldname
-        real(real64),       intent(out) :: data(:, :)
+        real(real64),       intent(inout) :: data(:, :)
         integer :: ncerr, varid
         if (serialisation_enabled == 0) return
         call require_open(s, 'fs_read_field')
+        call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'read')
         ncerr = nf90_inq_varid(sp%grpid, trim(fieldname), varid)
         call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
         ncerr = nf90_get_var(sp%grpid, varid, data)
@@ -429,10 +453,11 @@ contains
         type(t_serializer), intent(in) :: s
         type(t_savepoint),  intent(in) :: sp
         character(len=*),   intent(in) :: fieldname
-        real(real64),       intent(out) :: data(:, :, :)
+        real(real64),       intent(inout) :: data(:, :, :)
         integer :: ncerr, varid
         if (serialisation_enabled == 0) return
         call require_open(s, 'fs_read_field')
+        call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'read')
         ncerr = nf90_inq_varid(sp%grpid, trim(fieldname), varid)
         call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
         ncerr = nf90_get_var(sp%grpid, varid, data)
@@ -454,7 +479,7 @@ contains
         type(t_serializer), intent(in) :: s
         type(t_savepoint),  intent(in) :: sp
         character(len=*),   intent(in) :: fieldname
-        real(real64),       intent(out) :: data(:)
+        real(real64),       intent(inout) :: data(:)
         real(real64),       intent(in) :: perturb
         real(real64) :: discard
         discard = perturb
@@ -465,7 +490,7 @@ contains
         type(t_serializer), intent(in) :: s
         type(t_savepoint),  intent(in) :: sp
         character(len=*),   intent(in) :: fieldname
-        real(real64),       intent(out) :: data(:, :)
+        real(real64),       intent(inout) :: data(:, :)
         real(real64),       intent(in) :: perturb
         real(real64) :: discard
         discard = perturb
@@ -476,7 +501,7 @@ contains
         type(t_serializer), intent(in) :: s
         type(t_savepoint),  intent(in) :: sp
         character(len=*),   intent(in) :: fieldname
-        real(real64),       intent(out) :: data(:, :, :)
+        real(real64),       intent(inout) :: data(:, :, :)
         real(real64),       intent(in) :: perturb
         real(real64) :: discard
         discard = perturb
@@ -486,16 +511,6 @@ contains
     ! ========================================================================
     ! Internal helpers
     ! ========================================================================
-
-    function default_serializer(s) result(ser)
-        type(t_serializer), target, intent(in), optional :: s
-        type(t_serializer), pointer :: ser
-        if (present(s)) then
-            ser => s
-        else
-            ser => ppser_serializer
-        end if
-    end function default_serializer
 
     !> Map a Serialbox-style type string + element-byte-length to a TypeID.
     function type_id_from_datatype(datatype, bytes_per_element) result(tid)
@@ -680,7 +695,10 @@ contains
         end select
         call preserf_check_nf_with_msg(ncerr, 'put_att '//key)
 
-        shadow = key // '__preserf_type_id'
+        ! Use trim(key) so a fixed-length caller-side key like
+        ! `character(len=32) :: key = 'author'` produces the same shadow
+        ! tag (`author__preserf_type_id`) the Python reader expects.
+        shadow = trim(key) // '__preserf_type_id'
         ncerr = nf90_put_att(grpid, NF90_GLOBAL, shadow, tid)
         call preserf_check_nf_with_msg(ncerr, 'put_att '//shadow)
     end subroutine put_typed_scalar_attr
@@ -699,26 +717,33 @@ contains
         character(len=*), intent(in), optional :: extra_reserved
         character(len=*), parameter :: prefix = '_preserf_'
         character(len=*), parameter :: suffix = '__preserf_type_id'
-        integer :: klen
-        klen = len(key)
-        if (klen >= len(prefix)) then
-            if (key(1:len(prefix)) == prefix) then
-                write (*, '(a,a,a)') 'preserf: metainfo key "', trim(key), &
+        character(len=:), allocatable :: tkey
+        integer :: tlen
+
+        ! Base validation on trim(key) so a fixed-length caller-side
+        ! buffer like `character(len=32) :: k = 'foo__preserf_type_id'`
+        ! still trips the suffix check despite trailing blanks.
+        tkey = trim(key)
+        tlen = len(tkey)
+
+        if (tlen >= len(prefix)) then
+            if (tkey(1:len(prefix)) == prefix) then
+                write (*, '(a,a,a)') 'preserf: metainfo key "', tkey, &
                     '" collides with reserved prefix "_preserf_"'
                 error stop 1
             end if
         end if
-        if (klen >= len(suffix)) then
-            if (key(klen - len(suffix) + 1:klen) == suffix) then
-                write (*, '(a,a,a)') 'preserf: metainfo key "', trim(key), &
+        if (tlen >= len(suffix)) then
+            if (tkey(tlen - len(suffix) + 1:tlen) == suffix) then
+                write (*, '(a,a,a)') 'preserf: metainfo key "', tkey, &
                     '" collides with reserved suffix "__preserf_type_id"'
                 error stop 1
             end if
         end if
         if (present(extra_reserved)) then
-            if (trim(key) == trim(extra_reserved)) then
+            if (tkey == trim(extra_reserved)) then
                 write (*, '(a,a,a,a,a)') 'preserf: metainfo key "', &
-                    trim(key), '" collides with the schema attribute "', &
+                    tkey, '" collides with the schema attribute "', &
                     trim(extra_reserved), '" on this target group'
                 error stop 1
             end if
@@ -728,39 +753,45 @@ contains
     !> Ensure per-field dimensions exist on `grpid` and return their dim ids.
     !> Dimensions are named `<fieldname>_dim0`, `<fieldname>_dim1`, … and
     !> are created lazily inside the savepoint group (storage_mapping.md §6).
-    !> Validate that the runtime Fortran shape of a write matches the
-    !> field's registered dims under `/_fields/<fieldname>` (which are
+    !> Validate that the runtime Fortran shape of a read or write matches
+    !> the field's registered dims under `/_fields/<fieldname>` (which are
     !> stored in C-order, so we compare against `reverse(fortran_shape)`).
-    !> Aborts with a clear error on shape mismatch or on writes to fields
-    !> that were never registered.
-    subroutine validate_write_shape(s, fieldname, fortran_shape, expected_tid)
+    !> Aborts with a clear error on type-id mismatch, shape mismatch, or
+    !> on accesses to fields that were never registered. `op` is "write"
+    !> or "read" and is interpolated into error messages.
+    subroutine validate_field_shape(s, fieldname, fortran_shape, &
+                                    expected_tid, op)
         type(t_serializer), intent(in) :: s
         character(len=*), intent(in) :: fieldname
         integer, intent(in) :: fortran_shape(:)
         integer(int32), intent(in) :: expected_tid
+        character(len=*), intent(in) :: op
         integer :: ncerr, varid, attr_len, axis
         integer(int32), allocatable :: registered_dims(:)
         integer(int32) :: registered_tid
 
         ncerr = nf90_inq_varid(s%fields_grpid, trim(fieldname), varid)
         if (ncerr == NF90_ENOTVAR) then
-            write (*, '(a,a,a)') &
-                'preserf: write to unregistered field "', &
+            write (*, '(a,a,a,a,a)') &
+                'preserf: ', trim(op), ' on unregistered field "', &
                 trim(fieldname), '"; call fs_register_field first'
             error stop 1
         end if
-        call preserf_check_nf_with_msg(ncerr, 'inq_varid /_fields/'//trim(fieldname))
+        call preserf_check_nf_with_msg(ncerr, &
+            'inq_varid /_fields/'//trim(fieldname))
 
-        ! Confirm the registered TypeID matches the Fortran overload's dtype.
-        ! Without this check the data variable's nc_type and the registry's
-        ! type_id can disagree, and Python readers (which decode through the
-        ! registry) would silently cast and corrupt values.
+        ! Confirm the registered TypeID matches the Fortran overload's
+        ! dtype. Without this check the data variable's nc_type and the
+        ! registry's type_id can disagree, and Python readers (which
+        ! decode through the registry) would silently cast and corrupt
+        ! values. On the read side, netCDF's automatic type conversion
+        ! could likewise quietly accept a wrong-typed registry.
         ncerr = nf90_get_att(s%fields_grpid, varid, 'type_id', registered_tid)
         call preserf_check_nf_with_msg(ncerr, 'get_att type_id')
         if (registered_tid /= expected_tid) then
-            write (*, '(a,a,a,i0,a,i0,a)') &
-                'preserf: write to field "', trim(fieldname), &
-                '" via the type-id=', expected_tid, &
+            write (*, '(a,a,a,a,a,i0,a,i0,a)') &
+                'preserf: ', trim(op), ' on field "', trim(fieldname), &
+                '" via type-id=', expected_tid, &
                 ' overload but the field was registered with type_id=', &
                 registered_tid, '.'
             error stop 1
@@ -773,8 +804,8 @@ contains
         call preserf_check_nf_with_msg(ncerr, 'get_att dims')
 
         if (size(fortran_shape) /= attr_len) then
-            write (*, '(a,a,a,i0,a,i0,a)') &
-                'preserf: write to field "', trim(fieldname), &
+            write (*, '(a,a,a,a,a,i0,a,i0,a)') &
+                'preserf: ', trim(op), ' on field "', trim(fieldname), &
                 '" has Fortran rank ', size(fortran_shape), &
                 ' but was registered with C-order rank ', attr_len, '.'
             error stop 1
@@ -785,8 +816,9 @@ contains
         do axis = 1, attr_len
             if (int(registered_dims(axis)) /= &
                 fortran_shape(attr_len - axis + 1)) then
-                write (*, '(a,a,a)') &
-                    'preserf: write to field "', trim(fieldname), &
+                write (*, '(a,a,a,a,a)') &
+                    'preserf: ', trim(op), ' on field "', &
+                    trim(fieldname), &
                     '" runtime shape disagrees with registered dims.'
                 write (*, '(a,*(i0,1x))') &
                     '  registered (C-order): ', registered_dims
@@ -795,7 +827,7 @@ contains
                 error stop 1
             end if
         end do
-    end subroutine validate_write_shape
+    end subroutine validate_field_shape
 
     !> Ensure per-field dimensions exist on `grpid` and return their dim ids.
     !> Dimensions are named `<fieldname>_dim0`, `<fieldname>_dim1`, … in
