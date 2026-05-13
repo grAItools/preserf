@@ -42,6 +42,11 @@ def _make_dump() -> SerialboxDump:
         "tags": MetainfoValue(TypeID.ArrayOfString, ["alpha", "beta", "gamma"]),
         "shape": MetainfoValue(TypeID.ArrayOfInt32, [4, 3, 2]),
         "weights": MetainfoValue(TypeID.ArrayOfFloat64, [0.1, 0.2, 0.7]),
+        "active_levels": MetainfoValue(TypeID.ArrayOfBoolean, [True, False, True]),
+        "checksum_seeds": MetainfoValue(
+            TypeID.ArrayOfInt64, [1_700_000_000_000_000_000, -42, 0]
+        ),
+        "weights32": MetainfoValue(TypeID.ArrayOfFloat32, [0.25, 0.5, 0.75]),
     }
 
     dump.field_map = {

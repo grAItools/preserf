@@ -184,10 +184,17 @@ def _read_metainfo_attrs(
     reserved: frozenset[str] = frozenset(),
 ) -> MetainfoMap:
     out: MetainfoMap = {}
-    for name in target.ncattrs():
+    known_tags = set(target.ncattrs())
+    for name in known_tags:
         if name.startswith("_preserf_") or name.endswith("__preserf_type_id"):
             continue
         if name in reserved:
+            continue
+        # Skip attributes that aren't preserf-tagged — these include
+        # library-injected attrs such as NCZarr's `_NCProperties` and any
+        # user attrs that landed via other tooling. Only attributes
+        # accompanied by a `<key>__preserf_type_id` shadow are decoded.
+        if f"{name}__preserf_type_id" not in known_tags:
             continue
         out[name] = _read_typed_attr(target, name)
     return out
