@@ -344,6 +344,7 @@ contains
 
         if (serialisation_enabled == 0) return
         call require_open(s, 'fs_write_field')
+        call validate_write_shape(s, fieldname, shape(data))
         call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
         call ensure_variable(sp%grpid, fieldname, NF90_DOUBLE, dimids, varid)
         ncerr = nf90_put_var(sp%grpid, varid, data)
@@ -360,6 +361,7 @@ contains
 
         if (serialisation_enabled == 0) return
         call require_open(s, 'fs_write_field')
+        call validate_write_shape(s, fieldname, shape(data))
         call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
         call ensure_variable(sp%grpid, fieldname, NF90_DOUBLE, dimids, varid)
         ncerr = nf90_put_var(sp%grpid, varid, data)
@@ -376,6 +378,7 @@ contains
 
         if (serialisation_enabled == 0) return
         call require_open(s, 'fs_write_field')
+        call validate_write_shape(s, fieldname, shape(data))
         call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
         call ensure_variable(sp%grpid, fieldname, NF90_DOUBLE, dimids, varid)
         ncerr = nf90_put_var(sp%grpid, varid, data)
@@ -583,21 +586,33 @@ contains
 
         if (serialisation_enabled == 0) return
 
+        ! Reject keys colliding with the reserved housekeeping namespace
+        ! (`_preserf_*`) or the shadow-tag suffix (`__preserf_type_id`),
+        ! per storage_mapping.md §3.2. Matches the Python writer's
+        ! _write_metainfo_attrs guard.
+        call reject_reserved_metainfo_key(key)
+
         select case (nc_type)
         case (NF90_BYTE)
+            if (.not. present(i8_val)) call missing_value_arg(key, 'i8_val')
             ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, i8_val)
         case (NF90_INT)
+            if (.not. present(i32_val)) call missing_value_arg(key, 'i32_val')
             ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, i32_val)
         case (NF90_INT64)
+            if (.not. present(i64_val)) call missing_value_arg(key, 'i64_val')
             ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, i64_val)
         case (NF90_FLOAT)
+            if (.not. present(r32_val)) call missing_value_arg(key, 'r32_val')
             ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, r32_val)
         case (NF90_DOUBLE)
+            if (.not. present(r64_val)) call missing_value_arg(key, 'r64_val')
             ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, r64_val)
         case (NF90_STRING)
             ! See block comment above — this lands as NC_CHAR on disk
             ! under netcdf-fortran 4.5.x. Documented in
             ! storage_mapping.md §1.
+            if (.not. present(s_val)) call missing_value_arg(key, 's_val')
             ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, trim(s_val))
         case default
             write (*, '(a,i0)') 'preserf: unsupported nc_type ', nc_type
@@ -610,30 +625,134 @@ contains
         call preserf_check_nf_with_msg(ncerr, 'put_att '//shadow)
     end subroutine put_typed_scalar_attr
 
+    subroutine missing_value_arg(key, expected)
+        character(len=*), intent(in) :: key, expected
+        write (*, '(a,a,a,a,a)') &
+            'preserf: put_typed_scalar_attr("', trim(key), &
+            '") requires the ', trim(expected), &
+            ' optional argument for the requested nc_type'
+        error stop 1
+    end subroutine missing_value_arg
+
+    subroutine reject_reserved_metainfo_key(key)
+        character(len=*), intent(in) :: key
+        character(len=*), parameter :: prefix = '_preserf_'
+        character(len=*), parameter :: suffix = '__preserf_type_id'
+        integer :: klen
+        klen = len(key)
+        if (klen >= len(prefix)) then
+            if (key(1:len(prefix)) == prefix) then
+                write (*, '(a,a,a)') 'preserf: metainfo key "', trim(key), &
+                    '" collides with reserved prefix "_preserf_"'
+                error stop 1
+            end if
+        end if
+        if (klen >= len(suffix)) then
+            if (key(klen - len(suffix) + 1:klen) == suffix) then
+                write (*, '(a,a,a)') 'preserf: metainfo key "', trim(key), &
+                    '" collides with reserved suffix "__preserf_type_id"'
+                error stop 1
+            end if
+        end if
+    end subroutine reject_reserved_metainfo_key
+
     !> Ensure per-field dimensions exist on `grpid` and return their dim ids.
     !> Dimensions are named `<fieldname>_dim0`, `<fieldname>_dim1`, … and
     !> are created lazily inside the savepoint group (storage_mapping.md §6).
-    subroutine ensure_dims(grpid, fieldname, shp, dimids)
+    !> Validate that the runtime Fortran shape of a write matches the
+    !> field's registered dims under `/_fields/<fieldname>` (which are
+    !> stored in C-order, so we compare against `reverse(fortran_shape)`).
+    !> Aborts with a clear error on shape mismatch or on writes to fields
+    !> that were never registered.
+    subroutine validate_write_shape(s, fieldname, fortran_shape)
+        type(t_serializer), intent(in) :: s
+        character(len=*), intent(in) :: fieldname
+        integer, intent(in) :: fortran_shape(:)
+        integer :: ncerr, varid, attr_len, axis
+        integer(int32), allocatable :: registered_dims(:)
+
+        ncerr = nf90_inq_varid(s%fields_grpid, trim(fieldname), varid)
+        if (ncerr == NF90_ENOTVAR) then
+            write (*, '(a,a,a)') &
+                'preserf: write to unregistered field "', &
+                trim(fieldname), '"; call fs_register_field first'
+            error stop 1
+        end if
+        call preserf_check_nf_with_msg(ncerr, 'inq_varid /_fields/'//trim(fieldname))
+
+        ncerr = nf90_inquire_attribute(s%fields_grpid, varid, 'dims', len=attr_len)
+        call preserf_check_nf_with_msg(ncerr, 'inquire_attribute dims')
+        allocate (registered_dims(attr_len))
+        ncerr = nf90_get_att(s%fields_grpid, varid, 'dims', registered_dims)
+        call preserf_check_nf_with_msg(ncerr, 'get_att dims')
+
+        if (size(fortran_shape) /= attr_len) then
+            write (*, '(a,a,a,i0,a,i0,a)') &
+                'preserf: write to field "', trim(fieldname), &
+                '" has Fortran rank ', size(fortran_shape), &
+                ' but was registered with C-order rank ', attr_len, '.'
+            error stop 1
+        end if
+
+        ! registered_dims(i) is C-order axis (i-1); compare against
+        ! reverse(fortran_shape): C-axis 0 ↔ last Fortran axis.
+        do axis = 1, attr_len
+            if (int(registered_dims(axis)) /= &
+                fortran_shape(attr_len - axis + 1)) then
+                write (*, '(a,a,a)') &
+                    'preserf: write to field "', trim(fieldname), &
+                    '" runtime shape disagrees with registered dims.'
+                write (*, '(a,*(i0,1x))') &
+                    '  registered (C-order): ', registered_dims
+                write (*, '(a,*(i0,1x))') &
+                    '  runtime (Fortran):    ', fortran_shape
+                error stop 1
+            end if
+        end do
+    end subroutine validate_write_shape
+
+    !> Ensure per-field dimensions exist on `grpid` and return their dim ids.
+    !> Dimensions are named `<fieldname>_dim0`, `<fieldname>_dim1`, … in
+    !> netCDF C-order (slowest-varying axis first, matching how `dims` is
+    !> recorded on `/_fields/<fieldname>`). The returned `dimids` are
+    !> ordered in Fortran convention (fastest-varying first), so that
+    !> netcdf-fortran's automatic dim reversal yields a variable layout
+    !> on disk whose dimension order matches the C-order dim names.
+    !> See storage_mapping.md §1.1 + §6.
+    subroutine ensure_dims(grpid, fieldname, shp_fortran, dimids)
         integer, intent(in) :: grpid
         character(len=*), intent(in) :: fieldname
-        integer, intent(in) :: shp(:)
+        integer, intent(in) :: shp_fortran(:)
         integer, allocatable, intent(out) :: dimids(:)
-        integer :: r, axis, ncerr
+        integer :: r, c_axis, ncerr
+        integer, allocatable :: dim_id_by_c_axis(:)
         character(len=:), allocatable :: dname
         character(len=8) :: axis_str
 
-        r = size(shp)
-        allocate (dimids(r))
-        do axis = 1, r
-            write (axis_str, '(i0)') axis - 1
+        r = size(shp_fortran)
+        allocate (dim_id_by_c_axis(r))
+        ! Create / look up dimensions named by C-order axis. C-axis 0 maps
+        ! to the slowest-varying = last Fortran axis (= shp_fortran(r)).
+        do c_axis = 1, r
+            write (axis_str, '(i0)') c_axis - 1
             dname = trim(fieldname) // '_dim' // trim(axis_str)
-            ncerr = nf90_inq_dimid(grpid, dname, dimids(axis))
+            ncerr = nf90_inq_dimid(grpid, dname, dim_id_by_c_axis(c_axis))
             if (ncerr == NF90_EBADDIM) then
-                ncerr = nf90_def_dim(grpid, dname, shp(axis), dimids(axis))
+                ncerr = nf90_def_dim(grpid, dname, &
+                                     shp_fortran(r - c_axis + 1), &
+                                     dim_id_by_c_axis(c_axis))
                 call preserf_check_nf_with_msg(ncerr, 'def_dim '//dname)
             else
                 call preserf_check_nf_with_msg(ncerr, 'inq_dimid '//dname)
             end if
+        end do
+
+        ! Return dimids in Fortran order (fastest-varying first): netcdf-
+        ! fortran reverses this when calling C, so the on-disk variable
+        ! reports its dims in C-order, matching the `dims` attribute.
+        allocate (dimids(r))
+        do c_axis = 1, r
+            dimids(r - c_axis + 1) = dim_id_by_c_axis(c_axis)
         end do
     end subroutine ensure_dims
 

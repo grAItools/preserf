@@ -61,11 +61,15 @@ def test_fortran_writes_python_reads(tmp_path: Path, fortran_binary: Path) -> No
     out_dir = tmp_path / "fortran_out"
     out_dir.mkdir()
 
+    # The Fortran test is expected to complete in well under a second;
+    # the 60-second cap is generous but stops a deadlock from hanging
+    # CI / local runs indefinitely.
     result = subprocess.run(
         [str(fortran_binary), str(out_dir)],
         capture_output=True,
         text=True,
         check=False,
+        timeout=60,
     )
     assert result.returncode == 0, (
         f"Fortran binary exited {result.returncode}.\n"
