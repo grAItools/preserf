@@ -169,16 +169,24 @@ contains
             call preserf_resolve_skeleton_groups(s)
 
         case ('a', 'A')
-            ncerr = nf90_open(path, NF90_WRITE, s%ncid)
-            call preserf_check_nf_with_msg(ncerr, 'nf90_open (append) '//path)
-            s%writable = .true.
-            call preserf_validate_schema_version(s, version)
-            call preserf_resolve_skeleton_groups(s)
+            ! Append mode requires resuming next_sp_index by scanning the
+            ! existing /savepoints/sp_NNNNNN groups, which needs an
+            ! nf90_inq_grps call shape that the netcdf-fortran 4.5.x
+            ! wrapper makes awkward (see src/preserf-fortran/README.md
+            ! follow-ups). Until that is implemented, 'a' is rejected
+            ! rather than silently corrupting _preserf_savepoint_count
+            ! (which would be rewritten to 0 on close).
+            write (*, '(a)') &
+                'preserf: append mode (a) is not yet supported in v0.1; '//&
+                'use w (create) or r (read)'
+            error stop 1
 
         case default
             write (*, '(a,a)') 'preserf: unknown open mode: ', mode
             error stop 1
         end select
+        ! Silence "unused" warning for `version` on write-path opens.
+        if (.false.) version = version
     end subroutine preserf_open_serializer
 
     subroutine preserf_close_serializer(s)

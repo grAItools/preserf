@@ -72,6 +72,9 @@ module m_preserf
         module procedure fs_read_field_r8_1d
         module procedure fs_read_field_r8_2d
         module procedure fs_read_field_r8_3d
+        module procedure fs_read_field_r8_1d_perturb
+        module procedure fs_read_field_r8_2d_perturb
+        module procedure fs_read_field_r8_3d_perturb
     end interface
     public :: fs_read_field
 
@@ -229,7 +232,8 @@ contains
         integer(int8) :: stored
         stored = merge(1_int8, 0_int8, value)
         call put_typed_scalar_attr(sp%grpid, key, NF90_BYTE, &
-                                   i8_val=stored, tid=TID_BOOLEAN)
+                                   i8_val=stored, tid=TID_BOOLEAN, &
+                                   extra_reserved='name')
     end subroutine
 
     subroutine fs_add_savepoint_metainfo_i4(sp, key, value)
@@ -237,7 +241,8 @@ contains
         character(len=*), intent(in) :: key
         integer(int32), intent(in) :: value
         call put_typed_scalar_attr(sp%grpid, key, NF90_INT, &
-                                   i32_val=value, tid=TID_INT32)
+                                   i32_val=value, tid=TID_INT32, &
+                                   extra_reserved='name')
     end subroutine
 
     subroutine fs_add_savepoint_metainfo_i8(sp, key, value)
@@ -245,7 +250,8 @@ contains
         character(len=*), intent(in) :: key
         integer(int64), intent(in) :: value
         call put_typed_scalar_attr(sp%grpid, key, NF90_INT64, &
-                                   i64_val=value, tid=TID_INT64)
+                                   i64_val=value, tid=TID_INT64, &
+                                   extra_reserved='name')
     end subroutine
 
     subroutine fs_add_savepoint_metainfo_r4(sp, key, value)
@@ -253,7 +259,8 @@ contains
         character(len=*), intent(in) :: key
         real(real32), intent(in) :: value
         call put_typed_scalar_attr(sp%grpid, key, NF90_FLOAT, &
-                                   r32_val=value, tid=TID_FLOAT32)
+                                   r32_val=value, tid=TID_FLOAT32, &
+                                   extra_reserved='name')
     end subroutine
 
     subroutine fs_add_savepoint_metainfo_r8(sp, key, value)
@@ -261,7 +268,8 @@ contains
         character(len=*), intent(in) :: key
         real(real64), intent(in) :: value
         call put_typed_scalar_attr(sp%grpid, key, NF90_DOUBLE, &
-                                   r64_val=value, tid=TID_FLOAT64)
+                                   r64_val=value, tid=TID_FLOAT64, &
+                                   extra_reserved='name')
     end subroutine
 
     subroutine fs_add_savepoint_metainfo_s(sp, key, value)
@@ -269,7 +277,8 @@ contains
         character(len=*), intent(in) :: key
         character(len=*), intent(in) :: value
         call put_typed_scalar_attr(sp%grpid, key, NF90_STRING, &
-                                   s_val=value, tid=TID_STRING)
+                                   s_val=value, tid=TID_STRING, &
+                                   extra_reserved='name')
     end subroutine
 
     ! ========================================================================
@@ -344,7 +353,7 @@ contains
 
         if (serialisation_enabled == 0) return
         call require_open(s, 'fs_write_field')
-        call validate_write_shape(s, fieldname, shape(data))
+        call validate_write_shape(s, fieldname, shape(data), TID_FLOAT64)
         call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
         call ensure_variable(sp%grpid, fieldname, NF90_DOUBLE, dimids, varid)
         ncerr = nf90_put_var(sp%grpid, varid, data)
@@ -361,7 +370,7 @@ contains
 
         if (serialisation_enabled == 0) return
         call require_open(s, 'fs_write_field')
-        call validate_write_shape(s, fieldname, shape(data))
+        call validate_write_shape(s, fieldname, shape(data), TID_FLOAT64)
         call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
         call ensure_variable(sp%grpid, fieldname, NF90_DOUBLE, dimids, varid)
         ncerr = nf90_put_var(sp%grpid, varid, data)
@@ -378,7 +387,7 @@ contains
 
         if (serialisation_enabled == 0) return
         call require_open(s, 'fs_write_field')
-        call validate_write_shape(s, fieldname, shape(data))
+        call validate_write_shape(s, fieldname, shape(data), TID_FLOAT64)
         call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
         call ensure_variable(sp%grpid, fieldname, NF90_DOUBLE, dimids, varid)
         ncerr = nf90_put_var(sp%grpid, varid, data)
@@ -428,6 +437,50 @@ contains
         call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
         ncerr = nf90_get_var(sp%grpid, varid, data)
         call preserf_check_nf_with_msg(ncerr, 'get_var '//trim(fieldname)//' (3d)')
+    end subroutine
+
+    ! ------------------------------------------------------------------------
+    ! DATA — read with perturbation magnitude (CASE(2) form)
+    !
+    ! pp_ser's read-perturb branch emits
+    !   call fs_read_field(ppser_serializer_ref, ppser_savepoint,
+    !                      '<field>', <expr>, ppser_zrperturb)
+    ! so the generic must accept the 5-argument form. v0.1 reads the
+    ! field as-is and ignores the perturbation magnitude; applying
+    ! perturbation is tracked as a follow-up alongside the full
+    ! type-coverage matrix.
+    ! ------------------------------------------------------------------------
+    subroutine fs_read_field_r8_1d_perturb(s, sp, fieldname, data, perturb)
+        type(t_serializer), intent(in) :: s
+        type(t_savepoint),  intent(in) :: sp
+        character(len=*),   intent(in) :: fieldname
+        real(real64),       intent(out) :: data(:)
+        real(real64),       intent(in) :: perturb
+        real(real64) :: discard
+        discard = perturb
+        call fs_read_field_r8_1d(s, sp, fieldname, data)
+    end subroutine
+
+    subroutine fs_read_field_r8_2d_perturb(s, sp, fieldname, data, perturb)
+        type(t_serializer), intent(in) :: s
+        type(t_savepoint),  intent(in) :: sp
+        character(len=*),   intent(in) :: fieldname
+        real(real64),       intent(out) :: data(:, :)
+        real(real64),       intent(in) :: perturb
+        real(real64) :: discard
+        discard = perturb
+        call fs_read_field_r8_2d(s, sp, fieldname, data)
+    end subroutine
+
+    subroutine fs_read_field_r8_3d_perturb(s, sp, fieldname, data, perturb)
+        type(t_serializer), intent(in) :: s
+        type(t_savepoint),  intent(in) :: sp
+        character(len=*),   intent(in) :: fieldname
+        real(real64),       intent(out) :: data(:, :, :)
+        real(real64),       intent(in) :: perturb
+        real(real64) :: discard
+        discard = perturb
+        call fs_read_field_r8_3d(s, sp, fieldname, data)
     end subroutine
 
     ! ========================================================================
@@ -569,7 +622,8 @@ contains
     !> attribute is the source of truth for the typed-value contract.
     subroutine put_typed_scalar_attr(grpid, key, nc_type, &
                                      tid, i8_val, i32_val, i64_val, &
-                                     r32_val, r64_val, s_val)
+                                     r32_val, r64_val, s_val, &
+                                     extra_reserved)
         integer, intent(in) :: grpid
         character(len=*), intent(in) :: key
         integer, intent(in) :: nc_type
@@ -580,6 +634,10 @@ contains
         real(real32),   intent(in), optional :: r32_val
         real(real64),   intent(in), optional :: r64_val
         character(len=*), intent(in), optional :: s_val
+        ! Context-specific reserved attribute name to additionally
+        ! reject. Savepoint metainfo callers pass `'name'`; root
+        ! callers leave it unset.
+        character(len=*), intent(in), optional :: extra_reserved
 
         integer :: ncerr
         character(len=:), allocatable :: shadow
@@ -589,8 +647,10 @@ contains
         ! Reject keys colliding with the reserved housekeeping namespace
         ! (`_preserf_*`) or the shadow-tag suffix (`__preserf_type_id`),
         ! per storage_mapping.md §3.2. Matches the Python writer's
-        ! _write_metainfo_attrs guard.
-        call reject_reserved_metainfo_key(key)
+        ! _write_metainfo_attrs guard. The optional `extra_reserved`
+        ! covers per-context schema attributes (`name` on savepoint
+        ! groups; field-registry uses a different code path).
+        call reject_reserved_metainfo_key(key, extra_reserved)
 
         select case (nc_type)
         case (NF90_BYTE)
@@ -634,8 +694,9 @@ contains
         error stop 1
     end subroutine missing_value_arg
 
-    subroutine reject_reserved_metainfo_key(key)
+    subroutine reject_reserved_metainfo_key(key, extra_reserved)
         character(len=*), intent(in) :: key
+        character(len=*), intent(in), optional :: extra_reserved
         character(len=*), parameter :: prefix = '_preserf_'
         character(len=*), parameter :: suffix = '__preserf_type_id'
         integer :: klen
@@ -654,6 +715,14 @@ contains
                 error stop 1
             end if
         end if
+        if (present(extra_reserved)) then
+            if (trim(key) == trim(extra_reserved)) then
+                write (*, '(a,a,a,a,a)') 'preserf: metainfo key "', &
+                    trim(key), '" collides with the schema attribute "', &
+                    trim(extra_reserved), '" on this target group'
+                error stop 1
+            end if
+        end if
     end subroutine reject_reserved_metainfo_key
 
     !> Ensure per-field dimensions exist on `grpid` and return their dim ids.
@@ -664,12 +733,14 @@ contains
     !> stored in C-order, so we compare against `reverse(fortran_shape)`).
     !> Aborts with a clear error on shape mismatch or on writes to fields
     !> that were never registered.
-    subroutine validate_write_shape(s, fieldname, fortran_shape)
+    subroutine validate_write_shape(s, fieldname, fortran_shape, expected_tid)
         type(t_serializer), intent(in) :: s
         character(len=*), intent(in) :: fieldname
         integer, intent(in) :: fortran_shape(:)
+        integer(int32), intent(in) :: expected_tid
         integer :: ncerr, varid, attr_len, axis
         integer(int32), allocatable :: registered_dims(:)
+        integer(int32) :: registered_tid
 
         ncerr = nf90_inq_varid(s%fields_grpid, trim(fieldname), varid)
         if (ncerr == NF90_ENOTVAR) then
@@ -679,6 +750,21 @@ contains
             error stop 1
         end if
         call preserf_check_nf_with_msg(ncerr, 'inq_varid /_fields/'//trim(fieldname))
+
+        ! Confirm the registered TypeID matches the Fortran overload's dtype.
+        ! Without this check the data variable's nc_type and the registry's
+        ! type_id can disagree, and Python readers (which decode through the
+        ! registry) would silently cast and corrupt values.
+        ncerr = nf90_get_att(s%fields_grpid, varid, 'type_id', registered_tid)
+        call preserf_check_nf_with_msg(ncerr, 'get_att type_id')
+        if (registered_tid /= expected_tid) then
+            write (*, '(a,a,a,i0,a,i0,a)') &
+                'preserf: write to field "', trim(fieldname), &
+                '" via the type-id=', expected_tid, &
+                ' overload but the field was registered with type_id=', &
+                registered_tid, '.'
+            error stop 1
+        end if
 
         ncerr = nf90_inquire_attribute(s%fields_grpid, varid, 'dims', len=attr_len)
         call preserf_check_nf_with_msg(ncerr, 'inquire_attribute dims')

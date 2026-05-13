@@ -103,9 +103,13 @@ Two kinds of root attributes are written:
 | Attribute name             | Type       | Value                                            |
 |----------------------------|------------|--------------------------------------------------|
 | `_preserf_schema_version`  | `NF90_INT` | `1` (this document's schema version)             |
-| `_preserf_serialbox_prefix`| `NF90_STRING` | the `prefix` argument from `ppser_initialize` |
+| `_preserf_serialbox_prefix`| `NF90_STRING` *or* `NF90_CHAR` | the `prefix` argument from `ppser_initialize` |
 | `_preserf_savepoint_count` | `NF90_INT` | number of savepoint subgroups under `/savepoints` |
-| `_preserf_writer`          | `NF90_STRING` | `"preserf <version>"`                          |
+| `_preserf_writer`          | `NF90_STRING` *or* `NF90_CHAR` | `"preserf <version>"`                          |
+
+The two string-typed housekeeping attributes inherit the same writer
+asymmetry as String metainfo (§1): Python writes `NF90_STRING`,
+Fortran's F90 wrapper writes `NF90_CHAR`. Readers MUST accept either.
 
 Reading code MUST ignore any `_preserf_*` attribute it does not recognise.
 
@@ -277,7 +281,7 @@ Resulting NetCDF4 / NCZarr store:
                                                 author="alice"
 /_fields/
   u                                     scalar NF90_INT, value 0
-    attrs: type_id=5, dims=[ie,je,ke],
+    attrs: type_id=5, dims=[ke,je,ie],   ! C-order, per §1.1
            iminushalo=nboundlines, iplushalo=nboundlines,
            jminushalo=nboundlines, jplushalo=nboundlines,
            kminushalo=0, kplushalo=0

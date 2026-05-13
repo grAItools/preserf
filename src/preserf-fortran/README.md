@@ -20,20 +20,60 @@ compile against preserf without further preprocessor flags.
 
 ## Scope of this build
 
-v0.1 of the helper covers the minimum surface needed for an end-to-end
-`!$SER INIT` / `REGISTER` / `SAVEPOINT` / `DATA` / `CLEANUP` flow:
+v0.1 of the helper covers the minimum **write-mode** surface needed for
+the `!$SER INIT(mode='w')` / `REGISTER` / `SAVEPOINT` / `DATA` /
+`CLEANUP` flow:
 
 - `fs_register_field` records `/_fields/<name>` with `type_id` + `dims`
   (in C-order — see [§1.1 of the storage mapping][axis-order]) and any
-  non-zero halo attributes.
+  non-zero halo attributes. Includes a contiguous-prefix check on the
+  `(iSize, jSize, kSize, lSize)` tuple.
 - `fs_create_savepoint` allocates the next `/savepoints/sp_NNNNNN`
   group with `name` and `_preserf_savepoint_index` attributes.
 - `fs_add_savepoint_metainfo` and `fs_add_serializer_metainfo` are
   overloaded for the six scalar Serialbox `TypeID`s
   (`logical`, `integer(int32)`, `integer(int64)`, `real(real32)`,
-  `real(real64)`, `character(len=*)`).
-- `fs_write_field` and `fs_read_field` are overloaded for
-  `real(real64)` in 1D / 2D / 3D.
+  `real(real64)`, `character(len=*)`). Reserved keys (`_preserf_*`
+  prefix, `__preserf_type_id` suffix, plus `name` on savepoint groups)
+  are rejected.
+- `fs_write_field` is overloaded for `real(real64)` in 1D / 2D / 3D.
+  Each write validates the runtime shape and dtype against the
+  registered `/_fields/<name>` metadata before touching the store.
+- `fs_read_field` is overloaded for `real(real64)` in 1D / 2D / 3D in
+  both the 4-argument form and the 5-argument read-perturb form
+  (`fs_read_field(s, sp, name, data, perturb)`). v0.1 reads the field
+  as-is and ignores the perturbation magnitude.
+- `fs_enable_serialization` / `fs_disable_serialization` gate every
+  fs_* I/O entry point at runtime; `fs_serialization_status()` exposes
+  the flag for tests.
+
+### Known limitations / mismatches with pp_ser-generated code
+
+The first slice trades a few corners of pp_ser's contract for a small
+implementation. These are tracked as follow-up PRs:
+
+1. **Read mode is partial.** `ppser_initialize(directory, prefix, 'r')`
+   opens the store read-only and `fs_read_field(...)` works against it,
+   which is enough for the cross-language round-trip test in
+   `tests/test_fortran_minimal.py`. However, pp_ser-generated code
+   calls `fs_register_field`, `fs_create_savepoint`, and the metainfo
+   helpers unconditionally (outside the `SELECT CASE (ppser_get_mode())`
+   that wraps DATA blocks). Those routines currently always **create**
+   the corresponding netCDF object and will fail or duplicate when
+   pointed at an existing read-only store. The follow-up PR will switch
+   them to a "create-or-resolve-and-validate" shape.
+2. **`ppser_initialize` keyword surface is narrow.** v0.1 takes
+   `directory`, `prefix`, `mode` (plus optional `directory_ref`,
+   `prefix_ref`). Serialbox's `ppser_initialize` accepts additional
+   keyword args (`singlefile`, `mpi_rank`, `rprecision`, `rperturb`,
+   `realtype`, `archive`, `unique_id`) which pp_ser passes through
+   verbatim from `!$SER INIT` directives. Generated source that uses
+   any of those keyword arguments will not yet compile against
+   preserf. The follow-up PR that ports `pp_ser.py` will widen the
+   helper's signature to match Serialbox's.
+3. **Append mode (`'a'`) is rejected** rather than half-implemented.
+   It needs `nf90_inq_grps` index resumption that the netcdf-fortran
+   4.5.x wrapper makes awkward.
 
 Out of scope for this PR (tracked as follow-ups):
 - Full type-coverage matrix (bool / i32 / i64 / f32 + 0D..4D for fields,
@@ -41,8 +81,6 @@ Out of scope for this PR (tracked as follow-ups):
 - `fs_write_kbuff` (k-buffer / `!$SER DATA_KBUFF`).
 - `fs_RegisterAllTracers` and the tracer write API (`!$SER TRACER`).
 - `fs_Option` (`!$SER OPTION`).
-- Append-mode (`ppser_initialize(..., 'a', ...)`) savepoint-index
-  resumption.
 - NCZarr URL targets (the helper currently writes plain `.nc`; switching
   to `file://...#mode=nczarr,zarr2` requires only an additional
   `nf90_create` mode flag and is a one-line change once we add a test).
