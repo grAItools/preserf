@@ -41,6 +41,25 @@ The eight Serialbox `TypeID` values (`src/serialbox/core/Type.h:55-74`) are:
 | 6      | String   | `NF90_STRING`       | variable-length string         |
 | array  | of above | vector attribute    | netCDF attrs are natively vectors |
 
+### 1.1 Axis ordering convention
+
+The `dims[]` attribute on every `/_fields/<name>` registry entry, and the
+order of dimensions on every per-savepoint field variable, are recorded in
+**netCDF C-order** (slowest-varying axis first). This matches the natural
+ordering for the netCDF-C, netCDF4-python and xarray ecosystems.
+
+Serialbox's Fortran helper (`fs_register_field`) accepts sizes in the
+Fortran column-major declaration order `(iSize, jSize, kSize, lSize)`.
+The preserf Fortran helper transparently reverses this tuple when writing
+the `dims` attribute and when declaring the data variable's dimensions,
+so a rank-3 Fortran field declared as `(iSize=4, jSize=3, kSize=2)`
+shows up on disk as `dims = [2, 3, 4]` and as a netCDF variable of C-shape
+`(2, 3, 4)`. A Python reader sees `numpy[k_idx, j_idx, i_idx]`.
+
+Halo attributes (§4) remain named by their Fortran direction (`i`, `j`,
+`k`, `l`) regardless of the C-order axis layout — they describe the
+physical halo, not the storage axis.
+
 ---
 
 ## 2. Top-level layout
