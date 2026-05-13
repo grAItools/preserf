@@ -480,12 +480,24 @@ contains
 
     !> Build the active dims vector in netCDF C-order (slowest-varying
     !> axis first) from the Fortran-natural (iSize, jSize, kSize, lSize)
-    !> tuple. Trailing zeros in the Fortran tuple indicate "axis not
-    !> used"; only non-zero leading sizes contribute.
+    !> tuple. The Fortran tuple convention (per directives_specification.md
+    !> §3.10) is that non-zero sizes form a contiguous leading prefix:
+    !> e.g. shortcut "K1" expands to `(ke1, 0, 0, 0)` and shortcut "IJ"
+    !> expands to `(ie, je, 0, 0)`. A zero followed by a non-zero is an
+    !> inconsistent shape and aborts the program rather than silently
+    !> producing an invalid dims vector with embedded zeros.
     function active_dims_c_order(iSize, jSize, kSize, lSize) result(d)
         integer, intent(in) :: iSize, jSize, kSize, lSize
         integer(int32), allocatable :: d(:)
         integer :: rank
+
+        ! Reject non-contiguous prefixes up front.
+        if (jSize > 0 .and. iSize <= 0) call active_dims_inconsistent( &
+            iSize, jSize, kSize, lSize)
+        if (kSize > 0 .and. jSize <= 0) call active_dims_inconsistent( &
+            iSize, jSize, kSize, lSize)
+        if (lSize > 0 .and. kSize <= 0) call active_dims_inconsistent( &
+            iSize, jSize, kSize, lSize)
 
         rank = 0
         if (iSize > 0) rank = 1
@@ -507,6 +519,15 @@ contains
             d(3) = int(jSize, int32); d(4) = int(iSize, int32)
         end if
     end function active_dims_c_order
+
+    subroutine active_dims_inconsistent(iSize, jSize, kSize, lSize)
+        integer, intent(in) :: iSize, jSize, kSize, lSize
+        write (*, '(a,4(i0,a))') &
+            'preserf: inconsistent dim tuple (', &
+            iSize, ',', jSize, ',', kSize, ',', lSize, &
+            '); non-zero sizes must form a contiguous leading prefix'
+        error stop 1
+    end subroutine active_dims_inconsistent
 
     subroutine put_halo_attr(grpid, varid, name, value)
         integer, intent(in) :: grpid, varid

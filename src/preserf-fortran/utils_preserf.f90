@@ -184,17 +184,39 @@ contains
     subroutine preserf_close_serializer(s)
         type(t_serializer), intent(inout) :: s
         integer :: ncerr
+        integer(int32) :: savepoint_count
+        logical :: entered_define_mode
 
         if (s%ncid /= -1) then
             if (s%writable) then
                 ! Refresh the savepoint count attribute before closing.
+                !
+                ! On NETCDF4 (HDF5-backed) datasets nf90_redef is a no-op
+                ! and returns NF90_NOERR; on classic datasets it actually
+                ! enters define mode. Some files may already be in define
+                ! mode from earlier writes, in which case redef returns
+                ! NF90_EINDEFINE — we treat that as a no-op too. Any
+                ! other return code is unexpected and aborts the close
+                ! rather than silently skipping the metadata refresh.
                 ncerr = nf90_redef(s%ncid)
-                if (ncerr == NF90_NOERR .or. ncerr == NF90_EINDEFINE) then
-                    ncerr = nf90_put_att(s%ncid, NF90_GLOBAL, &
-                                         '_preserf_savepoint_count', s%next_sp_index)
-                    call preserf_check_nf_with_msg(ncerr, &
-                        'nf90_put_att _preserf_savepoint_count')
+                if (ncerr == NF90_NOERR) then
+                    entered_define_mode = .true.
+                else if (ncerr == NF90_EINDEFINE) then
+                    entered_define_mode = .false.
+                else
+                    call preserf_check_nf_with_msg(ncerr, 'nf90_redef before close')
+                    entered_define_mode = .false.  ! unreachable
+                end if
+
+                savepoint_count = int(s%next_sp_index, int32)
+                ncerr = nf90_put_att(s%ncid, NF90_GLOBAL, &
+                                     '_preserf_savepoint_count', savepoint_count)
+                call preserf_check_nf_with_msg(ncerr, &
+                    'nf90_put_att _preserf_savepoint_count')
+
+                if (entered_define_mode) then
                     ncerr = nf90_enddef(s%ncid)
+                    call preserf_check_nf_with_msg(ncerr, 'nf90_enddef before close')
                 end if
             end if
             ncerr = nf90_close(s%ncid)
