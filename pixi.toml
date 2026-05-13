@@ -13,16 +13,18 @@ preserf = { path = ".", editable = true }
 [feature.dev.dependencies]
 c-compiler = "*"
 cxx-compiler = "*"
+netcdf4 = ">=1.7.4"
 
 [feature.dev.pypi-dependencies]
-pytest = ">=8.0"
 mypy = ">=1.0"
+numpy = ">=1.26"
+pytest = ">=8.0"
 ruff = ">=0.8"
 
 [feature.dev.tasks]
-test = "pytest"
-lint = "ruff check src tests"
-typecheck = "mypy src"
+pylint = "ruff check src tests"
+pytest = "pytest"
+pytypecheck = "mypy src"
 
 [environments]
 default = { features = [], solve-group = "default" }
