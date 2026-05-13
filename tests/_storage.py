@@ -405,22 +405,31 @@ def read_dump(url: str) -> SerialboxDump:
         root.close()
 
     # Reconstruct fields_table with offsets computed in fieldID order.
+    from ._serialbox import FieldOffsetEntry
+
     for fname, info in dump.field_map.items():
         data_by_id = dump.field_data.get(fname, {})
         if not data_by_id:
             continue
         ordered_ids = sorted(data_by_id.keys())
-        entries = []
+        if ordered_ids != list(range(len(ordered_ids))):
+            # Mirrors the write-side invariant in SerialboxDump.write —
+            # Serialbox's BinaryArchive guarantees fieldIDs are dense
+            # 0..N-1 (BinaryArchive.cpp:323). A sparse set in the store
+            # means either a hand-edited _preserf_field_ids attribute or a
+            # corrupted savepoint vector — refuse to materialise an
+            # internally inconsistent SerialboxDump.
+            raise ValueError(
+                f"field '{fname}' has non-dense fieldIDs {ordered_ids} "
+                f"after reading; Serialbox requires 0..{len(ordered_ids) - 1}"
+            )
         offset = 0
         elt_bytes = info.element_dtype().itemsize * info.element_count()
+        entries = []
         for _fid in ordered_ids:
-            entries.append((offset, ""))
+            entries.append(FieldOffsetEntry(offset=offset, checksum=""))
             offset += elt_bytes
-        from ._serialbox import FieldOffsetEntry
-
-        dump.fields_table[fname] = [
-            FieldOffsetEntry(offset=o, checksum=c) for (o, c) in entries
-        ]
+        dump.fields_table[fname] = entries
     return dump
 
 
