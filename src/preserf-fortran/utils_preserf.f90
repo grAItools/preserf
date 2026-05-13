@@ -99,11 +99,18 @@ contains
     !> serializer) by opening a netCDF / NCZarr dataset under `directory`
     !> with name `prefix`.
     !>
-    !> `mode` is one of: 'w' (write, create or truncate), 'r' (read-only),
-    !> 'a' (append/update).
+    !> `mode` is one of: 'w' (write, create or truncate), 'r' (read-only).
+    !> Append mode ('a') is reserved but currently rejected — see
+    !> src/preserf-fortran/README.md follow-ups.
     !>
-    !> When mode is 'r' or 'a', the schema-version attribute on the root
-    !> group is validated.
+    !> When mode is 'r', the schema-version attribute on the root group is
+    !> validated. In 'r' mode, `ppser_serializer_ref` is also populated:
+    !>   * If `directory_ref` AND `prefix_ref` are both supplied, the
+    !>     reference serializer opens that distinct store read-only.
+    !>   * Otherwise it opens the same `directory/prefix` store read-only,
+    !>     so pp_ser-generated DATA branches that use
+    !>     `fs_read_field(ppser_serializer_ref, ...)` work without
+    !>     further setup.
     subroutine ppser_initialize(directory, prefix, mode, &
                                 directory_ref, prefix_ref)
         character(len=*), intent(in) :: directory
@@ -112,20 +119,30 @@ contains
         character(len=*), intent(in), optional :: directory_ref
         character(len=*), intent(in), optional :: prefix_ref
 
-        call preserf_open_serializer(ppser_serializer, directory, prefix, mode)
-
-        ! The reference serializer is only opened when BOTH `directory_ref`
-        ! and `prefix_ref` are supplied — passing just one is a mistake
-        ! that would silently leave ppser_serializer_ref unopened and
-        ! produce a delayed failure during read-perturb DATA branches.
+        ! Validate optional-argument coherence BEFORE creating/truncating
+        ! the main store, so a partial-arg mistake doesn't trash an
+        ! existing target file.
         if (present(directory_ref) .neqv. present(prefix_ref)) then
             write (*, '(a)') 'preserf: ppser_initialize requires either both '//&
                 'directory_ref and prefix_ref, or neither'
             error stop 1
         end if
+
+        call preserf_open_serializer(ppser_serializer, directory, prefix, mode)
+
         if (present(directory_ref) .and. present(prefix_ref)) then
             call preserf_open_serializer(ppser_serializer_ref, &
                                          directory_ref, prefix_ref, 'r')
+        else if (mode == 'r' .or. mode == 'R') then
+            ! pp_ser-generated read/read-perturb DATA branches call
+            ! `fs_read_field(ppser_serializer_ref, ...)`. In a plain
+            ! read-mode init without explicit reference args, point the
+            ! ref serializer at the same store so those branches just
+            ! work. Both serializers open their own netCDF handle to
+            ! the same on-disk file (HDF5 allows multiple read-only
+            ! opens).
+            call preserf_open_serializer(ppser_serializer_ref, &
+                                         directory, prefix, 'r')
         end if
     end subroutine ppser_initialize
 
@@ -143,8 +160,20 @@ contains
         m = ppser_mode_state
     end function ppser_get_mode
 
+    !> Set the runtime DATA mode. Only 0 (write), 1 (read), and 2
+    !> (read-perturb) are accepted; pp_ser-generated SELECT CASE blocks
+    !> only branch on these three values, so silently storing an
+    !> out-of-range mode would make subsequent DATA directives behave
+    !> as no-ops without explanation.
     subroutine ppser_set_mode(m)
         integer, intent(in) :: m
+        if (m < 0 .or. m > 2) then
+            write (*, '(a,i0,a)') &
+                'preserf: ppser_set_mode(', m, &
+                ') is out of range; expected 0 (write), 1 (read), '//&
+                'or 2 (read-perturb)'
+            error stop 1
+        end if
         ppser_mode_state = m
     end subroutine ppser_set_mode
 

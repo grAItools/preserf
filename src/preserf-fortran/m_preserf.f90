@@ -470,10 +470,14 @@ contains
     ! pp_ser's read-perturb branch emits
     !   call fs_read_field(ppser_serializer_ref, ppser_savepoint,
     !                      '<field>', <expr>, ppser_zrperturb)
-    ! so the generic must accept the 5-argument form. v0.1 reads the
-    ! field as-is and ignores the perturbation magnitude; applying
-    ! perturbation is tracked as a follow-up alongside the full
-    ! type-coverage matrix.
+    ! so the generic MUST resolve the 5-argument form at compile time
+    ! (otherwise generated source containing read-perturb DATA blocks
+    ! fails to compile). The actual perturbation algorithm is not yet
+    ! implemented, so calling these overloads at runtime aborts with a
+    ! clear "not yet implemented" message rather than silently
+    ! returning unperturbed data (which would be wire-incompatible with
+    ! Serialbox's mode=2 semantics). See src/preserf-fortran/README.md
+    ! for the follow-up tracking this.
     ! ------------------------------------------------------------------------
     subroutine fs_read_field_r8_1d_perturb(s, sp, fieldname, data, perturb)
         type(t_serializer), intent(in) :: s
@@ -481,9 +485,8 @@ contains
         character(len=*),   intent(in) :: fieldname
         real(real64),       intent(inout) :: data(:)
         real(real64),       intent(in) :: perturb
-        real(real64) :: discard
-        discard = perturb
-        call fs_read_field_r8_1d(s, sp, fieldname, data)
+        call read_perturb_not_implemented(fieldname, s, sp, perturb, &
+                                          size(data, kind=int64))
     end subroutine
 
     subroutine fs_read_field_r8_2d_perturb(s, sp, fieldname, data, perturb)
@@ -492,9 +495,8 @@ contains
         character(len=*),   intent(in) :: fieldname
         real(real64),       intent(inout) :: data(:, :)
         real(real64),       intent(in) :: perturb
-        real(real64) :: discard
-        discard = perturb
-        call fs_read_field_r8_2d(s, sp, fieldname, data)
+        call read_perturb_not_implemented(fieldname, s, sp, perturb, &
+                                          size(data, kind=int64))
     end subroutine
 
     subroutine fs_read_field_r8_3d_perturb(s, sp, fieldname, data, perturb)
@@ -503,10 +505,31 @@ contains
         character(len=*),   intent(in) :: fieldname
         real(real64),       intent(inout) :: data(:, :, :)
         real(real64),       intent(in) :: perturb
-        real(real64) :: discard
-        discard = perturb
-        call fs_read_field_r8_3d(s, sp, fieldname, data)
+        call read_perturb_not_implemented(fieldname, s, sp, perturb, &
+                                          size(data, kind=int64))
     end subroutine
+
+    subroutine read_perturb_not_implemented(fieldname, s, sp, perturb, n)
+        character(len=*), intent(in) :: fieldname
+        type(t_serializer), intent(in) :: s
+        type(t_savepoint),  intent(in) :: sp
+        real(real64), intent(in) :: perturb
+        integer(int64), intent(in) :: n
+        integer :: discard_int
+        real(real64) :: discard_real
+        ! Reference the dummy args so the compiler doesn't complain
+        ! about them — they are part of the API surface even though
+        ! the body just aborts.
+        discard_int = s%ncid + sp%grpid + int(n)
+        discard_real = perturb
+        write (*, '(a,a,a)') &
+            'preserf: read-perturb (mode 2) for field "', trim(fieldname), &
+            '" is not yet implemented in v0.1; the 5-arg fs_read_field '//&
+            'overload exists only so pp_ser-emitted source compiles. '//&
+            'Set ppser_set_mode(1) for a plain read, or pin the helper '//&
+            'to a follow-up PR that implements perturbation.'
+        error stop 1
+    end subroutine read_perturb_not_implemented
 
     ! ========================================================================
     ! Internal helpers
@@ -524,11 +547,16 @@ contains
         case ('bool', 'boolean', 'logical')
             tid = TID_BOOLEAN
         case ('int', 'integer')
-            if (bytes_per_element == 8) then
-                tid = TID_INT64
-            else
+            select case (bytes_per_element)
+            case (4)
                 tid = TID_INT32
-            end if
+            case (8)
+                tid = TID_INT64
+            case default
+                call reject_byte_length(trim(datatype), bytes_per_element, &
+                                        '4 or 8')
+                tid = TID_INT32  ! unreachable; satisfies compiler
+            end select
         case ('int64', 'long')
             tid = TID_INT64
         case ('float', 'single')
@@ -536,11 +564,16 @@ contains
         case ('double')
             tid = TID_FLOAT64
         case ('real')
-            if (bytes_per_element == 4) then
+            select case (bytes_per_element)
+            case (4)
                 tid = TID_FLOAT32
-            else
+            case (8)
                 tid = TID_FLOAT64
-            end if
+            case default
+                call reject_byte_length(trim(datatype), bytes_per_element, &
+                                        '4 or 8')
+                tid = TID_FLOAT64  ! unreachable; satisfies compiler
+            end select
         case ('string', 'character')
             tid = TID_STRING
         case default
@@ -548,6 +581,17 @@ contains
             error stop 1
         end select
     end function type_id_from_datatype
+
+    subroutine reject_byte_length(datatype, got, expected)
+        character(len=*), intent(in) :: datatype
+        integer, intent(in) :: got
+        character(len=*), intent(in) :: expected
+        write (*, '(a,a,a,i0,a,a)') &
+            'preserf: unsupported byte length for datatype "', &
+            datatype, '": got ', got, &
+            ' bytes/element, expected ', expected
+        error stop 1
+    end subroutine reject_byte_length
 
     !> Build the active dims vector in netCDF C-order (slowest-varying
     !> axis first) from the Fortran-natural (iSize, jSize, kSize, lSize)
@@ -750,9 +794,6 @@ contains
         end if
     end subroutine reject_reserved_metainfo_key
 
-    !> Ensure per-field dimensions exist on `grpid` and return their dim ids.
-    !> Dimensions are named `<fieldname>_dim0`, `<fieldname>_dim1`, … and
-    !> are created lazily inside the savepoint group (storage_mapping.md §6).
     !> Validate that the runtime Fortran shape of a read or write matches
     !> the field's registered dims under `/_fields/<fieldname>` (which are
     !> stored in C-order, so we compare against `reverse(fortran_shape)`).

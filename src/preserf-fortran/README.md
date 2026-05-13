@@ -15,8 +15,13 @@ in [`../../development/references/storage_mapping.md`][mapping].
 | `m_serialize`    | Drop-in re-export of `m_preserf` under Serialbox's historical module name. |
 | `utils_ppser`    | Drop-in re-export of `utils_preserf` under Serialbox's historical module name. |
 
-The `m_serialize` / `utils_ppser` aliases let unchanged pp_ser output
-compile against preserf without further preprocessor flags.
+The `m_serialize` / `utils_ppser` aliases preserve the historical
+module identifiers pp_ser-generated source imports, but the
+**implemented symbol surface is the v0.1 subset described below**.
+pp_ser output that uses directives or `ppser_initialize` keyword
+arguments outside that subset will still fail to compile against the
+aliases until the relevant follow-up PR lands — see the "Known
+limitations" subsection.
 
 ## Scope of this build
 
@@ -53,15 +58,27 @@ The first slice trades a few corners of pp_ser's contract for a small
 implementation. These are tracked as follow-up PRs:
 
 1. **Read mode is partial.** `ppser_initialize(directory, prefix, 'r')`
-   opens the store read-only and `fs_read_field(...)` works against it,
-   which is enough for the cross-language round-trip test in
-   `tests/test_fortran_minimal.py`. However, pp_ser-generated code
-   calls `fs_register_field`, `fs_create_savepoint`, and the metainfo
-   helpers unconditionally (outside the `SELECT CASE (ppser_get_mode())`
-   that wraps DATA blocks). Those routines currently always **create**
-   the corresponding netCDF object and will fail or duplicate when
-   pointed at an existing read-only store. The follow-up PR will switch
-   them to a "create-or-resolve-and-validate" shape.
+   opens the store read-only (and, in this slice, also opens
+   `ppser_serializer_ref` against the same store so pp_ser's read DATA
+   branches can call `fs_read_field(ppser_serializer_ref, ...)`).
+   `fs_read_field` works against a read-only store, which is enough
+   for `tests/test_fortran_minimal.py`. However, pp_ser-generated
+   source also calls `fs_register_field`, `fs_create_savepoint`, and
+   the metainfo helpers (`fs_add_serializer_metainfo` /
+   `fs_add_savepoint_metainfo`) unconditionally — these directives
+   live OUTSIDE the `SELECT CASE (ppser_get_mode())` that wraps DATA
+   blocks. The current implementation of those routines always
+   **creates** the corresponding netCDF object, so pointing a
+   pp_ser-generated read run at an existing read-only store will
+   abort (e.g. `fs_create_savepoint` trying to `nf90_def_grp(sp_000000)`
+   on a read-only dataset). The follow-up PR will switch them to a
+   "create-or-resolve-and-validate" shape; until then, only the
+   write-mode end-to-end flow is exercised.
+
+   Read-perturb mode (CASE(2)) is similarly partial: the 5-arg
+   `fs_read_field(..., perturb)` overloads exist so generated source
+   compiles, but they `error stop` at runtime since the perturbation
+   algorithm itself is not yet implemented.
 2. **`ppser_initialize` keyword surface is narrow.** v0.1 takes
    `directory`, `prefix`, `mode` (plus optional `directory_ref`,
    `prefix_ref`). Serialbox's `ppser_initialize` accepts additional
@@ -81,9 +98,14 @@ Out of scope for this PR (tracked as follow-ups):
 - `fs_write_kbuff` (k-buffer / `!$SER DATA_KBUFF`).
 - `fs_RegisterAllTracers` and the tracer write API (`!$SER TRACER`).
 - `fs_Option` (`!$SER OPTION`).
-- NCZarr URL targets (the helper currently writes plain `.nc`; switching
-  to `file://...#mode=nczarr,zarr2` requires only an additional
-  `nf90_create` mode flag and is a one-line change once we add a test).
+- NCZarr URL targets. The helper currently constructs the open path as
+  `<directory>/<prefix>.nc` and passes `NF90_NETCDF4` to `nf90_create`.
+  Supporting `file://<directory>/<prefix>.zarr#mode=nczarr,zarr2`
+  requires both reworking the path/URL construction in
+  `preserf_open_serializer` and surfacing a backend selector at the
+  `ppser_initialize` boundary, plus a cross-language test that exercises
+  it via `tests/_storage.py`. Not the one-line change the original draft
+  suggested.
 
 [axis-order]: ../../development/references/storage_mapping.md
 

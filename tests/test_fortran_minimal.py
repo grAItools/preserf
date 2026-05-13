@@ -28,20 +28,27 @@ from ._serialbox import TypeID
 from ._storage import read_dump
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_DEFAULT_BIN = _REPO_ROOT / "src/preserf-fortran/build/test/test_minimal"
+_BUILD_TEST_DIR = _REPO_ROOT / "src/preserf-fortran/build/test"
 
 
 def _locate_binary() -> Path | None:
     """Find the built test_minimal binary.
 
-    Considers both the POSIX path and a Windows `.exe` sibling, and
-    requires that the file be executable so a partially-built tree
-    (file exists but lacks +x) skips gracefully instead of crashing the
-    test with PermissionError.
+    Probes the single-config CMake output path AND the typical
+    multi-config generator subdirectories (Visual Studio, Xcode and
+    similar produce `build/test/<Config>/test_minimal[.exe]`). Requires
+    the candidate to be executable so a partially-built tree (file
+    exists but lacks +x) skips gracefully instead of crashing the test
+    with PermissionError.
     """
-    for candidate in (_DEFAULT_BIN, _DEFAULT_BIN.with_suffix(".exe")):
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            return candidate
+    config_subdirs = ("", "Debug", "Release", "RelWithDebInfo", "MinSizeRel")
+    names = ("test_minimal", "test_minimal.exe")
+    for config in config_subdirs:
+        base = _BUILD_TEST_DIR / config if config else _BUILD_TEST_DIR
+        for name in names:
+            candidate = base / name
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return candidate
     return None
 
 
@@ -50,7 +57,8 @@ def fortran_binary() -> Path:
     binary = _locate_binary()
     if binary is None:
         pytest.skip(
-            f"Fortran test binary not built at {_DEFAULT_BIN}; "
+            f"Fortran test binary not found under {_BUILD_TEST_DIR} "
+            "(checked single-config + Debug/Release subdirs); "
             "see tests/test_fortran_minimal.py docstring for build steps."
         )
     return binary
