@@ -18,7 +18,7 @@ initialisation time.
 
 ## 1. Source-of-truth schema
 
-The mapping is derived from the four Serialbox JSON producers:
+The mapping is derived from the Serialbox JSON producers listed below:
 
 | Serialbox JSON node                       | C++ producer                                          |
 |-------------------------------------------|-------------------------------------------------------|
