@@ -96,7 +96,12 @@ documented separately in `development/references/storage_mapping.md`.
 * Good, because Serialbox's typed metainfo (including arrays) maps 1:1 onto
   netCDF attributes, which are natively vector-valued in both backends.
 * Good, because the layout is openable by xarray (`xr.open_datatree`) and
-  zarr-python (`zarr.open_consolidated`) without any preserf code.
+  zarr-python (`zarr.open_group`) without any preserf code. Stores written
+  through NCZarr are *not* consolidated by default — readers that prefer
+  `zarr.open_consolidated` need to either consolidate the metadata
+  themselves first (`zarr.consolidate_metadata(...)`) or have preserf opt
+  in to writing `.zmetadata` at close time (tracked as future work, see §9
+  of the storage mapping reference).
 * Good, because the Zarr V3 migration is a future configuration change, not
   a code change.
 * Neutral, because Serialbox's per-field offset table and checksum machinery

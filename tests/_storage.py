@@ -368,7 +368,23 @@ def read_dump(url: str) -> SerialboxDump:
                         f"length {len(flat)}; expected pairs of (fieldname, id)"
                     )
                 for i in range(0, len(flat), 2):
-                    id_map[str(flat[i])] = int(flat[i + 1])
+                    fname_key = str(flat[i])
+                    if fname_key in id_map:
+                        raise ValueError(
+                            f"savepoint '{name}': _preserf_field_ids contains "
+                            f"duplicate entry for field '{fname_key}'"
+                        )
+                    id_map[fname_key] = int(flat[i + 1])
+                expected_fields = set(grp.variables.keys())
+                mapped_fields = set(id_map.keys())
+                if mapped_fields != expected_fields:
+                    missing = expected_fields - mapped_fields
+                    extra = mapped_fields - expected_fields
+                    raise ValueError(
+                        f"savepoint '{name}': _preserf_field_ids is "
+                        f"inconsistent with the savepoint's variables "
+                        f"(missing={sorted(missing)}, extra={sorted(extra)})"
+                    )
 
             for fname, var in grp.variables.items():
                 if fname not in dump.field_map:
