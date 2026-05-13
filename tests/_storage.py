@@ -331,6 +331,12 @@ def read_dump(url: str) -> SerialboxDump:
             )
         fields_grp = root.groups["_fields"]
         for fname, var in fields_grp.variables.items():
+            missing_attrs = _RESERVED_FIELD_REGISTRY - set(var.ncattrs())
+            if missing_attrs:
+                raise ValueError(
+                    f"{url}: field registry '/_fields/{fname}' is missing "
+                    f"required attribute(s) {sorted(missing_attrs)}"
+                )
             tid = TypeID(int(var.getncattr("type_id")))
             dims_attr = var.getncattr("dims")
             dims = [int(d) for d in np.atleast_1d(dims_attr).tolist()]

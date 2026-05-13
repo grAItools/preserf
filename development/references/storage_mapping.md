@@ -192,8 +192,12 @@ group:
   same physical dimension is *not* shared across fields by default
   (each field owns its own dimensions) — this matches Serialbox's per-field
   metadata model where dims are field-private.
-* **Chunking** (NCZarr / NetCDF4): the default is one chunk = one whole
-  field write. Configurable via a future option (§9).
+* **Chunking** (NCZarr / NetCDF4): **implementation-defined** unless the
+  writer explicitly opts in. The reference implementation does not set
+  `chunksizes`, so NetCDF4/HDF5 typically produces contiguous storage and
+  NCZarr falls back to its own default chunk shape. A future option (§9)
+  will expose an explicit chunking knob; until then, no chunking guarantee
+  is part of the schema.
 
 The k-buffer mode (`!$SER DATA_KBUFF`) writes the same variable shape but
 fills it in vertical slices keyed by the `k` / `k_size` arguments; the
@@ -266,9 +270,10 @@ Resulting NetCDF4 / NCZarr store:
   xarray)? Default today is per-field private dimensions to match the
   Serialbox metadata model exactly. Revisit when the helper module is in
   place and we can benchmark both.
-* **Chunking and compression.** Currently one chunk per field write,
-  uncompressed. Both are tunable via netCDF-Fortran APIs and should be
-  exposed through `!$SER OPTION` keys; defer naming to a follow-up ADR.
+* **Chunking and compression.** Both are currently implementation-defined
+  (no `chunksizes` set, no compression filter). Both are tunable via
+  netCDF-Fortran APIs and should be exposed through `!$SER OPTION` keys;
+  defer naming to a follow-up ADR.
 * **Per-rank stores under MPI.** `ppser_initialize`'s `mpi_rank` argument
   currently maps to a `_rank<n>` suffix on the store name. Parallel HDF5 /
   parallel NCZarr is a future option.
