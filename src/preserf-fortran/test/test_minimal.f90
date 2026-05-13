@@ -27,7 +27,10 @@ program test_minimal
     end if
     call get_command_argument(1, arg_buf, arg_len)
     out_dir = arg_buf(1:arg_len)
-    call ensure_dir(out_dir)
+    ! Note: the caller is responsible for ensuring out_dir exists.
+    ! Both invocation paths handle this:
+    !   * pytest creates the dir via the tmp_path fixture before exec.
+    !   * ctest's COMMAND list runs `cmake -E make_directory` first.
 
     allocate (u(ni, nj, nk), u_back(ni, nj, nk))
     do k = 1, nk
@@ -48,6 +51,9 @@ program test_minimal
 
     call fs_add_serializer_metainfo(ppser_serializer, 'author', 'fortran-test')
     call fs_add_serializer_metainfo(ppser_serializer, 'schema_version', 7_int32)
+    ! Exercise the Boolean → NF90_BYTE path so the test confirms the
+    ! on-disk attribute type matches storage_mapping.md §1.
+    call fs_add_serializer_metainfo(ppser_serializer, 'use_gpu', .true.)
 
     call fs_register_field(ppser_serializer, 'u', 'double', ppser_reallength, &
                            ni, nj, nk, 0, &
@@ -86,19 +92,5 @@ program test_minimal
     end if
 
     write (*, '(a)') 'preserf-fortran: hello-world OK'
-
-contains
-
-    subroutine ensure_dir(p)
-        character(len=*), intent(in) :: p
-        character(len=:), allocatable :: cmd
-        integer :: stat
-        cmd = 'mkdir -p '//trim(p)
-        call execute_command_line(cmd, exitstat=stat)
-        if (stat /= 0) then
-            write (*, '(a,a)') 'preserf-fortran: failed to create ', trim(p)
-            error stop 1
-        end if
-    end subroutine ensure_dir
 
 end program test_minimal

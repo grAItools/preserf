@@ -38,8 +38,18 @@ The eight Serialbox `TypeID` values (`src/serialbox/core/Type.h:55-74`) are:
 | 3      | Int64    | `NF90_INT64`        |                                |
 | 4      | Float32  | `NF90_FLOAT`        |                                |
 | 5      | Float64  | `NF90_DOUBLE`       |                                |
-| 6      | String   | `NF90_STRING`       | variable-length string         |
+| 6      | String   | `NF90_STRING` or `NF90_CHAR` | see note          |
 | array  | of above | vector attribute    | netCDF attrs are natively vectors |
+
+> **Note on String storage.** Python writers using `netCDF4.Dataset.setncattr`
+> emit `NC_STRING` for `str` values. The netcdf-fortran 4.5.x F90 wrapper
+> emits `NC_CHAR` when `nf90_put_att` is given a `character(len=*)`
+> argument. Both encodings round-trip losslessly through preserf's
+> `__preserf_type_id` shadow attribute, which is the schema's source of
+> truth for the typed-value contract. A reader MUST decode based on the
+> shadow tag (TypeID 6 → string), not on the on-disk netCDF type, and
+> MUST accept either `NC_STRING` or `NC_CHAR` for string-tagged
+> attributes.
 
 ### 1.1 Axis ordering convention
 

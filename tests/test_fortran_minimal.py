@@ -17,6 +17,7 @@ Then ``uv run pytest tests/test_fortran_minimal.py`` will pick it up.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -31,8 +32,16 @@ _DEFAULT_BIN = _REPO_ROOT / "src/preserf-fortran/build/test/test_minimal"
 
 
 def _locate_binary() -> Path | None:
-    if _DEFAULT_BIN.is_file():
-        return _DEFAULT_BIN
+    """Find the built test_minimal binary.
+
+    Considers both the POSIX path and a Windows `.exe` sibling, and
+    requires that the file be executable so a partially-built tree
+    (file exists but lacks +x) skips gracefully instead of crashing the
+    test with PermissionError.
+    """
+    for candidate in (_DEFAULT_BIN, _DEFAULT_BIN.with_suffix(".exe")):
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return candidate
     return None
 
 
@@ -75,6 +84,10 @@ def test_fortran_writes_python_reads(tmp_path: Path, fortran_binary: Path) -> No
     assert dump.global_meta_info["author"].value == "fortran-test"
     assert dump.global_meta_info["schema_version"].type_id == TypeID.Int32
     assert dump.global_meta_info["schema_version"].value == 7
+    # use_gpu exercises the Boolean → NF90_BYTE path. The shadow tag
+    # carries TypeID.Boolean (=1), and the underlying value round-trips.
+    assert dump.global_meta_info["use_gpu"].type_id == TypeID.Boolean
+    assert dump.global_meta_info["use_gpu"].value is True
 
     # Field registry: u, Float64. Fortran registered (iSize=4, jSize=3,
     # kSize=2); the helper reverses to C-order, so dims == [2, 3, 4].

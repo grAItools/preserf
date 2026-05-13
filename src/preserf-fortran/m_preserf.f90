@@ -16,7 +16,7 @@
 !> Other directives (DATA_KBUFF, OPTION, TRACER, ACCDATA, REGISTERTRACERS)
 !> are out of scope for this PR and will land in follow-ups.
 module m_preserf
-    use, intrinsic :: iso_fortran_env, only: int32, int64, real32, real64
+    use, intrinsic :: iso_fortran_env, only: int8, int32, int64, real32, real64
     use netcdf
     use utils_preserf, only: t_serializer, t_savepoint, &
                              ppser_serializer, &
@@ -39,6 +39,7 @@ module m_preserf
     public :: fs_register_field
     public :: fs_enable_serialization
     public :: fs_disable_serialization
+    public :: fs_serialization_status
 
     interface fs_add_savepoint_metainfo
         module procedure fs_add_savepoint_metainfo_l
@@ -78,6 +79,12 @@ contains
 
     ! ========================================================================
     ! ON / OFF
+    !
+    ! When `serialisation_enabled == 0`, every fs_* entry point below
+    ! returns early before performing any I/O. This matches the contract
+    ! pp_ser-expanded `!$SER ON` / `!$SER OFF` directives need: an OFF
+    ! must make subsequent SAVEPOINT / DATA / METAINFO directives behave
+    ! as no-ops at runtime.
     ! ========================================================================
     subroutine fs_enable_serialization()
         serialisation_enabled = 1
@@ -86,6 +93,13 @@ contains
     subroutine fs_disable_serialization()
         serialisation_enabled = 0
     end subroutine fs_disable_serialization
+
+    !> True iff fs_* I/O is currently enabled. Exposed so callers / tests
+    !> can introspect the runtime state.
+    function fs_serialization_status() result(enabled)
+        logical :: enabled
+        enabled = (serialisation_enabled /= 0)
+    end function fs_serialization_status
 
     ! ========================================================================
     ! REGISTER
@@ -114,6 +128,7 @@ contains
         integer(int32), allocatable :: dims(:)
         integer :: rank
 
+        if (serialisation_enabled == 0) return
         if (s%fields_grpid == -1) then
             write (*, '(a)') 'preserf: fs_register_field called before ppser_initialize'
             error stop 1
@@ -177,6 +192,7 @@ contains
         integer :: ncerr
         integer(int32) :: idx_attr
 
+        if (serialisation_enabled == 0) return
         ser => default_serializer(s)
         if (ser%savepoints_grpid == -1) then
             write (*, '(a)') 'preserf: fs_create_savepoint called before ppser_initialize'
@@ -210,10 +226,10 @@ contains
         type(t_savepoint), intent(in) :: sp
         character(len=*), intent(in) :: key
         logical, intent(in) :: value
-        integer(int32) :: stored
-        stored = merge(1_int32, 0_int32, value)
+        integer(int8) :: stored
+        stored = merge(1_int8, 0_int8, value)
         call put_typed_scalar_attr(sp%grpid, key, NF90_BYTE, &
-                                   i32_val=stored, tid=TID_BOOLEAN)
+                                   i8_val=stored, tid=TID_BOOLEAN)
     end subroutine
 
     subroutine fs_add_savepoint_metainfo_i4(sp, key, value)
@@ -263,10 +279,10 @@ contains
         type(t_serializer), intent(in) :: s
         character(len=*), intent(in) :: key
         logical, intent(in) :: value
-        integer(int32) :: stored
-        stored = merge(1_int32, 0_int32, value)
+        integer(int8) :: stored
+        stored = merge(1_int8, 0_int8, value)
         call put_typed_scalar_attr(s%ncid, key, NF90_BYTE, &
-                                   i32_val=stored, tid=TID_BOOLEAN)
+                                   i8_val=stored, tid=TID_BOOLEAN)
     end subroutine
 
     subroutine fs_add_serializer_metainfo_i4(s, key, value)
@@ -326,6 +342,7 @@ contains
         integer :: ncerr, varid
         integer, allocatable :: dimids(:)
 
+        if (serialisation_enabled == 0) return
         call require_open(s, 'fs_write_field')
         call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
         call ensure_variable(sp%grpid, fieldname, NF90_DOUBLE, dimids, varid)
@@ -341,6 +358,7 @@ contains
         integer :: ncerr, varid
         integer, allocatable :: dimids(:)
 
+        if (serialisation_enabled == 0) return
         call require_open(s, 'fs_write_field')
         call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
         call ensure_variable(sp%grpid, fieldname, NF90_DOUBLE, dimids, varid)
@@ -356,6 +374,7 @@ contains
         integer :: ncerr, varid
         integer, allocatable :: dimids(:)
 
+        if (serialisation_enabled == 0) return
         call require_open(s, 'fs_write_field')
         call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
         call ensure_variable(sp%grpid, fieldname, NF90_DOUBLE, dimids, varid)
@@ -372,6 +391,7 @@ contains
         character(len=*),   intent(in) :: fieldname
         real(real64),       intent(out) :: data(:)
         integer :: ncerr, varid
+        if (serialisation_enabled == 0) return
         call require_open(s, 'fs_read_field')
         ncerr = nf90_inq_varid(sp%grpid, trim(fieldname), varid)
         call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
@@ -385,6 +405,7 @@ contains
         character(len=*),   intent(in) :: fieldname
         real(real64),       intent(out) :: data(:, :)
         integer :: ncerr, varid
+        if (serialisation_enabled == 0) return
         call require_open(s, 'fs_read_field')
         ncerr = nf90_inq_varid(sp%grpid, trim(fieldname), varid)
         call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
@@ -398,6 +419,7 @@ contains
         character(len=*),   intent(in) :: fieldname
         real(real64),       intent(out) :: data(:, :, :)
         integer :: ncerr, varid
+        if (serialisation_enabled == 0) return
         call require_open(s, 'fs_read_field')
         ncerr = nf90_inq_varid(sp%grpid, trim(fieldname), varid)
         call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
@@ -499,20 +521,36 @@ contains
     end subroutine put_halo_attr
 
     !> Write a typed metainfo attribute as `<key>` plus its shadow
-    !> `<key>__preserf_type_id`. See storage_mapping.md §3.3. The
-    !> attribute is attached as a group-level attribute on `grpid`
-    !> (NF90_GLOBAL is the netCDF varid that means "attach to the group
-    !> itself").
+    !> `<key>__preserf_type_id` (storage_mapping.md §3.3). The attribute
+    !> is attached as a group-level attribute on `grpid` — NF90_GLOBAL
+    !> is the netCDF varid that means "attach to the group itself".
     !>
-    !> Exactly one of i32_val / i64_val / r32_val / r64_val / s_val must
-    !> be supplied, matching `nc_type`.
+    !> Exactly one of i8_val / i32_val / i64_val / r32_val / r64_val /
+    !> s_val must be supplied, matching `nc_type`. The kind of the
+    !> Fortran argument passed to `nf90_put_att` controls the on-disk
+    !> netCDF attribute type, which is why each Serialbox TypeID gets
+    !> its own kind-correct path here:
+    !>
+    !>   * Boolean → int8           → NC_BYTE
+    !>   * Int32   → int32          → NC_INT
+    !>   * Int64   → int64          → NC_INT64
+    !>   * Float32 → real32         → NC_FLOAT
+    !>   * Float64 → real64         → NC_DOUBLE
+    !>   * String  → character(*)   → NC_CHAR  (see note below)
+    !>
+    !> The netcdf-fortran 4.5.x F90 wrapper writes `character(*)` as
+    !> NC_CHAR rather than NC_STRING; storage_mapping.md §1 documents
+    !> this asymmetry with the Python writer (which produces NC_STRING).
+    !> Both round-trip losslessly because the `__preserf_type_id` shadow
+    !> attribute is the source of truth for the typed-value contract.
     subroutine put_typed_scalar_attr(grpid, key, nc_type, &
-                                     tid, i32_val, i64_val, r32_val, r64_val, &
-                                     s_val)
+                                     tid, i8_val, i32_val, i64_val, &
+                                     r32_val, r64_val, s_val)
         integer, intent(in) :: grpid
         character(len=*), intent(in) :: key
         integer, intent(in) :: nc_type
         integer(int32), intent(in) :: tid
+        integer(int8),  intent(in), optional :: i8_val
         integer(int32), intent(in), optional :: i32_val
         integer(int64), intent(in), optional :: i64_val
         real(real32),   intent(in), optional :: r32_val
@@ -522,8 +560,12 @@ contains
         integer :: ncerr
         character(len=:), allocatable :: shadow
 
+        if (serialisation_enabled == 0) return
+
         select case (nc_type)
-        case (NF90_BYTE, NF90_INT)
+        case (NF90_BYTE)
+            ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, i8_val)
+        case (NF90_INT)
             ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, i32_val)
         case (NF90_INT64)
             ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, i64_val)
@@ -532,6 +574,9 @@ contains
         case (NF90_DOUBLE)
             ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, r64_val)
         case (NF90_STRING)
+            ! See block comment above — this lands as NC_CHAR on disk
+            ! under netcdf-fortran 4.5.x. Documented in
+            ! storage_mapping.md §1.
             ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, trim(s_val))
         case default
             write (*, '(a,i0)') 'preserf: unsupported nc_type ', nc_type
