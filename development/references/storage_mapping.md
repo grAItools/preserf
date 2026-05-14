@@ -38,18 +38,21 @@ The eight Serialbox `TypeID` values (`src/serialbox/core/Type.h:55-74`) are:
 | 3      | Int64    | `NF90_INT64`        |                                |
 | 4      | Float32  | `NF90_FLOAT`        |                                |
 | 5      | Float64  | `NF90_DOUBLE`       |                                |
-| 6      | String   | `NF90_STRING` or `NF90_CHAR` | see note          |
+| 6      | String   | `NF90_CHAR` (scalar) / `NF90_STRING` (vector) | see note |
 | array  | of above | vector attribute    | netCDF attrs are natively vectors |
 
-> **Note on String storage.** Python writers using `netCDF4.Dataset.setncattr`
-> emit `NC_STRING` for `str` values. The netcdf-fortran 4.5.x F90 wrapper
-> emits `NC_CHAR` when `nf90_put_att` is given a `character(len=*)`
-> argument. Both encodings round-trip losslessly through preserf's
-> `__preserf_type_id` shadow attribute, which is the schema's source of
-> truth for the typed-value contract. A reader MUST decode based on the
-> shadow tag (TypeID 6 → string), not on the on-disk netCDF type, and
-> MUST accept either `NC_STRING` or `NC_CHAR` for string-tagged
-> attributes.
+> **Note on String storage.** Scalar string metainfo lands on disk as
+> `NC_CHAR` from both reference writers: Python's
+> `netCDF4.Dataset.setncattr(key, str)` calls `nc_put_att_text` and
+> produces `NC_CHAR`; the Fortran helper's
+> `nf90_put_att(grpid, varid, key, character(*))` does the same. Array
+> string metainfo is `NC_STRING` from the Python writer
+> (`setncattr(key, list[str])`) — the Fortran helper doesn't support
+> array string metainfo in v0.1.
+>
+> Readers MUST decode based on the `__preserf_type_id` shadow tag
+> (TypeID 6 → string), not on the on-disk netCDF type, and MUST accept
+> either `NC_CHAR` or `NC_STRING` for any string-tagged attribute.
 
 ### 1.1 Axis ordering convention
 
@@ -102,14 +105,15 @@ Two kinds of root attributes are written:
 
 | Attribute name             | Type       | Value                                            |
 |----------------------------|------------|--------------------------------------------------|
-| `_preserf_schema_version`  | `NF90_INT` | `1` (this document's schema version)             |
-| `_preserf_serialbox_prefix`| `NF90_STRING` *or* `NF90_CHAR` | the `prefix` argument from `ppser_initialize` |
-| `_preserf_savepoint_count` | `NF90_INT` | number of savepoint subgroups under `/savepoints` |
-| `_preserf_writer`          | `NF90_STRING` *or* `NF90_CHAR` | `"preserf <version>"`                          |
+| `_preserf_schema_version`  | `NF90_INT`    | `1` (this document's schema version)             |
+| `_preserf_serialbox_prefix`| `NF90_CHAR`   | the `prefix` argument from `ppser_initialize`    |
+| `_preserf_savepoint_count` | `NF90_INT`    | number of savepoint subgroups under `/savepoints` |
+| `_preserf_writer`          | `NF90_CHAR`   | `"preserf <version>"`                            |
 
-The two string-typed housekeeping attributes inherit the same writer
-asymmetry as String metainfo (§1): Python writes `NF90_STRING`,
-Fortran's F90 wrapper writes `NF90_CHAR`. Readers MUST accept either.
+Both reference writers (Python `netCDF4` and Fortran `netcdf-fortran`)
+produce `NC_CHAR` for scalar string attributes (§1). For maximum
+forward compatibility, readers SHOULD also accept `NC_STRING` on these
+housekeeping attributes if a future writer chooses to emit it.
 
 Reading code MUST ignore any `_preserf_*` attribute it does not recognise.
 
@@ -196,11 +200,10 @@ unless a more specific naming convention is configured (future work — see
   the field is a forwards-incompatible schema change (would require bumping
   `_preserf_schema_version`).
 * The savepoint's **Serialbox `name`** is stored as the `name` attribute
-  of the group (`NF90_STRING` from Python writers, or `NF90_CHAR` from
-  Fortran writers — same asymmetry as the housekeeping strings in §3.1
-  and String metainfo in §1; readers MUST accept either). It is *not*
-  used as the group identifier because Serialbox permits multiple
-  savepoints to share a `name` (they are disambiguated by metainfo).
+  of the group (`NF90_CHAR`; both reference writers produce `NC_CHAR`
+  for scalar strings — see §1). It is *not* used as the group
+  identifier because Serialbox permits multiple savepoints to share a
+  `name` (they are disambiguated by metainfo).
 * Each Serialbox metainfo key on the savepoint becomes one group attribute,
   typed per §1. The reserved-namespace rule from §3.2 applies.
 

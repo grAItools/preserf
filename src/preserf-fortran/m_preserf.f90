@@ -720,13 +720,15 @@ contains
     !>   * Int64   → int64          → NC_INT64
     !>   * Float32 → real32         → NC_FLOAT
     !>   * Float64 → real64         → NC_DOUBLE
-    !>   * String  → character(*)   → NC_CHAR  (see note below)
+    !>   * String  → character(*)   → NC_CHAR
     !>
-    !> The netcdf-fortran 4.5.x F90 wrapper writes `character(*)` as
-    !> NC_CHAR rather than NC_STRING; storage_mapping.md §1 documents
-    !> this asymmetry with the Python writer (which produces NC_STRING).
-    !> Both round-trip losslessly because the `__preserf_type_id` shadow
-    !> attribute is the source of truth for the typed-value contract.
+    !> Both reference writers (Python `netCDF4.Dataset.setncattr` and
+    !> the netcdf-fortran F90 `nf90_put_att` with a `character(*)`
+    !> argument) produce NC_CHAR for scalar string attributes — see
+    !> storage_mapping.md §1. The `__preserf_type_id` shadow attribute
+    !> is still the schema's source of truth for the typed-value
+    !> contract; readers MUST decode through it rather than the on-disk
+    !> netCDF type.
     subroutine put_typed_scalar_attr(grpid, key, nc_type, &
                                      tid, i8_val, i32_val, i64_val, &
                                      r32_val, r64_val, s_val, &
@@ -777,7 +779,9 @@ contains
             ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, r64_val)
         case (NF90_STRING)
             ! See block comment above — this lands as NC_CHAR on disk
-            ! under netcdf-fortran 4.5.x. Documented in
+            ! (the F90 wrapper calls nc_put_att_text under the hood).
+            ! The Python reference writer also produces NC_CHAR for
+            ! scalar string attributes; documented in
             ! storage_mapping.md §1.
             !
             ! NOTE: pass s_val through *without* trim() so trailing

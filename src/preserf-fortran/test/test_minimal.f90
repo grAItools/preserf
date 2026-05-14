@@ -1,11 +1,18 @@
 !> Minimal end-to-end exercise of the preserf Fortran helper API.
 !>
-!> Writes one savepoint with a single 3-D real(real64) field plus a
-!> selection of serializer / savepoint metainfo entries, then re-opens
-!> the store and reads the field back.
+!> Registers three `real(real64)` fields covering the 1-D / 2-D / 3-D
+!> `fs_write_field` / `fs_read_field` overloads (`v(5)`, `w(3,4)`,
+!> `u(4,3,2)`), with non-zero halos on `u` to exercise the `put_halo_attr`
+!> path. Writes a serializer-level metainfo mix that covers every
+!> scalar overload (String, Int32, Boolean, Int64, Float32) plus a
+!> savepoint with Int32 + Float64 metainfo. Then re-opens the store
+!> read-only and reads all three fields back to verify lossless
+!> round-trip.
 !>
 !> The Python test in tests/test_fortran_minimal.py runs this binary
-!> and validates the resulting store via tests/_storage.py.
+!> and additionally validates the on-disk attribute and variable types
+!> directly via netCDF4 (so the kind-specific `nf90_put_att` branches
+!> are protected against on-disk type regressions).
 program test_minimal
     use, intrinsic :: iso_fortran_env, only: int32, int64, real32, real64
     use utils_preserf
@@ -100,9 +107,14 @@ program test_minimal
     call fs_add_serializer_metainfo(ppser_serializer, &
                                     'tolerance32', 1.0e-3_real32)
 
+    ! Non-zero halos on u exercise the put_halo_attr path; the helper
+    ! emits each non-zero halo as a named attribute on the registry
+    ! variable. Only the halos for the active rank get written
+    ! (storage_mapping.md §4): iminushalo, iplushalo for axis i;
+    ! jminushalo, jplushalo for axis j; kminushalo, kplushalo for k.
     call fs_register_field(ppser_serializer, 'u', 'double', ppser_reallength, &
                            ni, nj, nk, 0, &
-                           0, 0, 0, 0, 0, 0, 0, 0)
+                           1, 2, 3, 4, 0, 5, 0, 0)
     call fs_register_field(ppser_serializer, 'v', 'double', ppser_reallength, &
                            nv, 0, 0, 0, &
                            0, 0, 0, 0, 0, 0, 0, 0)

@@ -80,6 +80,18 @@ implementation. These are tracked as follow-up PRs:
    `fs_read_field(..., perturb)` overloads exist so generated source
    compiles, but they `error stop` at runtime since the perturbation
    algorithm itself is not yet implemented.
+
+   Additionally, the read overloads validate the registry on the
+   `s` serializer (via `s%fields_grpid`) but pull the data variable
+   from `sp%grpid`, the savepoint group created by
+   `fs_create_savepoint`. pp_ser-generated read DATA branches call
+   `fs_read_field(ppser_serializer_ref, ppser_savepoint, ...)` where
+   `ppser_savepoint` lives in `ppser_serializer` rather than
+   `ppser_serializer_ref` — so an explicit reference store would
+   validate against one file and read from another. This is one of
+   the cases the create-or-resolve-and-validate refactor needs to
+   address (savepoints would carry per-serializer grpids, or the
+   read path would re-resolve the savepoint under `s` first).
 2. **`ppser_initialize` keyword surface is narrow.** v0.1 takes
    `directory`, `prefix`, `mode` (plus optional `directory_ref`,
    `prefix_ref`). Serialbox's `ppser_initialize` accepts additional

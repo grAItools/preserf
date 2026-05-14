@@ -96,13 +96,73 @@ def test_fortran_writes_python_reads(tmp_path: Path, fortran_binary: Path) -> No
 
     raw = netCDF4.Dataset(str(nc_path), "r")
     try:
-        assert raw.getncattr("_preserf_schema_version") == 1
+        # Root housekeeping attributes + their on-disk netCDF types.
+        # `_preserf_schema_version` and `_preserf_savepoint_count` must
+        # be 32-bit ints (NC_INT) regardless of the Fortran default
+        # integer kind; the writer casts to integer(int32) explicitly.
+        # netCDF4-python doesn't expose attribute nc_type directly,
+        # but `getncattr` returns numpy scalars whose dtype reflects
+        # the on-disk type for non-string attrs (np.int32 ↔ NC_INT,
+        # np.int64 ↔ NC_INT64, np.int8 ↔ NC_BYTE, etc.).
+        v = raw.getncattr("_preserf_schema_version")
+        assert v == 1 and v.dtype == np.dtype("int32"), (
+            f"_preserf_schema_version on disk is {v.dtype}, expected int32"
+        )
         assert raw.getncattr("_preserf_serialbox_prefix") == "fhello"
-        # `_preserf_savepoint_count` is refreshed in preserf_close_serializer;
-        # the test writes exactly one savepoint and expects that to be reflected.
-        assert raw.getncattr("_preserf_savepoint_count") == 1
+        # _preserf_savepoint_count is refreshed in preserf_close_serializer;
+        # the test writes exactly one savepoint and expects that to be
+        # reflected. Must also be NC_INT (int32) so cross-language
+        # readers don't see a different type from a Python-written store.
+        cnt = raw.getncattr("_preserf_savepoint_count")
+        assert cnt == 1 and cnt.dtype == np.dtype("int32")
         writer = raw.getncattr("_preserf_writer")
         assert isinstance(writer, str) and writer.startswith("preserf ")
+
+        # Wire-level on-disk type assertions for the metainfo overloads.
+        # `read_dump()` decodes via the __preserf_type_id shadow tag and
+        # casts to the registry dtype, so a wrong on-disk type would
+        # still survive that path. The direct dtype check below catches
+        # regressions in the kind-specific nf90_put_att branches.
+        assert raw.getncattr("use_gpu").dtype == np.dtype("int8"), \
+            "use_gpu must be NF90_BYTE (int8)"
+        assert raw.getncattr("schema_version").dtype == np.dtype("int32"), \
+            "schema_version must be NF90_INT (int32)"
+        assert raw.getncattr("wallclock_ns").dtype == np.dtype("int64"), \
+            "wallclock_ns must be NF90_INT64 (int64)"
+        assert raw.getncattr("tolerance32").dtype == np.dtype("float32"), \
+            "tolerance32 must be NF90_FLOAT (float32)"
+
+        # /_fields registry variables: type_id + dims attributes on the
+        # dummy scalar carrier. Also verify the registry variable
+        # itself is NC_INT (the schema's "dummy scalar" sentinel).
+        fields_grp = raw.groups["_fields"]
+        for fname in ("u", "v", "w"):
+            assert fields_grp.variables[fname].dtype == np.dtype("int32"), \
+                f"/_fields/{fname} carrier must be NF90_INT"
+            assert fields_grp.variables[fname].getncattr("type_id") == 5
+        # Halo round-trip for `u` (jSize halos = 3 and 4 etc.); confirms
+        # put_halo_attr actually wrote them.
+        u_reg = fields_grp.variables["u"]
+        assert int(u_reg.getncattr("iminushalo")) == 1
+        assert int(u_reg.getncattr("iplushalo")) == 2
+        assert int(u_reg.getncattr("jminushalo")) == 3
+        assert int(u_reg.getncattr("jplushalo")) == 4
+        # kminushalo is 0 → should NOT be present (storage_mapping.md §4
+        # specifies halos are optional and only emitted when non-zero).
+        assert "kminushalo" not in u_reg.ncattrs()
+        assert int(u_reg.getncattr("kplushalo")) == 5
+
+        # /savepoints/sp_000000 housekeeping: _preserf_savepoint_index
+        # is read by read_dump() but discarded, so test it here directly.
+        sp_grp = raw.groups["savepoints"].groups["sp_000000"]
+        assert int(sp_grp.getncattr("_preserf_savepoint_index")) == 0
+
+        # Per-savepoint field variable types: each `u`/`v`/`w` data
+        # variable must be on-disk NF90_DOUBLE.
+        for fname in ("u", "v", "w"):
+            assert sp_grp.variables[fname].dtype == np.dtype("float64"), (
+                f"savepoint/{fname} variable must be NF90_DOUBLE"
+            )
     finally:
         raw.close()
 
