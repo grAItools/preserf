@@ -630,6 +630,19 @@ contains
         integer(int32), allocatable :: d(:)
         integer :: rank
 
+        ! Reject any negative size up front — both "active" and trailing
+        ! positions must be >= 0. Without this check, a negative trailing
+        ! size like (iSize=4, jSize=-3, kSize=0, lSize=0) is silently
+        ! treated as a 1-D field (because the `> 0` rank check skips
+        ! jSize=-3), hiding a clearly bad REGISTER tuple.
+        if (iSize < 0 .or. jSize < 0 .or. kSize < 0 .or. lSize < 0) then
+            write (*, '(a,4(i0,a))') &
+                'preserf: invalid dim tuple (', &
+                iSize, ',', jSize, ',', kSize, ',', lSize, &
+                '); negative sizes are not allowed'
+            error stop 1
+        end if
+
         ! Reject non-contiguous prefixes up front.
         if (jSize > 0 .and. iSize <= 0) call active_dims_inconsistent( &
             iSize, jSize, kSize, lSize)
@@ -638,10 +651,9 @@ contains
         if (lSize > 0 .and. kSize <= 0) call active_dims_inconsistent( &
             iSize, jSize, kSize, lSize)
 
-        ! At least iSize must be strictly positive — a (0,0,0,0) or
-        ! negative-iSize tuple would otherwise produce a rank-0 dims
-        ! attribute, but the helper API doesn't support 0-D fields and
-        ! a negative size has no defined meaning here.
+        ! At least iSize must be strictly positive — a (0,0,0,0) tuple
+        ! would otherwise produce a rank-0 dims attribute, but the
+        ! helper API doesn't support 0-D fields.
         if (iSize <= 0) then
             write (*, '(a,4(i0,a))') &
                 'preserf: invalid dim tuple (', &

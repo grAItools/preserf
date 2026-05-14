@@ -121,15 +121,26 @@ def test_fortran_writes_python_reads(tmp_path: Path, fortran_binary: Path) -> No
     # carries TypeID.Boolean (=1), and the underlying value round-trips.
     assert dump.global_meta_info["use_gpu"].type_id == TypeID.Boolean
     assert dump.global_meta_info["use_gpu"].value is True
+    # Int64 and Float32 metainfo branches.
+    assert dump.global_meta_info["wallclock_ns"].type_id == TypeID.Int64
+    assert dump.global_meta_info["wallclock_ns"].value == 1_700_000_000_000_000_000
+    assert dump.global_meta_info["tolerance32"].type_id == TypeID.Float32
+    assert dump.global_meta_info["tolerance32"].value == pytest.approx(1e-3, rel=1e-6)
 
-    # Field registry: u, Float64. Fortran registered (iSize=4, jSize=3,
-    # kSize=2); the helper reverses to C-order, so dims == [2, 3, 4].
-    assert set(dump.field_map.keys()) == {"u"}
-    u_info = dump.field_map["u"]
-    assert u_info.type_id == TypeID.Float64
-    assert u_info.dims == [2, 3, 4]
+    # Field registry: three fields covering all three real64 overloads.
+    # The helper reverses Fortran-order sizes to C-order, so:
+    #   u (Fortran iSize=4, jSize=3, kSize=2) → dims == [2, 3, 4]
+    #   v (1-D, iSize=5)                       → dims == [5]
+    #   w (2-D, iSize=3, jSize=4)              → dims == [4, 3]
+    assert set(dump.field_map.keys()) == {"u", "v", "w"}
+    assert dump.field_map["u"].type_id == TypeID.Float64
+    assert dump.field_map["u"].dims == [2, 3, 4]
+    assert dump.field_map["v"].type_id == TypeID.Float64
+    assert dump.field_map["v"].dims == [5]
+    assert dump.field_map["w"].type_id == TypeID.Float64
+    assert dump.field_map["w"].dims == [4, 3]
 
-    # One savepoint named "step" with two metainfo entries
+    # One savepoint named "step" with two metainfo entries and three fields.
     assert len(dump.savepoints) == 1
     sp = dump.savepoints[0]
     assert sp.name == "step"
@@ -137,18 +148,34 @@ def test_fortran_writes_python_reads(tmp_path: Path, fortran_binary: Path) -> No
     assert sp.meta_info["ntstep"].value == 1
     assert sp.meta_info["t"].type_id == TypeID.Float64
     assert sp.meta_info["t"].value == 0.5
-    assert sp.fields == {"u": 0}
+    assert set(sp.fields.keys()) == {"u", "v", "w"}
 
-    # Field data round-trip. The Fortran test sets u(i,j,k) = 100*i + 10*j + k
-    # (Fortran indexing). After axis reversal the Python view has shape
-    # (nk, nj, ni) = (2, 3, 4), and Fortran's u(i,j,k) lands at numpy
-    # u_py[k-1, j-1, i-1].
+    # 3-D field round-trip. Fortran u(i,j,k) = 100*i + 10*j + k.
+    # After axis reversal the Python view has shape (nk, nj, ni) =
+    # (2, 3, 4), and Fortran's u(i,j,k) lands at numpy u_py[k-1, j-1, i-1].
     u_py = dump.field_data["u"][0]
     assert u_py.shape == (2, 3, 4)
     assert u_py.dtype == np.float64
-    # Spot-check the corners and a couple of interior cells.
     assert u_py[0, 0, 0] == 111  # Fortran u(1,1,1)
     assert u_py[0, 0, 3] == 411  # Fortran u(4,1,1)
     assert u_py[0, 2, 0] == 131  # Fortran u(1,3,1)
     assert u_py[1, 0, 0] == 112  # Fortran u(1,1,2)
     assert u_py[1, 2, 3] == 432  # Fortran u(4,3,2)
+
+    # 1-D field round-trip. v is rank-1 so the C-order/Fortran-order
+    # reversal is a no-op.
+    v_py = dump.field_data["v"][0]
+    assert v_py.shape == (5,)
+    assert v_py.dtype == np.float64
+    np.testing.assert_array_equal(v_py, np.arange(1, 6, dtype=np.float64))
+
+    # 2-D field round-trip. Fortran w(i,j) = 10*i + j, registered as
+    # iSize=3, jSize=4. C-order shape is (4, 3) and Fortran w(i,j)
+    # lands at numpy w_py[j-1, i-1].
+    w_py = dump.field_data["w"][0]
+    assert w_py.shape == (4, 3)
+    assert w_py.dtype == np.float64
+    assert w_py[0, 0] == 11  # Fortran w(1,1)
+    assert w_py[0, 2] == 31  # Fortran w(3,1)
+    assert w_py[3, 0] == 14  # Fortran w(1,4)
+    assert w_py[3, 2] == 34  # Fortran w(3,4)

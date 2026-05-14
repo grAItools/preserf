@@ -99,6 +99,18 @@ contains
     !> serializer) by opening a netCDF / NCZarr dataset under `directory`
     !> with name `prefix`.
     !>
+    !> **Precondition:** `directory` MUST already exist on disk. The
+    !> helper calls `nf90_create(directory//'/'//prefix//'.nc', ...)`
+    !> directly and does not create parent directories — `nf90_create`
+    !> aborts with `NF90_ENFILE` if the parent doesn't exist. The Python
+    !> reference writer in `tests/_storage.py` creates the directory
+    !> with `mkdir(parents=True, exist_ok=True)`; Fortran callers are
+    !> responsible for an equivalent step before calling
+    !> `ppser_initialize`. The CTest target preserf-fortran's
+    !> `fortran_minimal_setup` runs `cmake -E make_directory` for this
+    !> reason; tests/test_fortran_minimal.py uses pytest's `tmp_path`
+    !> fixture.
+    !>
     !> `mode` is one of: 'w' (write, create or truncate), 'r' (read-only).
     !> Append mode ('a') is reserved but currently rejected — see
     !> src/preserf-fortran/README.md follow-ups.
@@ -111,6 +123,11 @@ contains
     !>     so pp_ser-generated DATA branches that use
     !>     `fs_read_field(ppser_serializer_ref, ...)` work without
     !>     further setup.
+    !>
+    !> When `directory_ref`/`prefix_ref` are supplied, the reference
+    !> store is opened *before* the main store, so a wrong reference
+    !> path aborts cleanly without truncating an existing target file
+    !> in write mode.
     subroutine ppser_initialize(directory, prefix, mode, &
                                 directory_ref, prefix_ref)
         character(len=*), intent(in) :: directory
@@ -128,21 +145,32 @@ contains
             error stop 1
         end if
 
-        call preserf_open_serializer(ppser_serializer, directory, prefix, mode)
-
+        ! Open the read-only reference store FIRST when an explicit
+        ! `directory_ref`/`prefix_ref` pair is supplied. In write or
+        ! append mode the main `nf90_create` truncates the target file
+        ! on success, so a wrong reference path discovered after the
+        ! main open would have already destroyed the user's data. By
+        ! opening the reference first, a bad reference path aborts
+        ! cleanly without touching the writable target.
         if (present(directory_ref) .and. present(prefix_ref)) then
             call preserf_open_serializer(ppser_serializer_ref, &
                                          directory_ref, prefix_ref, 'r')
-        else if (mode == 'r' .or. mode == 'R') then
-            ! pp_ser-generated read/read-perturb DATA branches call
-            ! `fs_read_field(ppser_serializer_ref, ...)`. In a plain
-            ! read-mode init without explicit reference args, point the
-            ! ref serializer at the same store so those branches just
-            ! work. Both serializers open their own netCDF handle to
-            ! the same on-disk file (HDF5 allows multiple read-only
-            ! opens).
-            call preserf_open_serializer(ppser_serializer_ref, &
-                                         directory, prefix, 'r')
+        end if
+
+        call preserf_open_serializer(ppser_serializer, directory, prefix, mode)
+
+        if (.not. (present(directory_ref) .and. present(prefix_ref))) then
+            if (mode == 'r' .or. mode == 'R') then
+                ! pp_ser-generated read/read-perturb DATA branches call
+                ! `fs_read_field(ppser_serializer_ref, ...)`. In a plain
+                ! read-mode init without explicit reference args, point
+                ! the ref serializer at the same store so those branches
+                ! just work. Both serializers open their own netCDF
+                ! handle to the same on-disk file (HDF5 allows multiple
+                ! read-only opens).
+                call preserf_open_serializer(ppser_serializer_ref, &
+                                             directory, prefix, 'r')
+            end if
         end if
     end subroutine ppser_initialize
 
