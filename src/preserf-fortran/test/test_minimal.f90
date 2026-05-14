@@ -15,8 +15,15 @@
 !> are protected against on-disk type regressions).
 program test_minimal
     use, intrinsic :: iso_fortran_env, only: int32, int64, real32, real64
-    use utils_preserf
-    use m_preserf
+    ! Deliberately import the alias module names rather than the real
+    ! ones (utils_preserf, m_preserf). pp_ser-generated source uses
+    ! `USE m_serialize` / `USE utils_ppser`, so wiring the integration
+    ! test through the same names protects the re-export path against
+    ! regressions (a removed/renamed public symbol that breaks the
+    ! aliases will fail this test instead of silently slipping
+    ! through).
+    use utils_ppser
+    use m_serialize
     implicit none
 
     character(len=:), allocatable :: out_dir

@@ -51,8 +51,13 @@ The eight Serialbox `TypeID` values (`src/serialbox/core/Type.h:55-74`) are:
 > array string metainfo in v0.1.
 >
 > Readers MUST decode based on the `__preserf_type_id` shadow tag
-> (TypeID 6 → string), not on the on-disk netCDF type, and MUST accept
-> either `NC_CHAR` or `NC_STRING` for any string-tagged attribute.
+> (TypeID 6 → string), not on the on-disk netCDF type. For
+> **scalar** string-tagged attributes, readers MUST accept either
+> `NC_CHAR` or `NC_STRING`. For **array** string-tagged attributes
+> (TypeID = `0x10 | 6 = 22`), the on-disk encoding is always
+> `NC_STRING` (a vector attribute) — `NC_CHAR` has no shape rule
+> that round-trips a vector of strings, so writers MUST NOT use
+> `NC_CHAR` for that case.
 
 ### 1.1 Axis ordering convention
 

@@ -698,6 +698,15 @@ contains
         integer, intent(in) :: value
         integer :: ncerr
         integer(int32) :: v
+        ! Halos describe a physical extent (number of ghost cells on
+        ! one side of an axis). Reject negative values rather than
+        ! writing nonsensical metadata that readers would round-trip
+        ! without complaint.
+        if (value < 0) then
+            write (*, '(a,a,a,i0)') &
+                'preserf: negative halo extent for "', name, '": ', value
+            error stop 1
+        end if
         if (value == 0) return
         v = int(value, int32)
         ncerr = nf90_put_att(grpid, varid, name, v)
