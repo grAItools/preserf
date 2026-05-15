@@ -25,11 +25,11 @@ endif()
 add_test(
     NAME fortran_minimal_setup
     COMMAND ${CMAKE_COMMAND} -E make_directory
-            "${CMAKE_BINARY_DIR}/test-output"
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output"
 )
 add_test(
     NAME fortran_minimal
-    COMMAND $<TARGET_FILE:test_minimal> "${CMAKE_BINARY_DIR}/test-output"
+    COMMAND $<TARGET_FILE:test_minimal> "${CMAKE_CURRENT_BINARY_DIR}/test-output"
 )
 set_tests_properties(fortran_minimal PROPERTIES
     DEPENDS fortran_minimal_setup

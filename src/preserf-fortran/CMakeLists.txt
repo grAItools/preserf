@@ -25,12 +25,12 @@ add_library(preserf_fortran)
 # `utils_preserf.f90` consumes when writing `_preserf_writer`.
 configure_file(
     preserf_version.f90.in
-    ${CMAKE_BINARY_DIR}/generated/preserf_version.f90
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/preserf_version.f90
     @ONLY
 )
 
 target_sources(preserf_fortran PRIVATE
-    ${CMAKE_BINARY_DIR}/generated/preserf_version.f90
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/preserf_version.f90
     utils_preserf.f90
     m_preserf.f90
     # Drop-in re-exports of the names Serialbox / pp_ser historically use.
@@ -45,13 +45,13 @@ target_sources(preserf_fortran PRIVATE
 # CMake (3.28) does NOT translate it for gfortran, so we also
 # explicitly add `-std=f2008` in the GNU block below as a fall-back.
 set_target_properties(preserf_fortran PROPERTIES
-    Fortran_MODULE_DIRECTORY ${CMAKE_BINARY_DIR}/modules
+    Fortran_MODULE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/modules
     POSITION_INDEPENDENT_CODE ON
     Fortran_STANDARD 2008
     Fortran_STANDARD_REQUIRED ON
 )
 target_include_directories(preserf_fortran PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/modules>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/modules>
 )
 
 target_link_libraries(preserf_fortran PUBLIC PkgConfig::NETCDF_FORTRAN)
