@@ -103,7 +103,11 @@ program test_minimal
 
     ! ---------------- write phase ----------------
     call ppser_initialize(out_dir, 'fhello', 'w')
-    call ppser_set_mode(0)
+    ! ppser_initialize sets ppser_mode_state from the open mode
+    ! (`'w'` → 0), so pp_ser-generated SELECT CASE (ppser_get_mode())
+    ! blocks pick the write branch by default. Verify the contract.
+    if (ppser_get_mode() /= 0) error stop &
+        'ppser_initialize(..., "w") should default mode to 0'
 
     call fs_add_serializer_metainfo(ppser_serializer, 'author', 'fortran-test')
     call fs_add_serializer_metainfo(ppser_serializer, 'schema_version', 7_int32)
@@ -165,7 +169,10 @@ program test_minimal
 
     ! ---------------- read phase ----------------
     call ppser_initialize(out_dir, 'fhello', 'r')
-    call ppser_set_mode(1)
+    ! And `'r'` → 1, so pp_ser DATA blocks pick the read branch
+    ! without an explicit ppser_set_mode call.
+    if (ppser_get_mode() /= 1) error stop &
+        'ppser_initialize(..., "r") should default mode to 1'
     ! In a real pp_ser flow ppser_savepoint would be populated by
     ! fs_create_savepoint on the reference serializer. For this minimal
     ! exercise we look up the savepoint group directly by name.

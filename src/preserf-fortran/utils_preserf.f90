@@ -173,6 +173,21 @@ contains
                                              directory, prefix, 'r')
             end if
         end if
+
+        ! Default the runtime DATA mode to match the open mode, so
+        ! pp_ser-generated `SELECT CASE (ppser_get_mode())` blocks
+        ! take the matching branch out of the box: 'w' → 0 (write),
+        ! 'r' → 1 (read). Callers that want read-perturb (mode 2) or
+        ! some other override still need to call `ppser_set_mode(...)`
+        ! explicitly. Without this default, a read-only init would
+        ! leave the mode at 0 and a generated DATA block would attempt
+        ! to write into the read-only store.
+        select case (mode)
+        case ('w', 'W')
+            ppser_mode_state = 0
+        case ('r', 'R')
+            ppser_mode_state = 1
+        end select
     end subroutine ppser_initialize
 
     !> Close the dataset(s) opened by ppser_initialize.
