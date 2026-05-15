@@ -182,7 +182,12 @@ Halo attributes are **optional** and may be partially present:
   zero halo and an absent halo carry the same "no ghost cells on this
   side" semantics, and emitting only non-zero halos keeps the on-disk
   metadata minimal. The preserf Fortran helper's `put_halo_attr`
-  follows this convention; the Python reference writer does too.
+  enforces this convention. (The Python reference writer in
+  `tests/_storage.py` currently does not emit halo attributes at
+  all — halos are only produced by Fortran writers that originate
+  from pp_ser `REGISTER` directives. A future translator that
+  promotes halos through the Python side will follow the same
+  zero-omission rule.)
 * **Readers** MUST treat any missing halo attribute as **absent**
   (equivalent to "no information"); they MUST NOT imply a default of
   `0`. Whether and how an absent halo translates into runtime

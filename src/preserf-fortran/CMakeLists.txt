@@ -39,12 +39,11 @@ target_sources(preserf_fortran PRIVATE
 )
 
 # Put .mod files where dependents can find them. Fortran_STANDARD /
-# Fortran_STANDARD_REQUIRED are CMake's compiler-portable way of
-# demanding Fortran 2008 — Intel ifort/ifx, NVIDIA nvfortran etc.
-# translate them to their own equivalent of `-std=f2008` / `-stand=f08`.
-# The previous GNU-only `-std=f2008` flag let non-GNU builds silently
-# compile with their default standard, which could mask code that
-# needs an F2008 feature.
+# Fortran_STANDARD_REQUIRED set the portable property for any
+# CMake/compiler combo that knows how to translate it (recent ifort/
+# ifx, nvfortran, future CMake-gfortran integrations) — current
+# CMake (3.28) does NOT translate it for gfortran, so we also
+# explicitly add `-std=f2008` in the GNU block below as a fall-back.
 set_target_properties(preserf_fortran PROPERTIES
     Fortran_MODULE_DIRECTORY ${CMAKE_BINARY_DIR}/modules
     POSITION_INDEPENDENT_CODE ON
@@ -57,10 +56,12 @@ target_include_directories(preserf_fortran PUBLIC
 
 target_link_libraries(preserf_fortran PUBLIC PkgConfig::NETCDF_FORTRAN)
 
-# Reasonable warnings for gfortran.
+# Warnings + explicit F2008 standard for gfortran (the
+# Fortran_STANDARD property above is a no-op for gfortran in
+# CMake 3.28; this is the working enforcement).
 if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
     target_compile_options(preserf_fortran PRIVATE
-        -Wall -Wextra -fimplicit-none
+        -Wall -Wextra -fimplicit-none -std=f2008
     )
 endif()
 
