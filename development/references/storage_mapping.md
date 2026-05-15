@@ -176,23 +176,31 @@ Attributes:
 | `lplushalo`      | `NF90_INT`        | no   | "                                                |
 | user metainfo    | typed             | no   | any extra `key=value` set via the field's metainfo map; same naming rules as §3.2 |
 
-Halo attributes are **optional** and may be partially present:
+Halo attributes are **optional** — the schema does not assign any
+default semantics to an absent halo. The two ends of the wire have
+distinct, non-conflicting obligations:
 
-* **Writers** SHOULD omit any halo attribute whose value is zero — a
-  zero halo and an absent halo carry the same "no ghost cells on this
-  side" semantics, and emitting only non-zero halos keeps the on-disk
-  metadata minimal. The preserf Fortran helper's `put_halo_attr`
-  enforces this convention. (The Python reference writer in
-  `tests/_storage.py` currently does not emit halo attributes at
-  all — halos are only produced by Fortran writers that originate
-  from pp_ser `REGISTER` directives. A future translator that
-  promotes halos through the Python side will follow the same
-  zero-omission rule.)
+* **Writers** SHOULD omit any halo attribute whose value is zero,
+  purely as an on-disk-compactness convention: omitting zero-valued
+  halos avoids cluttering `/_fields/<name>` with a row of "0" entries.
+  The preserf Fortran helper's `put_halo_attr` follows this rule. A
+  writer MAY emit zero halos explicitly if it wants the metadata to
+  be unambiguous; this is conformant. (The Python reference writer
+  in `tests/_storage.py` doesn't emit halo attributes at all today —
+  halos are only produced by Fortran-side writes originating from
+  pp_ser `REGISTER` directives.)
 * **Readers** MUST treat any missing halo attribute as **absent**
-  (equivalent to "no information"); they MUST NOT imply a default of
-  `0`. Whether and how an absent halo translates into runtime
-  behaviour (e.g. a zero-halo assumption inside the Fortran caller)
-  is defined by the consumer, not by this storage schema.
+  (= "this writer did not record information about this halo")
+  rather than as an implicit `0`. Whether and how an absent halo
+  translates into runtime behaviour (e.g. a zero-halo assumption
+  inside the Fortran caller) is the consumer's policy, not part of
+  this storage schema.
+
+These two clauses do not contradict each other: writer compactness
+("zero omitted") and reader semantics ("absent ≠ 0 implicitly") are
+independent. A reader that needs to distinguish "writer recorded
+zero" from "writer didn't record" must inspect the attribute's
+presence and not assume a default.
 
 > The `bytes_per_element` attribute that the original `fs_register_field`
 > can carry is intentionally **not** part of the v1 schema yet — it would

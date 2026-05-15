@@ -141,6 +141,26 @@ program test_minimal
     call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u)
     call fs_write_field(ppser_serializer, ppser_savepoint, 'v', v)
     call fs_write_field(ppser_serializer, ppser_savepoint, 'w', w)
+
+    ! ---------------- ON / OFF gate exercise ----------------
+    ! Disable serialization, attempt fs_* operations that would
+    ! otherwise mutate the store, then re-enable. The Python pytest
+    ! verifies that nothing was written while disabled (no
+    ! `disabled_field` in /_fields, no `disabled_meta` attribute on
+    ! root).
+    if (.not. fs_serialization_status()) error stop &
+        'fs_serialization_status() should be .true. by default'
+    call fs_disable_serialization()
+    if (fs_serialization_status()) error stop &
+        'fs_serialization_status() should be .false. after fs_disable_serialization'
+    call fs_register_field(ppser_serializer, 'disabled_field', 'double', &
+                           ppser_reallength, 1, 0, 0, 0, &
+                           0, 0, 0, 0, 0, 0, 0, 0)
+    call fs_add_serializer_metainfo(ppser_serializer, 'disabled_meta', 42_int32)
+    call fs_enable_serialization()
+    if (.not. fs_serialization_status()) error stop &
+        'fs_serialization_status() should be .true. after fs_enable_serialization'
+
     call ppser_finalize()
 
     ! ---------------- read phase ----------------
@@ -162,6 +182,22 @@ program test_minimal
     call fs_read_field(ppser_serializer, ppser_savepoint, 'u', u_back)
     call fs_read_field(ppser_serializer, ppser_savepoint, 'v', v_back)
     call fs_read_field(ppser_serializer, ppser_savepoint, 'w', w_back)
+
+    ! Compile-only resolution check for the 5-argument fs_read_field
+    ! perturb form (pp_ser-generated CASE(2) branches). Wrapped in
+    ! `if (.false.)` so the runtime never reaches
+    ! `read_perturb_not_implemented`; the call existing in source is
+    ! enough to verify the generic interface continues to resolve the
+    ! 5-argument signature.
+    if (.false.) then
+        call fs_read_field(ppser_serializer, ppser_savepoint, 'u', &
+                           u_back, 1.0e-3_real64)
+        call fs_read_field(ppser_serializer, ppser_savepoint, 'v', &
+                           v_back, 1.0e-3_real64)
+        call fs_read_field(ppser_serializer, ppser_savepoint, 'w', &
+                           w_back, 1.0e-3_real64)
+    end if
+
     call ppser_finalize()
 
     maxdiff = max( &

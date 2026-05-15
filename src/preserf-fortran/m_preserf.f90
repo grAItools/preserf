@@ -129,7 +129,6 @@ contains
         integer :: ncerr, varid
         integer(int32) :: type_id, zero
         integer(int32), allocatable :: dims(:)
-        integer :: rank
 
         if (serialisation_enabled == 0) return
         if (s%fields_grpid == -1) then
@@ -144,7 +143,6 @@ contains
         ! Python / netCDF-C reader sees `dims[0]` as the leading numpy
         ! axis. See storage_mapping.md §1 + §4.
         dims = active_dims_c_order(iSize, jSize, kSize, lSize)
-        rank = size(dims)
         zero = 0_int32
 
         ! Create the dummy attribute-carrier scalar variable.
@@ -156,24 +154,21 @@ contains
         ncerr = nf90_put_att(s%fields_grpid, varid, 'dims', dims)
         call preserf_check_nf_with_msg(ncerr, 'put_att dims')
 
-        ! Emit only non-zero halos. storage_mapping.md §4 declares halos
-        ! optional; readers MUST treat absence as "no information".
-        if (rank >= 1) then
-            call put_halo_attr(s%fields_grpid, varid, 'iminushalo', iMinusHalo)
-            call put_halo_attr(s%fields_grpid, varid, 'iplushalo',  iPlusHalo)
-        end if
-        if (rank >= 2) then
-            call put_halo_attr(s%fields_grpid, varid, 'jminushalo', jMinusHalo)
-            call put_halo_attr(s%fields_grpid, varid, 'jplushalo',  jPlusHalo)
-        end if
-        if (rank >= 3) then
-            call put_halo_attr(s%fields_grpid, varid, 'kminushalo', kMinusHalo)
-            call put_halo_attr(s%fields_grpid, varid, 'kplushalo',  kPlusHalo)
-        end if
-        if (rank >= 4) then
-            call put_halo_attr(s%fields_grpid, varid, 'lminushalo', lMinusHalo)
-            call put_halo_attr(s%fields_grpid, varid, 'lplushalo',  lPlusHalo)
-        end if
+        ! Emit only non-zero halos (put_halo_attr skips zeros).
+        ! Halos are named by physical direction (i/j/k/l) rather than
+        ! storage axis, so a low-rank shortcut like `IK1` (rank-2
+        ! storage tuple (ie, ke1, 0, 0) plus kPlusHalo=1) still wants
+        ! its physical k-halo emitted. Do NOT gate halo emission by the
+        ! storage rank — emit every non-zero halo unconditionally and
+        ! let the writer convention (§4) handle the rest.
+        call put_halo_attr(s%fields_grpid, varid, 'iminushalo', iMinusHalo)
+        call put_halo_attr(s%fields_grpid, varid, 'iplushalo',  iPlusHalo)
+        call put_halo_attr(s%fields_grpid, varid, 'jminushalo', jMinusHalo)
+        call put_halo_attr(s%fields_grpid, varid, 'jplushalo',  jPlusHalo)
+        call put_halo_attr(s%fields_grpid, varid, 'kminushalo', kMinusHalo)
+        call put_halo_attr(s%fields_grpid, varid, 'kplushalo',  kPlusHalo)
+        call put_halo_attr(s%fields_grpid, varid, 'lminushalo', lMinusHalo)
+        call put_halo_attr(s%fields_grpid, varid, 'lplushalo',  lPlusHalo)
 
         ! Write the scalar value (0) so the variable has a representable payload.
         ncerr = nf90_put_var(s%fields_grpid, varid, zero)

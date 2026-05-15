@@ -140,6 +140,18 @@ def test_fortran_writes_python_reads(tmp_path: Path, fortran_binary: Path) -> No
             assert fields_grp.variables[fname].dtype == np.dtype("int32"), \
                 f"/_fields/{fname} carrier must be NF90_INT"
             assert fields_grp.variables[fname].getncattr("type_id") == 5
+        # ON / OFF gate must have produced no side effects: the
+        # fs_register_field call inside the disabled window targeted
+        # `disabled_field` and the fs_add_serializer_metainfo call
+        # targeted `disabled_meta`. Neither should appear on disk.
+        assert "disabled_field" not in fields_grp.variables, (
+            "fs_register_field was not a no-op while serialization was "
+            "disabled (`disabled_field` leaked into /_fields)"
+        )
+        assert "disabled_meta" not in raw.ncattrs(), (
+            "fs_add_serializer_metainfo was not a no-op while "
+            "serialization was disabled (`disabled_meta` leaked onto root)"
+        )
         # Halo round-trip for `u` (jSize halos = 3 and 4 etc.); confirms
         # put_halo_attr actually wrote them.
         u_reg = fields_grp.variables["u"]
