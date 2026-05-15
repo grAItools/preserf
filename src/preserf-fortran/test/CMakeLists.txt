@@ -16,4 +16,8 @@ add_test(
 set_tests_properties(fortran_minimal PROPERTIES
     DEPENDS fortran_minimal_setup
     PASS_REGULAR_EXPRESSION "preserf-fortran: hello-world OK"
+    # Match the 60-second cap the Python wrapper applies to the same
+    # binary in tests/test_fortran_minimal.py, so a netCDF/HDF5
+    # deadlock cannot block ctest indefinitely either.
+    TIMEOUT 60
 )

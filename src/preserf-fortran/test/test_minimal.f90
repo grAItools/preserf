@@ -37,7 +37,10 @@ program test_minimal
     integer, parameter :: nw_i = 3, nw_j = 4
     integer :: i, j, k
     real(real64) :: maxdiff
-    type(t_savepoint) :: sp
+    ! No local `sp` declaration: pp_ser-generated code uses the
+    ! module-level `ppser_savepoint` from utils_ppser, so exercising
+    ! the integration test through that handle protects the
+    ! default-arg branch of fs_create_savepoint against regressions.
 
     if (command_argument_count() < 1) then
         write (*, '(a)') 'usage: test_minimal <output_dir>'
@@ -129,12 +132,15 @@ program test_minimal
                            nw_i, nw_j, 0, 0, &
                            0, 0, 0, 0, 0, 0, 0, 0)
 
-    call fs_create_savepoint('step', sp, ppser_serializer)
-    call fs_add_savepoint_metainfo(sp, 'ntstep', 1_int32)
-    call fs_add_savepoint_metainfo(sp, 't', 0.5_real64)
-    call fs_write_field(ppser_serializer, sp, 'u', u)
-    call fs_write_field(ppser_serializer, sp, 'v', v)
-    call fs_write_field(ppser_serializer, sp, 'w', w)
+    ! Use the two-argument fs_create_savepoint form pp_ser actually
+    ! emits — relies on the default-serializer branch updating the
+    ! module-level ppser_savepoint via ppser_serializer.
+    call fs_create_savepoint('step', ppser_savepoint)
+    call fs_add_savepoint_metainfo(ppser_savepoint, 'ntstep', 1_int32)
+    call fs_add_savepoint_metainfo(ppser_savepoint, 't', 0.5_real64)
+    call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u)
+    call fs_write_field(ppser_serializer, ppser_savepoint, 'v', v)
+    call fs_write_field(ppser_serializer, ppser_savepoint, 'w', w)
     call ppser_finalize()
 
     ! ---------------- read phase ----------------
@@ -150,12 +156,12 @@ program test_minimal
         if (ncerr /= 0) error stop 'inq_ncid savepoints failed'
         ncerr = nf90_inq_ncid(sps_grpid, 'sp_000000', sp_grpid)
         if (ncerr /= 0) error stop 'inq_ncid sp_000000 failed'
-        sp%grpid = sp_grpid
-        sp%idx = 0
+        ppser_savepoint%grpid = sp_grpid
+        ppser_savepoint%idx = 0
     end block
-    call fs_read_field(ppser_serializer, sp, 'u', u_back)
-    call fs_read_field(ppser_serializer, sp, 'v', v_back)
-    call fs_read_field(ppser_serializer, sp, 'w', w_back)
+    call fs_read_field(ppser_serializer, ppser_savepoint, 'u', u_back)
+    call fs_read_field(ppser_serializer, ppser_savepoint, 'v', v_back)
+    call fs_read_field(ppser_serializer, ppser_savepoint, 'w', w_back)
     call ppser_finalize()
 
     maxdiff = max( &

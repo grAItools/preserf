@@ -91,8 +91,9 @@ contains
     end subroutine preserf_check_nf_with_msg
 
     function preserf_writer_version() result(s)
+        use preserf_version_mod, only: PRESERF_VERSION
         character(len=:), allocatable :: s
-        s = 'preserf 0.1.0'
+        s = 'preserf ' // PRESERF_VERSION
     end function preserf_writer_version
 
     !> Initialise the global serializer (and optionally a read-reference

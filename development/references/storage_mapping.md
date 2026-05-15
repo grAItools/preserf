@@ -176,12 +176,18 @@ Attributes:
 | `lplushalo`      | `NF90_INT`        | no   | "                                                |
 | user metainfo    | typed             | no   | any extra `key=value` set via the field's metainfo map; same naming rules as §3.2 |
 
-Halo attributes are **optional** and may be partially present: a writer
-emits only the halos that `pp_ser` (or the caller) actually provided.
-Readers MUST treat any missing halo attribute as **absent** rather than
-implying a default of `0`. Whether and how absent halos translate into
-runtime behaviour (e.g. zero-halo assumption inside the Fortran helper) is
-defined by the consumer, not by this storage schema.
+Halo attributes are **optional** and may be partially present:
+
+* **Writers** SHOULD omit any halo attribute whose value is zero — a
+  zero halo and an absent halo carry the same "no ghost cells on this
+  side" semantics, and emitting only non-zero halos keeps the on-disk
+  metadata minimal. The preserf Fortran helper's `put_halo_attr`
+  follows this convention; the Python reference writer does too.
+* **Readers** MUST treat any missing halo attribute as **absent**
+  (equivalent to "no information"); they MUST NOT imply a default of
+  `0`. Whether and how an absent halo translates into runtime
+  behaviour (e.g. a zero-halo assumption inside the Fortran caller)
+  is defined by the consumer, not by this storage schema.
 
 > The `bytes_per_element` attribute that the original `fs_register_field`
 > can carry is intentionally **not** part of the v1 schema yet — it would
@@ -293,8 +299,9 @@ Resulting NetCDF4 / NCZarr store:
   u                                     scalar NF90_INT, value 0
     attrs: type_id=5, dims=[ke,je,ie],   ! C-order, per §1.1
            iminushalo=nboundlines, iplushalo=nboundlines,
-           jminushalo=nboundlines, jplushalo=nboundlines,
-           kminushalo=0, kplushalo=0
+           jminushalo=nboundlines, jplushalo=nboundlines
+                                          ! kminushalo / kplushalo omitted
+                                          ! (zero — see §4 writer convention)
 /savepoints/
   sp_000000/                            attrs: name="step1", ntstep=1,
                                                _preserf_savepoint_index=0

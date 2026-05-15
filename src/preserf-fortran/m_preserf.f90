@@ -255,6 +255,8 @@ contains
         character(len=*), intent(in) :: key
         logical, intent(in) :: value
         integer(int8) :: stored
+        if (serialisation_enabled == 0) return
+        call require_savepoint(sp, 'fs_add_savepoint_metainfo')
         stored = merge(1_int8, 0_int8, value)
         call put_typed_scalar_attr(sp%grpid, key, NF90_BYTE, &
                                    i8_val=stored, tid=TID_BOOLEAN, &
@@ -265,6 +267,8 @@ contains
         type(t_savepoint), intent(in) :: sp
         character(len=*), intent(in) :: key
         integer(int32), intent(in) :: value
+        if (serialisation_enabled == 0) return
+        call require_savepoint(sp, 'fs_add_savepoint_metainfo')
         call put_typed_scalar_attr(sp%grpid, key, NF90_INT, &
                                    i32_val=value, tid=TID_INT32, &
                                    extra_reserved='name')
@@ -274,6 +278,8 @@ contains
         type(t_savepoint), intent(in) :: sp
         character(len=*), intent(in) :: key
         integer(int64), intent(in) :: value
+        if (serialisation_enabled == 0) return
+        call require_savepoint(sp, 'fs_add_savepoint_metainfo')
         call put_typed_scalar_attr(sp%grpid, key, NF90_INT64, &
                                    i64_val=value, tid=TID_INT64, &
                                    extra_reserved='name')
@@ -283,6 +289,8 @@ contains
         type(t_savepoint), intent(in) :: sp
         character(len=*), intent(in) :: key
         real(real32), intent(in) :: value
+        if (serialisation_enabled == 0) return
+        call require_savepoint(sp, 'fs_add_savepoint_metainfo')
         call put_typed_scalar_attr(sp%grpid, key, NF90_FLOAT, &
                                    r32_val=value, tid=TID_FLOAT32, &
                                    extra_reserved='name')
@@ -292,6 +300,8 @@ contains
         type(t_savepoint), intent(in) :: sp
         character(len=*), intent(in) :: key
         real(real64), intent(in) :: value
+        if (serialisation_enabled == 0) return
+        call require_savepoint(sp, 'fs_add_savepoint_metainfo')
         call put_typed_scalar_attr(sp%grpid, key, NF90_DOUBLE, &
                                    r64_val=value, tid=TID_FLOAT64, &
                                    extra_reserved='name')
@@ -301,6 +311,8 @@ contains
         type(t_savepoint), intent(in) :: sp
         character(len=*), intent(in) :: key
         character(len=*), intent(in) :: value
+        if (serialisation_enabled == 0) return
+        call require_savepoint(sp, 'fs_add_savepoint_metainfo')
         call put_typed_scalar_attr(sp%grpid, key, NF90_STRING, &
                                    s_val=value, tid=TID_STRING, &
                                    extra_reserved='name')
@@ -314,6 +326,8 @@ contains
         character(len=*), intent(in) :: key
         logical, intent(in) :: value
         integer(int8) :: stored
+        if (serialisation_enabled == 0) return
+        call require_open(s, 'fs_add_serializer_metainfo')
         stored = merge(1_int8, 0_int8, value)
         call put_typed_scalar_attr(s%ncid, key, NF90_BYTE, &
                                    i8_val=stored, tid=TID_BOOLEAN)
@@ -323,6 +337,8 @@ contains
         type(t_serializer), intent(in) :: s
         character(len=*), intent(in) :: key
         integer(int32), intent(in) :: value
+        if (serialisation_enabled == 0) return
+        call require_open(s, 'fs_add_serializer_metainfo')
         call put_typed_scalar_attr(s%ncid, key, NF90_INT, &
                                    i32_val=value, tid=TID_INT32)
     end subroutine
@@ -331,6 +347,8 @@ contains
         type(t_serializer), intent(in) :: s
         character(len=*), intent(in) :: key
         integer(int64), intent(in) :: value
+        if (serialisation_enabled == 0) return
+        call require_open(s, 'fs_add_serializer_metainfo')
         call put_typed_scalar_attr(s%ncid, key, NF90_INT64, &
                                    i64_val=value, tid=TID_INT64)
     end subroutine
@@ -339,6 +357,8 @@ contains
         type(t_serializer), intent(in) :: s
         character(len=*), intent(in) :: key
         real(real32), intent(in) :: value
+        if (serialisation_enabled == 0) return
+        call require_open(s, 'fs_add_serializer_metainfo')
         call put_typed_scalar_attr(s%ncid, key, NF90_FLOAT, &
                                    r32_val=value, tid=TID_FLOAT32)
     end subroutine
@@ -347,6 +367,8 @@ contains
         type(t_serializer), intent(in) :: s
         character(len=*), intent(in) :: key
         real(real64), intent(in) :: value
+        if (serialisation_enabled == 0) return
+        call require_open(s, 'fs_add_serializer_metainfo')
         call put_typed_scalar_attr(s%ncid, key, NF90_DOUBLE, &
                                    r64_val=value, tid=TID_FLOAT64)
     end subroutine
@@ -355,6 +377,8 @@ contains
         type(t_serializer), intent(in) :: s
         character(len=*), intent(in) :: key
         character(len=*), intent(in) :: value
+        if (serialisation_enabled == 0) return
+        call require_open(s, 'fs_add_serializer_metainfo')
         call put_typed_scalar_attr(s%ncid, key, NF90_STRING, &
                                    s_val=value, tid=TID_STRING)
     end subroutine
@@ -378,6 +402,7 @@ contains
 
         if (serialisation_enabled == 0) return
         call require_open(s, 'fs_write_field')
+        call require_savepoint(sp, 'fs_write_field')
         call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'write')
         call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
         call ensure_variable(sp%grpid, fieldname, NF90_DOUBLE, dimids, varid)
@@ -395,6 +420,7 @@ contains
 
         if (serialisation_enabled == 0) return
         call require_open(s, 'fs_write_field')
+        call require_savepoint(sp, 'fs_write_field')
         call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'write')
         call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
         call ensure_variable(sp%grpid, fieldname, NF90_DOUBLE, dimids, varid)
@@ -412,6 +438,7 @@ contains
 
         if (serialisation_enabled == 0) return
         call require_open(s, 'fs_write_field')
+        call require_savepoint(sp, 'fs_write_field')
         call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'write')
         call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
         call ensure_variable(sp%grpid, fieldname, NF90_DOUBLE, dimids, varid)
@@ -430,6 +457,7 @@ contains
         integer :: ncerr, varid
         if (serialisation_enabled == 0) return
         call require_open(s, 'fs_read_field')
+        call require_savepoint(sp, 'fs_read_field')
         call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'read')
         ncerr = nf90_inq_varid(sp%grpid, trim(fieldname), varid)
         call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
@@ -445,6 +473,7 @@ contains
         integer :: ncerr, varid
         if (serialisation_enabled == 0) return
         call require_open(s, 'fs_read_field')
+        call require_savepoint(sp, 'fs_read_field')
         call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'read')
         ncerr = nf90_inq_varid(sp%grpid, trim(fieldname), varid)
         call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
@@ -460,6 +489,7 @@ contains
         integer :: ncerr, varid
         if (serialisation_enabled == 0) return
         call require_open(s, 'fs_read_field')
+        call require_savepoint(sp, 'fs_read_field')
         call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'read')
         ncerr = nf90_inq_varid(sp%grpid, trim(fieldname), varid)
         call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
@@ -489,6 +519,8 @@ contains
         real(real64),       intent(inout) :: data(:)
         real(real64),       intent(in) :: perturb
         if (serialisation_enabled == 0) return
+        call require_open(s, 'fs_read_field')
+        call require_savepoint(sp, 'fs_read_field')
         call read_perturb_not_implemented(fieldname, s, sp, perturb, &
                                           size(data, kind=int64))
     end subroutine
@@ -500,6 +532,8 @@ contains
         real(real64),       intent(inout) :: data(:, :)
         real(real64),       intent(in) :: perturb
         if (serialisation_enabled == 0) return
+        call require_open(s, 'fs_read_field')
+        call require_savepoint(sp, 'fs_read_field')
         call read_perturb_not_implemented(fieldname, s, sp, perturb, &
                                           size(data, kind=int64))
     end subroutine
@@ -511,6 +545,8 @@ contains
         real(real64),       intent(inout) :: data(:, :, :)
         real(real64),       intent(in) :: perturb
         if (serialisation_enabled == 0) return
+        call require_open(s, 'fs_read_field')
+        call require_savepoint(sp, 'fs_read_field')
         call read_perturb_not_implemented(fieldname, s, sp, perturb, &
                                           size(data, kind=int64))
     end subroutine
@@ -1009,6 +1045,22 @@ contains
             error stop 1
         end if
     end subroutine require_open
+
+    !> Abort with a clear message if the savepoint hasn't been created
+    !> (or has been cleared by a no-op SAVEPOINT branch). Without this
+    !> guard, passing an uninitialised `sp%grpid = -1` into netCDF calls
+    !> surfaces as a low-level "NetCDF: Not a valid ID" error rather
+    !> than a preserf-level lifecycle diagnostic.
+    subroutine require_savepoint(sp, where)
+        type(t_savepoint), intent(in) :: sp
+        character(len=*), intent(in) :: where
+        if (sp%grpid == -1) then
+            write (*, '(a,a,a)') 'preserf: ', trim(where), &
+                ' called with an uninitialised savepoint '//&
+                '(call fs_create_savepoint first)'
+            error stop 1
+        end if
+    end subroutine require_savepoint
 
     pure function to_lower(s) result(r)
         character(len=*), intent(in) :: s

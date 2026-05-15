@@ -20,7 +20,17 @@ pkg_check_modules(NETCDF_FORTRAN REQUIRED IMPORTED_TARGET netcdf-fortran)
 # -----------------------------------------------------------------------------
 add_library(preserf_fortran)
 
+# Single source of truth for the helper version: stamp the CMake
+# project version into a generated Fortran module that
+# `utils_preserf.f90` consumes when writing `_preserf_writer`.
+configure_file(
+    preserf_version.f90.in
+    ${CMAKE_BINARY_DIR}/generated/preserf_version.f90
+    @ONLY
+)
+
 target_sources(preserf_fortran PRIVATE
+    ${CMAKE_BINARY_DIR}/generated/preserf_version.f90
     utils_preserf.f90
     m_preserf.f90
     # Drop-in re-exports of the names Serialbox / pp_ser historically use.
@@ -28,10 +38,18 @@ target_sources(preserf_fortran PRIVATE
     m_serialize.f90
 )
 
-# Put .mod files where dependents can find them.
+# Put .mod files where dependents can find them. Fortran_STANDARD /
+# Fortran_STANDARD_REQUIRED are CMake's compiler-portable way of
+# demanding Fortran 2008 — Intel ifort/ifx, NVIDIA nvfortran etc.
+# translate them to their own equivalent of `-std=f2008` / `-stand=f08`.
+# The previous GNU-only `-std=f2008` flag let non-GNU builds silently
+# compile with their default standard, which could mask code that
+# needs an F2008 feature.
 set_target_properties(preserf_fortran PROPERTIES
     Fortran_MODULE_DIRECTORY ${CMAKE_BINARY_DIR}/modules
     POSITION_INDEPENDENT_CODE ON
+    Fortran_STANDARD 2008
+    Fortran_STANDARD_REQUIRED ON
 )
 target_include_directories(preserf_fortran PUBLIC
     $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/modules>
@@ -39,10 +57,10 @@ target_include_directories(preserf_fortran PUBLIC
 
 target_link_libraries(preserf_fortran PUBLIC PkgConfig::NETCDF_FORTRAN)
 
-# Reasonable warnings for gfortran; ifort/ifx tolerate the same set.
+# Reasonable warnings for gfortran.
 if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
     target_compile_options(preserf_fortran PRIVATE
-        -Wall -Wextra -std=f2008 -fimplicit-none
+        -Wall -Wextra -fimplicit-none
     )
 endif()
 
