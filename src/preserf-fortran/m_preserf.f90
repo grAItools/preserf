@@ -21,7 +21,8 @@ module m_preserf
     use utils_preserf, only: t_serializer, t_savepoint, &
                              ppser_serializer, &
                              preserf_check_nf_with_msg, &
-                             PRESERF_SAVEPOINT_INDEX_LIMIT
+                             PRESERF_SAVEPOINT_INDEX_LIMIT, &
+                             serialisation_enabled
     implicit none
     private
 
@@ -33,7 +34,9 @@ module m_preserf
     integer(int32), parameter :: TID_FLOAT64 = 5
     integer(int32), parameter :: TID_STRING  = 6
 
-    integer, save :: serialisation_enabled = 1   ! 1 = enabled, 0 = disabled
+    ! `serialisation_enabled` is owned by utils_preserf (so that
+    ! ppser_initialize can reset it on a fresh session); imported via
+    ! the `use utils_preserf, only: ...` at the module top.
 
     public :: fs_create_savepoint
     public :: fs_register_field
@@ -183,17 +186,23 @@ contains
     !> storage_mapping.md §5).
     subroutine fs_create_savepoint(name, savepoint, s)
         character(len=*), intent(in) :: name
-        type(t_savepoint), intent(out) :: savepoint
+        ! `intent(inout)` (rather than `intent(out)`) so a disabled-mode
+        ! early return is a true no-op: the caller's existing savepoint
+        ! handle survives intact. With `intent(out)` the actual argument
+        ! would be undefined on entry, so a `!$SER OFF` block containing
+        ! a SAVEPOINT would discard the previous `ppser_savepoint` and
+        ! the first DATA call after `!$SER ON` would abort with
+        ! "uninitialised savepoint" instead of resuming the prior one.
+        type(t_savepoint), intent(inout) :: savepoint
         type(t_serializer), intent(inout), optional :: s
 
-        ! Assign a sentinel up-front so a disabled-serialisation early
-        ! return still leaves `savepoint` in a defined state — the
-        ! intent(out) declaration otherwise makes the caller's variable
-        ! undefined on entry, which would not be a true no-op.
+        if (serialisation_enabled == 0) return
+
+        ! When we DO proceed, overwrite any stale handle the caller may
+        ! have passed in — the savepoint we're about to create owns the
+        ! field and `create_savepoint_on` populates it.
         savepoint%grpid = -1
         savepoint%idx = -1
-
-        if (serialisation_enabled == 0) return
 
         if (present(s)) then
             call create_savepoint_on(s, name, savepoint)

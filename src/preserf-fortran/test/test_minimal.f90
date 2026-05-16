@@ -154,21 +154,42 @@ program test_minimal
     ! root).
     if (.not. fs_serialization_status()) error stop &
         'fs_serialization_status() should be .true. by default'
-    call fs_disable_serialization()
-    if (fs_serialization_status()) error stop &
-        'fs_serialization_status() should be .false. after fs_disable_serialization'
-    call fs_register_field(ppser_serializer, 'disabled_field', 'double', &
-                           ppser_reallength, 1, 0, 0, 0, &
-                           0, 0, 0, 0, 0, 0, 0, 0)
-    call fs_add_serializer_metainfo(ppser_serializer, 'disabled_meta', 42_int32)
-    call fs_enable_serialization()
-    if (.not. fs_serialization_status()) error stop &
-        'fs_serialization_status() should be .true. after fs_enable_serialization'
+    block
+        integer :: grpid_before, idx_before
+        grpid_before = ppser_savepoint%grpid
+        idx_before = ppser_savepoint%idx
+        call fs_disable_serialization()
+        if (fs_serialization_status()) error stop &
+            'fs_serialization_status() should be .false. after fs_disable_serialization'
+        call fs_register_field(ppser_serializer, 'disabled_field', 'double', &
+                               ppser_reallength, 1, 0, 0, 0, &
+                               0, 0, 0, 0, 0, 0, 0, 0)
+        call fs_add_serializer_metainfo(ppser_serializer, 'disabled_meta', 42_int32)
+        ! fs_create_savepoint must be a true no-op when disabled: it
+        ! MUST NOT clobber the caller's ppser_savepoint to -1.
+        call fs_create_savepoint('would_be_step', ppser_savepoint)
+        if (ppser_savepoint%grpid /= grpid_before .or. &
+            ppser_savepoint%idx  /= idx_before) then
+            error stop &
+                'fs_create_savepoint clobbered savepoint while disabled'
+        end if
+        call fs_enable_serialization()
+        if (.not. fs_serialization_status()) error stop &
+            'fs_serialization_status() should be .true. after fs_enable_serialization'
+    end block
 
+    ! Leave the gate disabled across finalize so the read-phase init
+    ! below verifies that ppser_initialize resets `serialisation_enabled`
+    ! to 1 on a fresh session — without that reset, the module-level
+    ! SAVE state from the previous session would silently no-op every
+    ! fs_* call in the read phase.
+    call fs_disable_serialization()
     call ppser_finalize()
 
     ! ---------------- read phase ----------------
     call ppser_initialize(out_dir, 'fhello', 'r')
+    if (.not. fs_serialization_status()) error stop &
+        'ppser_initialize should reset serialisation_enabled on a fresh session'
     ! And `'r'` → 1, so pp_ser DATA blocks pick the read branch
     ! without an explicit ppser_set_mode call.
     if (ppser_get_mode() /= 1) error stop &

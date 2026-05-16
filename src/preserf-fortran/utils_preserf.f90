@@ -53,6 +53,14 @@ module utils_preserf
     ! Mode: 0 = write, 1 = read, 2 = read-perturb.
     integer, save :: ppser_mode_state = 0
 
+    ! ON / OFF gate for the fs_* I/O entry points in m_preserf.
+    ! 1 = enabled (default), 0 = disabled. Owned here (rather than in
+    ! m_preserf) so `ppser_initialize` can reset it on a fresh session;
+    ! without that reset, a process that called `fs_disable_serialization`
+    ! before a previous `ppser_finalize` would silently no-op every
+    ! subsequent fs_* call in the same process.
+    integer, save, public :: serialisation_enabled = 1
+
     ! Schema version written into _preserf_schema_version. Must match
     ! tests/_storage.py SCHEMA_VERSION.
     integer(int32), parameter, public :: PRESERF_SCHEMA_VERSION = 1
@@ -188,6 +196,13 @@ contains
         case ('r', 'R')
             ppser_mode_state = 1
         end select
+
+        ! Re-enable the ON/OFF gate. The flag is module SAVE state and
+        ! survives a previous ppser_finalize, so a caller that ran
+        ! fs_disable_serialization() before its last finalize would
+        ! otherwise leave every subsequent fs_* call in this process a
+        ! silent no-op even after a fresh INIT.
+        serialisation_enabled = 1
     end subroutine ppser_initialize
 
     !> Close the dataset(s) opened by ppser_initialize.
@@ -197,6 +212,12 @@ contains
         ppser_savepoint%grpid = -1
         ppser_savepoint%idx = -1
         ppser_mode_state = 0
+        ! Also restore the ON/OFF gate to its default. ppser_initialize
+        ! re-sets this on every fresh session as belt-and-braces, but
+        ! resetting here too means an explicit finalize + later code
+        ! that touches fs_* without a fresh init at least starts from
+        ! a clean state.
+        serialisation_enabled = 1
     end subroutine ppser_finalize
 
     function ppser_get_mode() result(m)
