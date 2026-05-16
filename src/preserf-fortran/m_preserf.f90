@@ -465,6 +465,7 @@ contains
         call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'read')
         ncerr = nf90_inq_varid(sp%grpid, trim(fieldname), varid)
         call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
+        call require_variable_xtype(sp%grpid, varid, fieldname, NF90_DOUBLE)
         ncerr = nf90_get_var(sp%grpid, varid, data)
         call preserf_check_nf_with_msg(ncerr, 'get_var '//trim(fieldname)//' (1d)')
     end subroutine
@@ -481,6 +482,7 @@ contains
         call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'read')
         ncerr = nf90_inq_varid(sp%grpid, trim(fieldname), varid)
         call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
+        call require_variable_xtype(sp%grpid, varid, fieldname, NF90_DOUBLE)
         ncerr = nf90_get_var(sp%grpid, varid, data)
         call preserf_check_nf_with_msg(ncerr, 'get_var '//trim(fieldname)//' (2d)')
     end subroutine
@@ -497,6 +499,7 @@ contains
         call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'read')
         ncerr = nf90_inq_varid(sp%grpid, trim(fieldname), varid)
         call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
+        call require_variable_xtype(sp%grpid, varid, fieldname, NF90_DOUBLE)
         ncerr = nf90_get_var(sp%grpid, varid, data)
         call preserf_check_nf_with_msg(ncerr, 'get_var '//trim(fieldname)//' (3d)')
     end subroutine
@@ -1065,6 +1068,33 @@ contains
             error stop 1
         end if
     end subroutine require_savepoint
+
+    !> Confirm the on-disk netCDF variable type matches what the
+    !> Fortran read overload expects. `validate_field_shape` already
+    !> checks the `/_fields/<name>:type_id` registry entry, but the
+    !> actual data variable under the savepoint group could in
+    !> principle have a different `xtype` (e.g. a corrupt or
+    !> third-party store whose registry says Float64 but whose
+    !> variable is Float32). netCDF would otherwise silently convert
+    !> via nf90_get_var and feed the caller cast values — abort
+    !> instead with a diagnostic identifying the mismatch.
+    subroutine require_variable_xtype(grpid, varid, fieldname, expected_xtype)
+        integer, intent(in) :: grpid, varid
+        character(len=*), intent(in) :: fieldname
+        integer, intent(in) :: expected_xtype
+        integer :: ncerr, actual_xtype
+        ncerr = nf90_inquire_variable(grpid, varid, xtype=actual_xtype)
+        call preserf_check_nf_with_msg(ncerr, &
+            'inquire_variable '//trim(fieldname))
+        if (actual_xtype /= expected_xtype) then
+            write (*, '(a,a,a,i0,a,i0,a)') &
+                'preserf: read of field "', trim(fieldname), &
+                '" expects on-disk nc_type ', expected_xtype, &
+                ' but the variable has nc_type ', actual_xtype, &
+                '. Registry / variable mismatch in the store.'
+            error stop 1
+        end if
+    end subroutine require_variable_xtype
 
     pure function to_lower(s) result(r)
         character(len=*), intent(in) :: s

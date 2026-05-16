@@ -194,22 +194,29 @@ program test_minimal
     ! without an explicit ppser_set_mode call.
     if (ppser_get_mode() /= 1) error stop &
         'ppser_initialize(..., "r") should default mode to 1'
-    ! In a real pp_ser flow ppser_savepoint would be populated by
-    ! fs_create_savepoint on the reference serializer. For this minimal
-    ! exercise we look up the savepoint group directly by name.
+    ! pp_ser-generated read DATA branches call
+    ! `fs_read_field(ppser_serializer_ref, ppser_savepoint, ...)`,
+    ! so read through `ppser_serializer_ref` here to exercise the
+    ! ref-serializer setup in ppser_initialize(..., 'r'). The
+    ! savepoint group must be resolved under the ref serializer's
+    ! own ncid (HDF5 returns distinct grpids per open even for the
+    ! same on-disk file).
+    if (ppser_serializer_ref%ncid == -1) error stop &
+        'ppser_initialize(..., "r") should also open ppser_serializer_ref'
     block
         use netcdf
         integer :: ncerr, sps_grpid, sp_grpid
-        ncerr = nf90_inq_ncid(ppser_serializer%ncid, 'savepoints', sps_grpid)
-        if (ncerr /= 0) error stop 'inq_ncid savepoints failed'
+        ncerr = nf90_inq_ncid(ppser_serializer_ref%ncid, &
+                              'savepoints', sps_grpid)
+        if (ncerr /= 0) error stop 'inq_ncid savepoints (ref) failed'
         ncerr = nf90_inq_ncid(sps_grpid, 'sp_000000', sp_grpid)
-        if (ncerr /= 0) error stop 'inq_ncid sp_000000 failed'
+        if (ncerr /= 0) error stop 'inq_ncid sp_000000 (ref) failed'
         ppser_savepoint%grpid = sp_grpid
         ppser_savepoint%idx = 0
     end block
-    call fs_read_field(ppser_serializer, ppser_savepoint, 'u', u_back)
-    call fs_read_field(ppser_serializer, ppser_savepoint, 'v', v_back)
-    call fs_read_field(ppser_serializer, ppser_savepoint, 'w', w_back)
+    call fs_read_field(ppser_serializer_ref, ppser_savepoint, 'u', u_back)
+    call fs_read_field(ppser_serializer_ref, ppser_savepoint, 'v', v_back)
+    call fs_read_field(ppser_serializer_ref, ppser_savepoint, 'w', w_back)
 
     ! Compile-only resolution check for the 5-argument fs_read_field
     ! perturb form (pp_ser-generated CASE(2) branches). Wrapped in
@@ -218,11 +225,11 @@ program test_minimal
     ! enough to verify the generic interface continues to resolve the
     ! 5-argument signature.
     if (.false.) then
-        call fs_read_field(ppser_serializer, ppser_savepoint, 'u', &
+        call fs_read_field(ppser_serializer_ref, ppser_savepoint, 'u', &
                            u_back, 1.0e-3_real64)
-        call fs_read_field(ppser_serializer, ppser_savepoint, 'v', &
+        call fs_read_field(ppser_serializer_ref, ppser_savepoint, 'v', &
                            v_back, 1.0e-3_real64)
-        call fs_read_field(ppser_serializer, ppser_savepoint, 'w', &
+        call fs_read_field(ppser_serializer_ref, ppser_savepoint, 'w', &
                            w_back, 1.0e-3_real64)
     end if
 
