@@ -22,17 +22,28 @@ endif()
 # Pre-create the output directory and then run the test binary.
 # Using `cmake -E make_directory` rather than a shell `mkdir -p` makes
 # this portable across Windows/Unix and avoids quoting concerns.
+#
+# The directory creation is wired as a CTest *fixture* rather than a
+# plain DEPENDS edge: DEPENDS only orders tests that are already in the
+# selected set, so running just `preserf_fortran_minimal` (e.g. from an
+# IDE or via `ctest -R '^preserf_fortran_minimal$'`) would skip the
+# setup and hand the binary a non-existent output directory.
+# FIXTURES_REQUIRED makes CTest automatically pull in the matching
+# FIXTURES_SETUP test whenever the dependent test is run.
 add_test(
     NAME preserf_fortran_minimal_setup
     COMMAND ${CMAKE_COMMAND} -E make_directory
             "${CMAKE_CURRENT_BINARY_DIR}/test-output"
+)
+set_tests_properties(preserf_fortran_minimal_setup PROPERTIES
+    FIXTURES_SETUP preserf_fortran_output_dir
 )
 add_test(
     NAME preserf_fortran_minimal
     COMMAND $<TARGET_FILE:preserf_fortran_test_minimal> "${CMAKE_CURRENT_BINARY_DIR}/test-output"
 )
 set_tests_properties(preserf_fortran_minimal PROPERTIES
-    DEPENDS preserf_fortran_minimal_setup
+    FIXTURES_REQUIRED preserf_fortran_output_dir
     PASS_REGULAR_EXPRESSION "preserf-fortran: hello-world OK"
     # Match the 60-second cap the Python wrapper applies to the same
     # binary in tests/test_fortran_minimal.py, so a netCDF/HDF5

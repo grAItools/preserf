@@ -153,7 +153,8 @@ ctest --test-dir src/preserf-fortran/build --output-on-failure
 
 After building, the Python-side pytest at
 [`tests/test_fortran_minimal.py`](../../tests/test_fortran_minimal.py)
-runs the `test_minimal` binary and reads the resulting store back with
+runs the `preserf_fortran_test_minimal` binary and reads the resulting
+store back with
 the Python reference reader at [`tests/_storage.py`](../../tests/_storage.py),
 asserting that every metadata attribute and the field data survives the
 round-trip:

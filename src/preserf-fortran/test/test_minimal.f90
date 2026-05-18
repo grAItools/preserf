@@ -173,6 +173,16 @@ program test_minimal
             error stop &
                 'fs_create_savepoint clobbered savepoint while disabled'
         end if
+        ! fs_write_field (the DATA path) must also be a true no-op when
+        ! disabled: writing a -999 sentinel into the already-populated
+        ! `u` savepoint variable MUST leave the on-disk data untouched.
+        ! The Python test asserts the sentinel never reached disk; the
+        ! maxdiff round-trip check at the end of this program would also
+        ! flag a leak. Without this call, a regression that dropped the
+        ! `serialisation_enabled` early return from fs_write_field would
+        ! go unnoticed.
+        u_back = -999.0_real64
+        call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u_back)
         call fs_enable_serialization()
         if (.not. fs_serialization_status()) error stop &
             'fs_serialization_status() should be .true. after fs_enable_serialization'

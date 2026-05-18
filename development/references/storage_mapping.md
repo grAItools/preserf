@@ -185,15 +185,30 @@ distinct, non-conflicting obligations:
   halos avoids cluttering `/_fields/<name>` with a row of "0" entries.
   The preserf Fortran helper's `put_halo_attr` follows this rule. A
   writer MAY emit zero halos explicitly if it wants the metadata to
-  be unambiguous; this is conformant. (The Python reference writer
-  in `tests/_storage.py` does not have a dedicated bare-halo writer
-  path — Fortran emits halo attributes as **unshadowed** integers on
-  the `/_fields/<name>` carrier, while Python can only emit a halo
-  name like `iminushalo` through the typed-metainfo channel, which
-  also writes the `iminushalo__preserf_type_id` shadow tag. Both
-  encodings are valid and round-trip through this schema; readers
-  that want halo information should accept either the shadowed or
-  the unshadowed form.)
+  be unambiguous; this is conformant. The preserf Fortran helper
+  emits each halo as an **unshadowed** plain `NF90_INT` attribute on
+  the `/_fields/<name>` carrier — no `<name>__preserf_type_id` shadow
+  tag, since the halo name already fixes the type. The Python
+  reference writer in `tests/_storage.py` has no dedicated bare-halo
+  writer path; if it ever needs to emit a halo it would go through
+  the typed-metainfo channel (which also writes the shadow tag).
+  Both the bare-integer and shadowed encodings are conformant
+  on-disk forms.
+
+  > **Reader-support note.** The v0.1 Python reference reader
+  > (`read_dump` in `tests/_storage.py`) decodes *only* shadowed
+  > metainfo: `_read_metainfo_attrs` skips any attribute that has no
+  > `<name>__preserf_type_id` sibling. Unshadowed halo attributes
+  > therefore do **not** surface in the `FieldMetainfo` objects
+  > `read_dump` returns — they are reachable only through raw netCDF
+  > access. The cross-language test (`tests/test_fortran_minimal.py`)
+  > accordingly asserts the Fortran-written halos directly via
+  > `netCDF4.Variable.getncattr`, not through `read_dump`. So in v0.1
+  > "halo round-trip" means the attributes survive on disk, not that
+  > they appear in `read_dump`'s decoded output. Teaching the
+  > reference reader to surface bare halo attributes (and adding a
+  > matching bare-halo writer path on the Python side) is tracked as
+  > a follow-up.
 * **Readers** MUST treat any missing halo attribute as **absent**
   (= "this writer did not record information about this halo")
   rather than as an implicit `0`. Whether and how an absent halo

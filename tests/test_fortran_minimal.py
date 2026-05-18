@@ -169,6 +169,18 @@ def test_fortran_writes_python_reads(tmp_path: Path, fortran_binary: Path) -> No
         sp_grp = raw.groups["savepoints"].groups["sp_000000"]
         assert int(sp_grp.getncattr("_preserf_savepoint_index")) == 0
 
+        # ON / OFF gate must also cover the DATA path: test_minimal.f90
+        # attempts an fs_write_field of a -999.0 sentinel into the
+        # already-written `u` variable while serialization is disabled.
+        # None of u's cells may carry that sentinel — if any do, the
+        # `serialisation_enabled` early return regressed out of
+        # fs_write_field.
+        u_disk = np.asarray(sp_grp.variables["u"][...])
+        assert not np.any(u_disk == -999.0), (
+            "fs_write_field was not a no-op while serialization was "
+            "disabled (`u` was overwritten with the -999.0 sentinel)"
+        )
+
         # Per-savepoint field variable types: each `u`/`v`/`w` data
         # variable must be on-disk NF90_DOUBLE.
         for fname in ("u", "v", "w"):
