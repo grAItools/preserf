@@ -21,8 +21,8 @@ own design review when it lands.
 
 Already on `main`:
 
-- **PR #3 — storage mapping** (`docs/specs/...` superseded by
-  `development/references/storage_mapping.md`, plus the
+- **PR #3 — storage mapping**
+  (`development/references/storage_mapping.md`, plus the
   `tests/_storage.py` / `tests/_serialbox.py` reference reader and a
   Serialbox ↔ preserf Python round-trip test).
 - **PR #4 — minimal Fortran helper** (`src/preserf-fortran/`):
@@ -65,7 +65,10 @@ They are the things pp_ser-generated source can already hit today.
    netCDF objects. pp_ser-generated source calls these directives
    *outside* the `SELECT CASE (ppser_get_mode())` that gates DATA
    blocks, so pointing a generated read run at an existing read-only
-   store aborts at the first `nf90_def_grp`. Additionally, the read
+   store aborts at the first create call — `fs_register_field`'s
+   `nf90_def_var` on the registry carrier, or `fs_create_savepoint`'s
+   `nf90_def_grp(sp_NNNNNN)`, whichever the generated source reaches
+   first. Additionally, the read
    path validates the registry on `s%fields_grpid` but pulls the data
    variable from `sp%grpid` — `ppser_savepoint` lives on
    `ppser_serializer` rather than `ppser_serializer_ref`, so an
@@ -117,9 +120,13 @@ Closes gap §1 and §2's runtime side.
   before reading. Pick one in the design notes; the second is less
   state but more I/O.
 - Add a native Fortran test that round-trips a write run and then a
-  read run against the same store (i.e. exercises the resolve+validate
-  branch end-to-end, including the registry/savepoint mismatch case
-  that motivated the gap).
+  read run against the same store, exercising the resolve+validate
+  branch end-to-end. Add a *second* scenario that uses an explicit
+  `directory_ref`/`prefix_ref` pair pointing at a different store
+  (or otherwise deliberately mismatched `s` / `sp` pairing) so the
+  `ppser_serializer` vs `ppser_serializer_ref` savepoint-grpid case
+  is actually covered — the same-store round-trip alone hits the
+  implicit-ref path.
 - Implement read-perturb (5-arg `fs_read_field`). Algorithm matches
   Serialbox's `zrperturb` semantics (multiplicative noise scaled by
   `ppser_zrperturb`). Cross-language test covering at least `real64`
@@ -138,21 +145,29 @@ Closes gap §5.
   per Serialbox `MetainfoValue::Array`).
 - The cross-language test (`tests/test_fortran_minimal.py`) grows a
   parametrised matrix: for each (rank, dtype), assert raw netCDF
-  type via `Dataset[…].dtype` matches `storage_mapping.md §3.1`.
+  type via `Dataset[…].dtype` matches the TypeID → netCDF-type table
+  in `storage_mapping.md §1`.
 
 ### Slice C — Tracers, k-buffer, OPTION
 
 Closes gap §6.
 
-- `fs_RegisterAllTracers` + tracer write API (`!$SER TRACER`). Needs
-  the storage mapping to spell out where tracer descriptors live —
-  candidate is a `/_tracers` sibling of `/_fields`. Document the
-  decision in a new ADR.
+- `fs_RegisterAllTracers` (from `!$SER REGISTERTRACERS`) and the
+  tracer write API — `ppser_write_tracer_by_name`,
+  `ppser_write_tracer_by_idx`, `ppser_write_tracer_all` (from
+  `!$SER TRACER`, per
+  `development/references/directives_specification.md` §§3.11 / 3.14).
+  Needs the storage mapping to spell out where tracer descriptors
+  live — candidate is a `/_tracers` sibling of `/_fields`. Document
+  the decision in a new ADR.
 - `fs_write_kbuff` (`!$SER DATA_KBUFF`). Needs the k-buffer flush
   semantics from `pp_ser.py` to be re-derived.
-- `fs_Option` (`!$SER OPTION`). Pure metadata write to the
-  serializer's root attrs, with the option name namespaced to avoid
-  colliding with `_preserf_*`.
+- `fs_Option` (`!$SER OPTION`). pp_ser emits OPTION entries as
+  Fortran keyword arguments (e.g. `call fs_Option(verbosity=1)`)
+  rather than as a `(name, value)` pair, so this slice must first
+  define the supported `fs_Option` optional-argument surface (or
+  change the pp_ser port's emission shape) before deciding how
+  options land in the store.
 - All three need cross-language coverage in
   `tests/test_fortran_minimal.py` (or a sibling test program).
 
@@ -177,7 +192,9 @@ Independent of slices A–C; can land in parallel.
 Closes gap §7.
 
 - Add a backend selector at `ppser_initialize`
-  (`backend='netcdf4'|'nczarr-zarr2'`, default `netcdf4`).
+  (`backend='netcdf4'|'nczarr-v2'`, default `netcdf4`). The
+  `nczarr-v2` label matches the selector already used by the Python
+  reference path (`tests/_storage.py`).
 - Rework `preserf_open_serializer` to construct
   `file://<directory>/<prefix>.zarr#mode=nczarr,zarr2` when the
   backend is NCZarr, and pass appropriate creation flags.
@@ -193,13 +210,21 @@ Closes gap §7.
 Closes gap §8.
 
 - GitHub Actions workflow on `ubuntu-latest` that installs
-  `gfortran` + `libnetcdff-dev`, runs `cmake -S src/preserf-fortran
-  -B build && cmake --build build`, then `ctest --test-dir build`,
-  then `pytest tests/test_fortran_minimal.py`. The pytest fixture's
-  skip-when-binary-missing branch only triggers locally.
-- Once green, flip `tests/test_fortran_minimal.py` to `xfail` (not
-  `skip`) when the binary is missing, so a future regression in the
-  build script can't hide behind a silent skip.
+  `gfortran` + `libnetcdff-dev`, runs
+  `cmake -S src/preserf-fortran -B src/preserf-fortran/build`
+  followed by `cmake --build src/preserf-fortran/build`, then
+  `ctest --test-dir src/preserf-fortran/build`, then
+  `pytest tests/test_fortran_minimal.py`. The build directory must
+  match `_BUILD_TEST_DIR` in `tests/test_fortran_minimal.py`
+  (`src/preserf-fortran/build/test`); a top-level `build/` would
+  not be found.
+- The pytest fixture currently `pytest.skip`s when the binary is
+  missing. Once CI provides the binary, gate that skip to local
+  runs only (e.g. an env-var override or a `--require-fortran`
+  pytest flag) so the CI run fails outright when the binary is
+  absent. `xfail` is *not* enough — an xfailed test still lets the
+  suite pass, so a CI regression could hide behind a non-executed
+  test.
 
 ### Slice G — Append mode
 
@@ -218,13 +243,21 @@ They are tracked here so they don't get lost; promoting any of them to
 a slice is a judgement call.
 
 - `m_preserf.f90` — write-side registry validation has no explicit
-  negative test (mismatched dtype, mismatched dims, mismatched halos).
+  negative test. `fs_write_field` validates only overload type and
+  runtime shape against the registry (it does not take halo
+  arguments), so the missing cases are mismatched dtype and
+  mismatched dims; halo-mismatch validation belongs to the
+  Slice A resolve-and-validate path on `fs_register_field`, not to
+  the write side.
 - `m_preserf.f90` — read-side `require_variable_xtype` rejection has
   no negative test.
-- `m_preserf.f90` — `fs_add_savepoint_metainfo` / `fs_add_serializer_metainfo`
-  test coverage is `int32` + `real64` + `character`; `logical`,
-  `int64`, `real32` overloads are exercised by the cross-language
-  test on the Python side but not by the native Fortran test.
+- `m_preserf.f90` — savepoint-metainfo native test coverage is
+  limited to `int32` and `real64`; the `logical`, `int64`, `real32`,
+  and `character` savepoint overloads are not exercised by the
+  native Fortran test. (The serializer-metainfo side already covers
+  `logical`, `int64`, and `real32` in the native test, and the
+  cross-language test asserts their raw netCDF dtypes — those rows
+  are not a gap.)
 - `m_preserf.f90` — dimension sizes and halo extents are cast to
   `int32` without an explicit upper-bound check; a 64-bit default
   integer build could silently truncate.
@@ -233,18 +266,11 @@ a slice is a judgement call.
 - `test/test_minimal.f90` — only one enabled savepoint is created,
   so the `next_sp_index` increment and `sp_000001` naming aren't
   exercised end-to-end.
-- `utils_preserf.f90` — `directory_ref` / `prefix_ref` explicit
-  reference-store branch (around the data-loss guard at the
-  reference-open site) has no test.
-- `utils_preserf.f90` — a comment near the explicit-ref branch
-  implies NCZarr handling that isn't actually present.
-- `src/preserf-fortran/README.md` line 127 — "limitation" wording is
-  outdated relative to the merged tests; reword or drop.
 
-Most of these naturally fold into Slice A (read-mode tests) or Slice B
-(type-coverage tests). The int32 truncation note (5th bullet) is a
-correctness fix that should land standalone before either, since it's
-a latent bug rather than missing coverage.
+Most of these fold into Slice A (read-mode tests) or Slice B
+(type-coverage tests). The int32 truncation note (4th bullet above)
+is a correctness fix that should land standalone before either,
+since it's a latent bug rather than missing coverage.
 
 ## 5. Out of scope
 
