@@ -203,6 +203,7 @@ contains
         ! field and `create_savepoint_on` populates it.
         savepoint%grpid = -1
         savepoint%idx = -1
+        savepoint%owner_ncid = -1
 
         if (present(s)) then
             call create_savepoint_on(s, name, savepoint)
@@ -237,6 +238,9 @@ contains
         ncerr = nf90_def_grp(ser%savepoints_grpid, group_name, savepoint%grpid)
         call preserf_check_nf_with_msg(ncerr, 'def_grp '//group_name)
         savepoint%idx = ser%next_sp_index
+        ! Record the creating serializer so fs_write_field can reject a
+        ! savepoint paired with a different serializer (see t_savepoint).
+        savepoint%owner_ncid = ser%ncid
 
         idx_attr = int(ser%next_sp_index, int32)
         ncerr = nf90_put_att(savepoint%grpid, NF90_GLOBAL, &
@@ -407,6 +411,7 @@ contains
         if (serialisation_enabled == 0) return
         call require_open(s, 'fs_write_field')
         call require_savepoint(sp, 'fs_write_field')
+        call require_savepoint_owner(s, sp, 'fs_write_field')
         call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'write')
         call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
         call ensure_variable(sp%grpid, fieldname, NF90_DOUBLE, dimids, varid)
@@ -425,6 +430,7 @@ contains
         if (serialisation_enabled == 0) return
         call require_open(s, 'fs_write_field')
         call require_savepoint(sp, 'fs_write_field')
+        call require_savepoint_owner(s, sp, 'fs_write_field')
         call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'write')
         call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
         call ensure_variable(sp%grpid, fieldname, NF90_DOUBLE, dimids, varid)
@@ -443,6 +449,7 @@ contains
         if (serialisation_enabled == 0) return
         call require_open(s, 'fs_write_field')
         call require_savepoint(sp, 'fs_write_field')
+        call require_savepoint_owner(s, sp, 'fs_write_field')
         call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'write')
         call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
         call ensure_variable(sp%grpid, fieldname, NF90_DOUBLE, dimids, varid)
@@ -1068,6 +1075,27 @@ contains
             error stop 1
         end if
     end subroutine require_savepoint
+
+    !> Abort if `sp` was created by a serializer other than `s`.
+    !> fs_write_field validates the field registry through
+    !> `s%fields_grpid` but creates / writes the data variable under
+    !> `sp%grpid`. If the savepoint belongs to a different store the
+    !> registry and the data variable would land in different files,
+    !> silently producing an internally inconsistent output. The
+    !> writable serializer is unique per session, so a mismatch always
+    !> signals a caller bug rather than a supported cross-store flow.
+    subroutine require_savepoint_owner(s, sp, where)
+        type(t_serializer), intent(in) :: s
+        type(t_savepoint), intent(in) :: sp
+        character(len=*), intent(in) :: where
+        if (sp%owner_ncid /= s%ncid) then
+            write (*, '(a,a,a)') 'preserf: ', trim(where), &
+                ' was passed a savepoint created by a different '//&
+                'serializer; the field registry and the data variable '//&
+                'would belong to different stores'
+            error stop 1
+        end if
+    end subroutine require_savepoint_owner
 
     !> Confirm the on-disk netCDF variable matches what the Fortran
     !> read overload + the `/_fields/<name>` registry entry expect:

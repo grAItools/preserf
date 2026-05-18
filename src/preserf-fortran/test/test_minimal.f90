@@ -71,6 +71,46 @@ program test_minimal
     !   * pytest creates the dir via the tmp_path fixture before exec.
     !   * ctest's COMMAND list runs `cmake -E make_directory` first.
 
+    ! An optional second argument selects an alternate scenario; with
+    ! no second argument the full hello-world round-trip below runs.
+    !
+    ! 'badref-write' exercises the bad-reference-path safety property
+    ! of ppser_initialize: when an explicit directory_ref / prefix_ref
+    ! pair is supplied, the reference store is opened *before* the
+    ! writable main store is created/truncated, so a missing reference
+    ! path must abort without destroying the target file. This branch
+    ! just triggers the abort; tests/test_fortran_minimal.py drives the
+    ! scenario and asserts the writable target survived intact.
+    if (command_argument_count() >= 2) then
+        block
+            character(len=:), allocatable :: scenario
+            integer :: s_len, s_stat
+            call get_command_argument(2, length=s_len, status=s_stat)
+            if (s_stat /= 0) error stop &
+                'preserf-test_minimal: get_command_argument(2,length) failed'
+            allocate (character(len=s_len) :: scenario)
+            call get_command_argument(2, value=scenario, status=s_stat)
+            if (s_stat /= 0) error stop &
+                'preserf-test_minimal: get_command_argument(2,value) failed'
+            if (scenario == 'badref-write') then
+                ! The reference directory does not exist, so the
+                ! reference nf90_open fails and ppser_initialize aborts
+                ! before the main nf90_create can truncate the target.
+                call ppser_initialize(out_dir, 'fhello', 'w', &
+                    directory_ref=trim(out_dir)//'/__preserf_no_such_ref__', &
+                    prefix_ref='nope')
+                ! Unreachable: a missing reference store must abort.
+                error stop &
+                    'preserf-test_minimal: bad directory_ref was accepted'
+            else
+                write (*, '(a,a)') &
+                    'preserf-test_minimal: unknown scenario argument: ', &
+                    scenario
+                error stop 1
+            end if
+        end block
+    end if
+
     allocate (u(ni, nj, nk), u_back(ni, nj, nk))
     do k = 1, nk
         do j = 1, nj
@@ -259,6 +299,37 @@ program test_minimal
     end if
 
     call ppser_finalize()
+
+    ! ---------------- explicit-reference read ----------------
+    ! Re-open read-only, this time passing an *explicit* directory_ref
+    ! / prefix_ref pair (here pointing back at the same store). This
+    ! exercises the branch in ppser_initialize that opens the reference
+    ! serializer from explicit arguments rather than implicitly from
+    ! the main directory/prefix. pp_ser-generated read DATA branches
+    ! call fs_read_field(ppser_serializer_ref, ...), so the explicitly
+    ! opened reference serializer must resolve the savepoint and field
+    ! exactly like the implicit-reference case above.
+    block
+        use netcdf
+        integer :: ncerr, sps_grpid, sp_grpid
+        real(real64), allocatable :: u_ref(:, :, :)
+        allocate (u_ref(ni, nj, nk))
+        call ppser_initialize(out_dir, 'fhello', 'r', &
+                              directory_ref=out_dir, prefix_ref='fhello')
+        if (ppser_serializer_ref%ncid == -1) error stop &
+            'explicit directory_ref/prefix_ref should open ppser_serializer_ref'
+        ncerr = nf90_inq_ncid(ppser_serializer_ref%ncid, &
+                              'savepoints', sps_grpid)
+        if (ncerr /= 0) error stop 'inq_ncid savepoints (explicit ref) failed'
+        ncerr = nf90_inq_ncid(sps_grpid, 'sp_000000', sp_grpid)
+        if (ncerr /= 0) error stop 'inq_ncid sp_000000 (explicit ref) failed'
+        ppser_savepoint%grpid = sp_grpid
+        ppser_savepoint%idx = 0
+        call fs_read_field(ppser_serializer_ref, ppser_savepoint, 'u', u_ref)
+        if (maxval(abs(u - u_ref)) /= 0.0_real64) error stop &
+            'explicit-reference read returned wrong data for u'
+        call ppser_finalize()
+    end block
 
     maxdiff = max( &
         maxval(abs(u - u_back)), &

@@ -263,3 +263,43 @@ def test_fortran_writes_python_reads(tmp_path: Path, fortran_binary: Path) -> No
     assert w_py[0, 2] == 31  # Fortran w(3,1)
     assert w_py[3, 0] == 14  # Fortran w(1,4)
     assert w_py[3, 2] == 34  # Fortran w(3,4)
+
+
+def test_fortran_bad_reference_path_keeps_target(
+    tmp_path: Path, fortran_binary: Path
+) -> None:
+    """A bad ``directory_ref`` aborts without truncating the target.
+
+    ``ppser_initialize`` opens an explicit ``directory_ref`` reference
+    store *before* creating the writable main store, so a missing
+    reference path must fail cleanly without truncating (or
+    overwriting) the writable target file. The Fortran ``badref-write``
+    scenario in ``test_minimal.f90`` triggers exactly this case.
+    """
+    out_dir = tmp_path / "fortran_out"
+    out_dir.mkdir()
+
+    # Pre-place a sentinel where the writable store would be created.
+    # If ppser_initialize wrongly created/truncated the target before
+    # validating the (bad) reference path, this content is destroyed.
+    target = out_dir / "fhello.nc"
+    sentinel = b"preserf-sentinel-must-survive-bad-directory_ref"
+    target.write_bytes(sentinel)
+
+    result = subprocess.run(
+        [str(fortran_binary), str(out_dir), "badref-write"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    # A missing reference store must abort the program.
+    assert result.returncode != 0, (
+        "binary should have aborted on a bad directory_ref\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    # The reference store opens first, so the main nf90_create never
+    # ran: the writable target must still hold the untouched sentinel.
+    assert target.read_bytes() == sentinel, (
+        "a bad directory_ref truncated or overwrote the writable target"
+    )

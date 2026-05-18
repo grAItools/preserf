@@ -4,8 +4,10 @@
 !> rely on (`ppser_serializer`, `ppser_serializer_ref`, `ppser_savepoint`,
 !> `ppser_realtype`, `ppser_zrperturb`, plus the mode getter/setter).
 !>
-!> The actual netCDF / NCZarr operations live in m_preserf; this module
-!> only handles dataset open/close and mode state.
+!> The actual netCDF operations live in m_preserf; this module only
+!> handles dataset open/close and mode state. v0.1 targets plain
+!> NetCDF4 stores only — NCZarr URL targets are out of scope (see
+!> src/preserf-fortran/README.md "Known limitations" §NCZarr).
 !>
 !> Backed by the schema documented in
 !> `development/references/storage_mapping.md`.
@@ -33,9 +35,17 @@ module utils_preserf
     !
     ! t_savepoint refers to one /savepoints/sp_NNNNNN subgroup.
     !
+    ! `owner_ncid` records the `ncid` of the serializer that created
+    ! the group. fs_write_field validates the field registry through
+    ! its serializer argument but writes the data variable under
+    ! `grpid`; cross-checking `owner_ncid` rejects a savepoint that
+    ! belongs to a different store, which would otherwise let the
+    ! registry and the data variable diverge into different files.
+    !
     type, public :: t_savepoint
         integer :: grpid = -1
         integer :: idx = -1
+        integer :: owner_ncid = -1
     end type t_savepoint
 
     ! -------------------------------------------------------------------------
@@ -219,6 +229,7 @@ contains
         call preserf_close_serializer(ppser_serializer_ref)
         ppser_savepoint%grpid = -1
         ppser_savepoint%idx = -1
+        ppser_savepoint%owner_ncid = -1
         ppser_mode_state = 0
         ! Also restore the ON/OFF gate to its default. ppser_initialize
         ! re-sets this on every fresh session as belt-and-braces, but
