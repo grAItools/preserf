@@ -183,20 +183,35 @@ program test_minimal
         ! go unnoticed.
         u_back = -999.0_real64
         call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u_back)
+        ! fs_read_field (the DATA read path) must likewise be a true
+        ! no-op when disabled. Its `data` argument is intent(inout), so
+        ! the early return leaves the caller's buffer intact: fill
+        ! u_back with a -777 sentinel, attempt a disabled read, and
+        ! confirm nothing was overwritten. A regression dropping the
+        ! `serialisation_enabled` early return from the read overloads
+        ! would clobber the sentinel here.
+        u_back = -777.0_real64
+        call fs_read_field(ppser_serializer, ppser_savepoint, 'u', u_back)
+        if (any(u_back /= -777.0_real64)) error stop &
+            'fs_read_field was not a no-op while serialization was disabled'
         call fs_enable_serialization()
         if (.not. fs_serialization_status()) error stop &
             'fs_serialization_status() should be .true. after fs_enable_serialization'
     end block
 
-    ! Leave the gate disabled across finalize so the read-phase init
-    ! below verifies that ppser_initialize resets `serialisation_enabled`
-    ! to 1 on a fresh session — without that reset, the module-level
-    ! SAVE state from the previous session would silently no-op every
-    ! fs_* call in the read phase.
-    call fs_disable_serialization()
     call ppser_finalize()
 
     ! ---------------- read phase ----------------
+    ! Disable the gate AFTER ppser_finalize. ppser_finalize itself
+    ! resets `serialisation_enabled` to 1, so disabling *before* it
+    ! would leave the flag already enabled going into the init below
+    ! and prove nothing about ppser_initialize. Disabling here —
+    ! between finalize and the fresh init — means the flag is 0 on
+    ! entry to ppser_initialize, so the assertion isolates
+    ! ppser_initialize's own reset path: without that reset the stale
+    ! disabled SAVE state would silently no-op every fs_* call in the
+    ! read phase.
+    call fs_disable_serialization()
     call ppser_initialize(out_dir, 'fhello', 'r')
     if (.not. fs_serialization_status()) error stop &
         'ppser_initialize should reset serialisation_enabled on a fresh session'
