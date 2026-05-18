@@ -1,0 +1,305 @@
+"""Cross-language wire-compat: Fortran writes, Python reads.
+
+This test runs the ``preserf_fortran_test_minimal`` binary built from
+``src/preserf-fortran/test/test_minimal.f90`` and validates the resulting
+store via ``tests/_storage.py``. If the Fortran library hasn't been built
+the test is skipped — the Fortran build is intentionally not part of
+``uv run pytest`` because it depends on an external toolchain
+(``gfortran`` + ``netcdf-fortran``) that not every developer has.
+
+To build the binary locally::
+
+    cmake -S src/preserf-fortran -B src/preserf-fortran/build
+    cmake --build src/preserf-fortran/build
+
+Then ``uv run pytest tests/test_fortran_minimal.py`` will pick it up.
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from ._serialbox import TypeID
+from ._storage import read_dump
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_BUILD_TEST_DIR = _REPO_ROOT / "src/preserf-fortran/build/test"
+
+
+def _locate_binary() -> Path | None:
+    """Find the built preserf_fortran_test_minimal binary.
+
+    Probes the single-config CMake output path AND the typical
+    multi-config generator subdirectories (Visual Studio, Xcode and
+    similar produce ``build/test/<Config>/preserf_fortran_test_minimal[.exe]``).
+    Requires the candidate to be executable so a partially-built tree
+    (file exists but lacks +x) skips gracefully instead of crashing the
+    test with PermissionError.
+    """
+    config_subdirs = ("", "Debug", "Release", "RelWithDebInfo", "MinSizeRel")
+    names = ("preserf_fortran_test_minimal", "preserf_fortran_test_minimal.exe")
+    for config in config_subdirs:
+        base = _BUILD_TEST_DIR / config if config else _BUILD_TEST_DIR
+        for name in names:
+            candidate = base / name
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return candidate
+    return None
+
+
+@pytest.fixture
+def fortran_binary() -> Path:
+    binary = _locate_binary()
+    if binary is None:
+        pytest.skip(
+            f"Fortran test binary not found under {_BUILD_TEST_DIR} "
+            "(checked single-config + Debug/Release subdirs); "
+            "see tests/test_fortran_minimal.py docstring for build steps."
+        )
+    return binary
+
+
+def test_fortran_writes_python_reads(tmp_path: Path, fortran_binary: Path) -> None:
+    """The Fortran helper writes a store the Python reader can decode."""
+    out_dir = tmp_path / "fortran_out"
+    out_dir.mkdir()
+
+    # The Fortran test is expected to complete in well under a second;
+    # the 60-second cap is generous but stops a deadlock from hanging
+    # CI / local runs indefinitely.
+    result = subprocess.run(
+        [str(fortran_binary), str(out_dir)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, (
+        f"Fortran binary exited {result.returncode}.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "preserf-fortran: hello-world OK" in result.stdout
+
+    nc_path = out_dir / "fhello.nc"
+
+    # Direct attribute checks on the raw netCDF root. read_dump() skips
+    # housekeeping attributes (those starting with `_preserf_`), so a
+    # bug in the Fortran writer for `_preserf_writer` or the close-time
+    # `_preserf_savepoint_count` refresh wouldn't surface through the
+    # SerialboxDump-shaped assertions below.
+    import netCDF4  # local import; netCDF4 is a dev-only dependency
+
+    raw = netCDF4.Dataset(str(nc_path), "r")
+    try:
+        # Root housekeeping attributes + their on-disk netCDF types.
+        # `_preserf_schema_version` and `_preserf_savepoint_count` must
+        # be 32-bit ints (NC_INT) regardless of the Fortran default
+        # integer kind; the writer casts to integer(int32) explicitly.
+        # netCDF4-python doesn't expose attribute nc_type directly,
+        # but `getncattr` returns numpy scalars whose dtype reflects
+        # the on-disk type for non-string attrs (np.int32 ↔ NC_INT,
+        # np.int64 ↔ NC_INT64, np.int8 ↔ NC_BYTE, etc.).
+        v = raw.getncattr("_preserf_schema_version")
+        assert v == 1 and v.dtype == np.dtype("int32"), (
+            f"_preserf_schema_version on disk is {v.dtype}, expected int32"
+        )
+        assert raw.getncattr("_preserf_serialbox_prefix") == "fhello"
+        # _preserf_savepoint_count is refreshed in preserf_close_serializer;
+        # the test writes exactly one savepoint and expects that to be
+        # reflected. Must also be NC_INT (int32) so cross-language
+        # readers don't see a different type from a Python-written store.
+        cnt = raw.getncattr("_preserf_savepoint_count")
+        assert cnt == 1 and cnt.dtype == np.dtype("int32")
+        writer = raw.getncattr("_preserf_writer")
+        assert isinstance(writer, str) and writer.startswith("preserf ")
+
+        # Wire-level on-disk type assertions for the metainfo overloads.
+        # `read_dump()` decodes via the __preserf_type_id shadow tag and
+        # casts to the registry dtype, so a wrong on-disk type would
+        # still survive that path. The direct dtype check below catches
+        # regressions in the kind-specific nf90_put_att branches.
+        assert raw.getncattr("use_gpu").dtype == np.dtype("int8"), \
+            "use_gpu must be NF90_BYTE (int8)"
+        assert raw.getncattr("schema_version").dtype == np.dtype("int32"), \
+            "schema_version must be NF90_INT (int32)"
+        assert raw.getncattr("wallclock_ns").dtype == np.dtype("int64"), \
+            "wallclock_ns must be NF90_INT64 (int64)"
+        assert raw.getncattr("tolerance32").dtype == np.dtype("float32"), \
+            "tolerance32 must be NF90_FLOAT (float32)"
+
+        # /_fields registry variables: type_id + dims attributes on the
+        # dummy scalar carrier. Also verify the registry variable
+        # itself is NC_INT (the schema's "dummy scalar" sentinel).
+        fields_grp = raw.groups["_fields"]
+        for fname in ("u", "v", "w"):
+            assert fields_grp.variables[fname].dtype == np.dtype("int32"), \
+                f"/_fields/{fname} carrier must be NF90_INT"
+            assert fields_grp.variables[fname].getncattr("type_id") == 5
+        # ON / OFF gate must have produced no side effects: the
+        # fs_register_field call inside the disabled window targeted
+        # `disabled_field` and the fs_add_serializer_metainfo call
+        # targeted `disabled_meta`. Neither should appear on disk.
+        assert "disabled_field" not in fields_grp.variables, (
+            "fs_register_field was not a no-op while serialization was "
+            "disabled (`disabled_field` leaked into /_fields)"
+        )
+        assert "disabled_meta" not in raw.ncattrs(), (
+            "fs_add_serializer_metainfo was not a no-op while "
+            "serialization was disabled (`disabled_meta` leaked onto root)"
+        )
+        # Halo round-trip for `u` (jSize halos = 3 and 4 etc.); confirms
+        # put_halo_attr actually wrote them.
+        u_reg = fields_grp.variables["u"]
+        assert int(u_reg.getncattr("iminushalo")) == 1
+        assert int(u_reg.getncattr("iplushalo")) == 2
+        assert int(u_reg.getncattr("jminushalo")) == 3
+        assert int(u_reg.getncattr("jplushalo")) == 4
+        # kminushalo is 0 → should NOT be present (storage_mapping.md §4
+        # specifies halos are optional and only emitted when non-zero).
+        assert "kminushalo" not in u_reg.ncattrs()
+        assert int(u_reg.getncattr("kplushalo")) == 5
+
+        # /savepoints/sp_000000 housekeeping: _preserf_savepoint_index
+        # is read by read_dump() but discarded, so test it here directly.
+        sp_grp = raw.groups["savepoints"].groups["sp_000000"]
+        assert int(sp_grp.getncattr("_preserf_savepoint_index")) == 0
+
+        # ON / OFF gate must also cover the DATA path: test_minimal.f90
+        # attempts an fs_write_field of a -999.0 sentinel into the
+        # already-written `u` variable while serialization is disabled.
+        # None of u's cells may carry that sentinel — if any do, the
+        # `serialisation_enabled` early return regressed out of
+        # fs_write_field.
+        u_disk = np.asarray(sp_grp.variables["u"][...])
+        assert not np.any(u_disk == -999.0), (
+            "fs_write_field was not a no-op while serialization was "
+            "disabled (`u` was overwritten with the -999.0 sentinel)"
+        )
+
+        # Per-savepoint field variable types: each `u`/`v`/`w` data
+        # variable must be on-disk NF90_DOUBLE.
+        for fname in ("u", "v", "w"):
+            assert sp_grp.variables[fname].dtype == np.dtype("float64"), (
+                f"savepoint/{fname} variable must be NF90_DOUBLE"
+            )
+    finally:
+        raw.close()
+
+    dump = read_dump(str(nc_path))
+
+    # Prefix and writer attribute
+    assert dump.prefix == "fhello"
+
+    # Global metainfo written via fs_add_serializer_metainfo
+    assert "author" in dump.global_meta_info
+    assert dump.global_meta_info["author"].type_id == TypeID.String
+    assert dump.global_meta_info["author"].value == "fortran-test"
+    assert dump.global_meta_info["schema_version"].type_id == TypeID.Int32
+    assert dump.global_meta_info["schema_version"].value == 7
+    # use_gpu exercises the Boolean → NF90_BYTE path. The shadow tag
+    # carries TypeID.Boolean (=1), and the underlying value round-trips.
+    assert dump.global_meta_info["use_gpu"].type_id == TypeID.Boolean
+    assert dump.global_meta_info["use_gpu"].value is True
+    # Int64 and Float32 metainfo branches.
+    assert dump.global_meta_info["wallclock_ns"].type_id == TypeID.Int64
+    assert dump.global_meta_info["wallclock_ns"].value == 1_700_000_000_000_000_000
+    assert dump.global_meta_info["tolerance32"].type_id == TypeID.Float32
+    assert dump.global_meta_info["tolerance32"].value == pytest.approx(1e-3, rel=1e-6)
+
+    # Field registry: three fields covering all three real64 overloads.
+    # The helper reverses Fortran-order sizes to C-order, so:
+    #   u (Fortran iSize=4, jSize=3, kSize=2) → dims == [2, 3, 4]
+    #   v (1-D, iSize=5)                       → dims == [5]
+    #   w (2-D, iSize=3, jSize=4)              → dims == [4, 3]
+    assert set(dump.field_map.keys()) == {"u", "v", "w"}
+    assert dump.field_map["u"].type_id == TypeID.Float64
+    assert dump.field_map["u"].dims == [2, 3, 4]
+    assert dump.field_map["v"].type_id == TypeID.Float64
+    assert dump.field_map["v"].dims == [5]
+    assert dump.field_map["w"].type_id == TypeID.Float64
+    assert dump.field_map["w"].dims == [4, 3]
+
+    # One savepoint named "step" with two metainfo entries and three fields.
+    assert len(dump.savepoints) == 1
+    sp = dump.savepoints[0]
+    assert sp.name == "step"
+    assert sp.meta_info["ntstep"].type_id == TypeID.Int32
+    assert sp.meta_info["ntstep"].value == 1
+    assert sp.meta_info["t"].type_id == TypeID.Float64
+    assert sp.meta_info["t"].value == 0.5
+    assert set(sp.fields.keys()) == {"u", "v", "w"}
+
+    # 3-D field round-trip. Fortran u(i,j,k) = 100*i + 10*j + k.
+    # After axis reversal the Python view has shape (nk, nj, ni) =
+    # (2, 3, 4), and Fortran's u(i,j,k) lands at numpy u_py[k-1, j-1, i-1].
+    u_py = dump.field_data["u"][0]
+    assert u_py.shape == (2, 3, 4)
+    assert u_py.dtype == np.float64
+    assert u_py[0, 0, 0] == 111  # Fortran u(1,1,1)
+    assert u_py[0, 0, 3] == 411  # Fortran u(4,1,1)
+    assert u_py[0, 2, 0] == 131  # Fortran u(1,3,1)
+    assert u_py[1, 0, 0] == 112  # Fortran u(1,1,2)
+    assert u_py[1, 2, 3] == 432  # Fortran u(4,3,2)
+
+    # 1-D field round-trip. v is rank-1 so the C-order/Fortran-order
+    # reversal is a no-op.
+    v_py = dump.field_data["v"][0]
+    assert v_py.shape == (5,)
+    assert v_py.dtype == np.float64
+    np.testing.assert_array_equal(v_py, np.arange(1, 6, dtype=np.float64))
+
+    # 2-D field round-trip. Fortran w(i,j) = 10*i + j, registered as
+    # iSize=3, jSize=4. C-order shape is (4, 3) and Fortran w(i,j)
+    # lands at numpy w_py[j-1, i-1].
+    w_py = dump.field_data["w"][0]
+    assert w_py.shape == (4, 3)
+    assert w_py.dtype == np.float64
+    assert w_py[0, 0] == 11  # Fortran w(1,1)
+    assert w_py[0, 2] == 31  # Fortran w(3,1)
+    assert w_py[3, 0] == 14  # Fortran w(1,4)
+    assert w_py[3, 2] == 34  # Fortran w(3,4)
+
+
+def test_fortran_bad_reference_path_keeps_target(
+    tmp_path: Path, fortran_binary: Path
+) -> None:
+    """A bad ``directory_ref`` aborts without truncating the target.
+
+    ``ppser_initialize`` opens an explicit ``directory_ref`` reference
+    store *before* creating the writable main store, so a missing
+    reference path must fail cleanly without truncating (or
+    overwriting) the writable target file. The Fortran ``badref-write``
+    scenario in ``test_minimal.f90`` triggers exactly this case.
+    """
+    out_dir = tmp_path / "fortran_out"
+    out_dir.mkdir()
+
+    # Pre-place a sentinel where the writable store would be created.
+    # If ppser_initialize wrongly created/truncated the target before
+    # validating the (bad) reference path, this content is destroyed.
+    target = out_dir / "fhello.nc"
+    sentinel = b"preserf-sentinel-must-survive-bad-directory_ref"
+    target.write_bytes(sentinel)
+
+    result = subprocess.run(
+        [str(fortran_binary), str(out_dir), "badref-write"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    # A missing reference store must abort the program.
+    assert result.returncode != 0, (
+        "binary should have aborted on a bad directory_ref\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    # The reference store opens first, so the main nf90_create never
+    # ran: the writable target must still hold the untouched sentinel.
+    assert target.read_bytes() == sentinel, (
+        "a bad directory_ref truncated or overwrote the writable target"
+    )

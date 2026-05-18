@@ -38,8 +38,45 @@ The eight Serialbox `TypeID` values (`src/serialbox/core/Type.h:55-74`) are:
 | 3      | Int64    | `NF90_INT64`        |                                |
 | 4      | Float32  | `NF90_FLOAT`        |                                |
 | 5      | Float64  | `NF90_DOUBLE`       |                                |
-| 6      | String   | `NF90_STRING`       | variable-length string         |
+| 6      | String   | `NF90_CHAR` (scalar) / `NF90_STRING` (vector) | see note |
 | array  | of above | vector attribute    | netCDF attrs are natively vectors |
+
+> **Note on String storage.** Scalar string metainfo lands on disk as
+> `NC_CHAR` from both reference writers: Python's
+> `netCDF4.Dataset.setncattr(key, str)` calls `nc_put_att_text` and
+> produces `NC_CHAR`; the Fortran helper's
+> `nf90_put_att(grpid, varid, key, character(*))` does the same. Array
+> string metainfo is `NC_STRING` from the Python writer
+> (`setncattr(key, list[str])`) — the Fortran helper doesn't support
+> array string metainfo in v0.1.
+>
+> Readers MUST decode based on the `__preserf_type_id` shadow tag
+> (TypeID 6 → string), not on the on-disk netCDF type. For
+> **scalar** string-tagged attributes, readers MUST accept either
+> `NC_CHAR` or `NC_STRING`. For **array** string-tagged attributes
+> (TypeID = `0x10 | 6 = 22`), the on-disk encoding is always
+> `NC_STRING` (a vector attribute) — `NC_CHAR` has no shape rule
+> that round-trips a vector of strings, so writers MUST NOT use
+> `NC_CHAR` for that case.
+
+### 1.1 Axis ordering convention
+
+The `dims[]` attribute on every `/_fields/<name>` registry entry, and the
+order of dimensions on every per-savepoint field variable, are recorded in
+**netCDF C-order** (slowest-varying axis first). This matches the natural
+ordering for the netCDF-C, netCDF4-python and xarray ecosystems.
+
+Serialbox's Fortran helper (`fs_register_field`) accepts sizes in the
+Fortran column-major declaration order `(iSize, jSize, kSize, lSize)`.
+The preserf Fortran helper transparently reverses this tuple when writing
+the `dims` attribute and when declaring the data variable's dimensions,
+so a rank-3 Fortran field declared as `(iSize=4, jSize=3, kSize=2)`
+shows up on disk as `dims = [2, 3, 4]` and as a netCDF variable of C-shape
+`(2, 3, 4)`. A Python reader sees `numpy[k_idx, j_idx, i_idx]`.
+
+Halo attributes (§4) remain named by their Fortran direction (`i`, `j`,
+`k`, `l`) regardless of the C-order axis layout — they describe the
+physical halo, not the storage axis.
 
 ---
 
@@ -73,10 +110,15 @@ Two kinds of root attributes are written:
 
 | Attribute name             | Type       | Value                                            |
 |----------------------------|------------|--------------------------------------------------|
-| `_preserf_schema_version`  | `NF90_INT` | `1` (this document's schema version)             |
-| `_preserf_serialbox_prefix`| `NF90_STRING` | the `prefix` argument from `ppser_initialize` |
-| `_preserf_savepoint_count` | `NF90_INT` | number of savepoint subgroups under `/savepoints` |
-| `_preserf_writer`          | `NF90_STRING` | `"preserf <version>"`                          |
+| `_preserf_schema_version`  | `NF90_INT`    | `1` (this document's schema version)             |
+| `_preserf_serialbox_prefix`| `NF90_CHAR`   | the `prefix` argument from `ppser_initialize`    |
+| `_preserf_savepoint_count` | `NF90_INT`    | number of savepoint subgroups under `/savepoints` |
+| `_preserf_writer`          | `NF90_CHAR`   | `"preserf <version>"`                            |
+
+Both reference writers (Python `netCDF4` and Fortran `netcdf-fortran`)
+produce `NC_CHAR` for scalar string attributes (§1). For maximum
+forward compatibility, readers SHOULD also accept `NC_STRING` on these
+housekeeping attributes if a future writer chooses to emit it.
 
 Reading code MUST ignore any `_preserf_*` attribute it does not recognise.
 
@@ -134,12 +176,51 @@ Attributes:
 | `lplushalo`      | `NF90_INT`        | no   | "                                                |
 | user metainfo    | typed             | no   | any extra `key=value` set via the field's metainfo map; same naming rules as §3.2 |
 
-Halo attributes are **optional** and may be partially present: a writer
-emits only the halos that `pp_ser` (or the caller) actually provided.
-Readers MUST treat any missing halo attribute as **absent** rather than
-implying a default of `0`. Whether and how absent halos translate into
-runtime behaviour (e.g. zero-halo assumption inside the Fortran helper) is
-defined by the consumer, not by this storage schema.
+Halo attributes are **optional** — the schema does not assign any
+default semantics to an absent halo. The two ends of the wire have
+distinct, non-conflicting obligations:
+
+* **Writers** SHOULD omit any halo attribute whose value is zero,
+  purely as an on-disk-compactness convention: omitting zero-valued
+  halos avoids cluttering `/_fields/<name>` with a row of "0" entries.
+  The preserf Fortran helper's `put_halo_attr` follows this rule. A
+  writer MAY emit zero halos explicitly if it wants the metadata to
+  be unambiguous; this is conformant. The preserf Fortran helper
+  emits each halo as an **unshadowed** plain `NF90_INT` attribute on
+  the `/_fields/<name>` carrier — no `<name>__preserf_type_id` shadow
+  tag, since the halo name already fixes the type. The Python
+  reference writer in `tests/_storage.py` has no dedicated bare-halo
+  writer path; if it ever needs to emit a halo it would go through
+  the typed-metainfo channel (which also writes the shadow tag).
+  Both the bare-integer and shadowed encodings are conformant
+  on-disk forms.
+
+  > **Reader-support note.** The v0.1 Python reference reader
+  > (`read_dump` in `tests/_storage.py`) decodes *only* shadowed
+  > metainfo: `_read_metainfo_attrs` skips any attribute that has no
+  > `<name>__preserf_type_id` sibling. Unshadowed halo attributes
+  > therefore do **not** surface in the `FieldMetainfo` objects
+  > `read_dump` returns — they are reachable only through raw netCDF
+  > access. The cross-language test (`tests/test_fortran_minimal.py`)
+  > accordingly asserts the Fortran-written halos directly via
+  > `netCDF4.Variable.getncattr`, not through `read_dump`. So in v0.1
+  > "halo round-trip" means the attributes survive on disk, not that
+  > they appear in `read_dump`'s decoded output. Teaching the
+  > reference reader to surface bare halo attributes (and adding a
+  > matching bare-halo writer path on the Python side) is tracked as
+  > a follow-up.
+* **Readers** MUST treat any missing halo attribute as **absent**
+  (= "this writer did not record information about this halo")
+  rather than as an implicit `0`. Whether and how an absent halo
+  translates into runtime behaviour (e.g. a zero-halo assumption
+  inside the Fortran caller) is the consumer's policy, not part of
+  this storage schema.
+
+These two clauses do not contradict each other: writer compactness
+("zero omitted") and reader semantics ("absent ≠ 0 implicitly") are
+independent. A reader that needs to distinguish "writer recorded
+zero" from "writer didn't record" must inspect the attribute's
+presence and not assume a default.
 
 > The `bytes_per_element` attribute that the original `fs_register_field`
 > can carry is intentionally **not** part of the v1 schema yet — it would
@@ -162,10 +243,11 @@ unless a more specific naming convention is configured (future work — see
   numerical ordering. Writes that would exceed this cap must fail; widening
   the field is a forwards-incompatible schema change (would require bumping
   `_preserf_schema_version`).
-* The savepoint's **Serialbox `name`** is stored as the `name` attribute of
-  the group (`NF90_STRING`). It is *not* used as the group identifier
-  because Serialbox permits multiple savepoints to share a `name` (they are
-  disambiguated by metainfo).
+* The savepoint's **Serialbox `name`** is stored as the `name` attribute
+  of the group (`NF90_CHAR`; both reference writers produce `NC_CHAR`
+  for scalar strings — see §1). It is *not* used as the group
+  identifier because Serialbox permits multiple savepoints to share a
+  `name` (they are disambiguated by metainfo).
 * Each Serialbox metainfo key on the savepoint becomes one group attribute,
   typed per §1. The reserved-namespace rule from §3.2 applies.
 
@@ -248,10 +330,11 @@ Resulting NetCDF4 / NCZarr store:
                                                 author="alice"
 /_fields/
   u                                     scalar NF90_INT, value 0
-    attrs: type_id=5, dims=[ie,je,ke],
+    attrs: type_id=5, dims=[ke,je,ie],   ! C-order, per §1.1
            iminushalo=nboundlines, iplushalo=nboundlines,
-           jminushalo=nboundlines, jplushalo=nboundlines,
-           kminushalo=0, kplushalo=0
+           jminushalo=nboundlines, jplushalo=nboundlines
+                                          ! kminushalo / kplushalo omitted
+                                          ! (zero — see §4 writer convention)
 /savepoints/
   sp_000000/                            attrs: name="step1", ntstep=1,
                                                _preserf_savepoint_index=0
