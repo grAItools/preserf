@@ -68,7 +68,18 @@ endif()
 # -----------------------------------------------------------------------------
 # Tests
 # -----------------------------------------------------------------------------
-option(PRESERF_FORTRAN_BUILD_TESTS "Build preserf-fortran tests" ON)
+#
+# Default tests ON only when preserf-fortran is the top-level CMake project
+# (standalone development). When vendored via `add_subdirectory` by a
+# parent project, default to OFF so embedders don't pick up the test
+# target / CTest entries unless they opt in via -DPRESERF_FORTRAN_BUILD_TESTS=ON.
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(_preserf_fortran_default_tests ON)
+else()
+    set(_preserf_fortran_default_tests OFF)
+endif()
+option(PRESERF_FORTRAN_BUILD_TESTS "Build preserf-fortran tests"
+       ${_preserf_fortran_default_tests})
 if(PRESERF_FORTRAN_BUILD_TESTS)
     enable_testing()
     add_subdirectory(test)

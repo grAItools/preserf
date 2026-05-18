@@ -186,9 +186,14 @@ distinct, non-conflicting obligations:
   The preserf Fortran helper's `put_halo_attr` follows this rule. A
   writer MAY emit zero halos explicitly if it wants the metadata to
   be unambiguous; this is conformant. (The Python reference writer
-  in `tests/_storage.py` doesn't emit halo attributes at all today —
-  halos are only produced by Fortran-side writes originating from
-  pp_ser `REGISTER` directives.)
+  in `tests/_storage.py` does not have a dedicated bare-halo writer
+  path — Fortran emits halo attributes as **unshadowed** integers on
+  the `/_fields/<name>` carrier, while Python can only emit a halo
+  name like `iminushalo` through the typed-metainfo channel, which
+  also writes the `iminushalo__preserf_type_id` shadow tag. Both
+  encodings are valid and round-trip through this schema; readers
+  that want halo information should accept either the shadowed or
+  the unshadowed form.)
 * **Readers** MUST treat any missing halo attribute as **absent**
   (= "this writer did not record information about this halo")
   rather than as an implicit `0`. Whether and how an absent halo

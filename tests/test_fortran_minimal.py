@@ -1,6 +1,6 @@
 """Cross-language wire-compat: Fortran writes, Python reads.
 
-This test runs the ``test_minimal`` binary built from
+This test runs the ``preserf_fortran_test_minimal`` binary built from
 ``src/preserf-fortran/test/test_minimal.f90`` and validates the resulting
 store via ``tests/_storage.py``. If the Fortran library hasn't been built
 the test is skipped — the Fortran build is intentionally not part of
@@ -32,17 +32,17 @@ _BUILD_TEST_DIR = _REPO_ROOT / "src/preserf-fortran/build/test"
 
 
 def _locate_binary() -> Path | None:
-    """Find the built test_minimal binary.
+    """Find the built preserf_fortran_test_minimal binary.
 
     Probes the single-config CMake output path AND the typical
     multi-config generator subdirectories (Visual Studio, Xcode and
-    similar produce `build/test/<Config>/test_minimal[.exe]`). Requires
-    the candidate to be executable so a partially-built tree (file
-    exists but lacks +x) skips gracefully instead of crashing the test
-    with PermissionError.
+    similar produce ``build/test/<Config>/preserf_fortran_test_minimal[.exe]``).
+    Requires the candidate to be executable so a partially-built tree
+    (file exists but lacks +x) skips gracefully instead of crashing the
+    test with PermissionError.
     """
     config_subdirs = ("", "Debug", "Release", "RelWithDebInfo", "MinSizeRel")
-    names = ("test_minimal", "test_minimal.exe")
+    names = ("preserf_fortran_test_minimal", "preserf_fortran_test_minimal.exe")
     for config in config_subdirs:
         base = _BUILD_TEST_DIR / config if config else _BUILD_TEST_DIR
         for name in names:

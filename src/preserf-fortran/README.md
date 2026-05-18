@@ -1,8 +1,12 @@
 # preserf-fortran
 
 Fortran helper modules that pp_ser-generated `!$SER` directive code links
-against. Writes the group-per-savepoint NetCDF4 / NCZarr layout documented
-in [`../../development/references/storage_mapping.md`][mapping].
+against. **v0.1 writes NetCDF4 stores** following the group-per-savepoint
+layout documented in [`../../development/references/storage_mapping.md`][mapping].
+The schema itself is also defined for NCZarr V2 (and is forward-compatible
+with Zarr V3 once netcdf-c's NCZarr V3 PR lands), but emitting an NCZarr
+URL target from the Fortran helper is tracked as a follow-up — see
+"Known limitations" below.
 
 [mapping]: ../../development/references/storage_mapping.md
 
