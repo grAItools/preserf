@@ -115,6 +115,16 @@ Out of scope for this PR (tracked as follow-ups):
 - `fs_write_kbuff` (k-buffer / `!$SER DATA_KBUFF`).
 - `fs_RegisterAllTracers` and the tracer write API (`!$SER TRACER`).
 - `fs_Option` (`!$SER OPTION`).
+- Explicit `directory_ref` / `prefix_ref` test coverage. The integration
+  test exercises only the implicit same-store reference path
+  (`ppser_initialize(..., 'r')` opens `ppser_serializer_ref` against the
+  same store). The explicit-ref branch — which `ppser_initialize`
+  deliberately orders to open the read-only reference *before* the
+  writable target so a bad reference path doesn't truncate an existing
+  file — is not yet tested. Covering "bad reference path doesn't
+  clobber the main store" needs a separate Fortran test program that's
+  expected to `error stop` (a `WILL_FAIL` ctest entry) plus a Python
+  assertion that the writable target survived.
 - NCZarr URL targets. The helper currently constructs the open path as
   `<directory>/<prefix>.nc` and passes `NF90_NETCDF4` to `nf90_create`.
   Supporting `file://<directory>/<prefix>.zarr#mode=nczarr,zarr2`

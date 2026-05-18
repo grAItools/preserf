@@ -45,8 +45,14 @@ module utils_preserf
     type(t_serializer), public, save, target :: ppser_serializer_ref
     type(t_savepoint),  public, save :: ppser_savepoint
 
-    integer(int32), parameter, public :: ppser_intlength  = 4
-    integer(int32), parameter, public :: ppser_reallength = 8
+    ! Byte-length constants for pp_ser-emitted `fs_register_field`
+    ! calls. Declared in default `integer` kind (not int32) so they
+    ! match the `bytes_per_element` dummy argument's kind on builds
+    ! that compile with `-fdefault-integer-8` or similar — Fortran's
+    ! explicit-interface kind checking would otherwise fail when
+    ! generated code passes `ppser_reallength` to `fs_register_field`.
+    integer, parameter, public :: ppser_intlength  = 4
+    integer, parameter, public :: ppser_reallength = 8
     character(len=*), parameter, public :: ppser_realtype = 'double'
     real(real64), public, save :: ppser_zrperturb = 0.0_real64
 
@@ -105,20 +111,22 @@ contains
     end function preserf_writer_version
 
     !> Initialise the global serializer (and optionally a read-reference
-    !> serializer) by opening a netCDF / NCZarr dataset under `directory`
-    !> with name `prefix`.
+    !> serializer) by opening a **NetCDF4** dataset under `directory`
+    !> with name `prefix`. v0.1 only supports plain NetCDF4 stores —
+    !> NCZarr URL targets are out of scope (see
+    !> src/preserf-fortran/README.md "Known limitations" §NCZarr).
     !>
     !> **Precondition:** `directory` MUST already exist on disk. The
     !> helper calls `nf90_create(directory//'/'//prefix//'.nc', ...)`
     !> directly and does not create parent directories — `nf90_create`
-    !> aborts with `NF90_ENFILE` if the parent doesn't exist. The Python
-    !> reference writer in `tests/_storage.py` creates the directory
-    !> with `mkdir(parents=True, exist_ok=True)`; Fortran callers are
-    !> responsible for an equivalent step before calling
-    !> `ppser_initialize`. The CTest target preserf-fortran's
-    !> `fortran_minimal_setup` runs `cmake -E make_directory` for this
-    !> reason; tests/test_fortran_minimal.py uses pytest's `tmp_path`
-    !> fixture.
+    !> propagates the underlying HDF5 / system error if the parent is
+    !> missing. The Python reference writer in `tests/_storage.py`
+    !> creates the directory with `mkdir(parents=True, exist_ok=True)`;
+    !> Fortran callers are responsible for an equivalent step before
+    !> calling `ppser_initialize`. The CTest target
+    !> `preserf_fortran_minimal_setup` runs `cmake -E make_directory`
+    !> for this reason; tests/test_fortran_minimal.py uses pytest's
+    !> `tmp_path` fixture.
     !>
     !> `mode` is one of: 'w' (write, create or truncate), 'r' (read-only).
     !> Append mode ('a') is reserved but currently rejected — see

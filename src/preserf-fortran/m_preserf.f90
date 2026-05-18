@@ -465,7 +465,7 @@ contains
         call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'read')
         ncerr = nf90_inq_varid(sp%grpid, trim(fieldname), varid)
         call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
-        call require_variable_xtype(sp%grpid, varid, fieldname, NF90_DOUBLE)
+        call require_variable_xtype(s, sp%grpid, varid, fieldname, NF90_DOUBLE)
         ncerr = nf90_get_var(sp%grpid, varid, data)
         call preserf_check_nf_with_msg(ncerr, 'get_var '//trim(fieldname)//' (1d)')
     end subroutine
@@ -482,7 +482,7 @@ contains
         call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'read')
         ncerr = nf90_inq_varid(sp%grpid, trim(fieldname), varid)
         call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
-        call require_variable_xtype(sp%grpid, varid, fieldname, NF90_DOUBLE)
+        call require_variable_xtype(s, sp%grpid, varid, fieldname, NF90_DOUBLE)
         ncerr = nf90_get_var(sp%grpid, varid, data)
         call preserf_check_nf_with_msg(ncerr, 'get_var '//trim(fieldname)//' (2d)')
     end subroutine
@@ -499,7 +499,7 @@ contains
         call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'read')
         ncerr = nf90_inq_varid(sp%grpid, trim(fieldname), varid)
         call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
-        call require_variable_xtype(sp%grpid, varid, fieldname, NF90_DOUBLE)
+        call require_variable_xtype(s, sp%grpid, varid, fieldname, NF90_DOUBLE)
         ncerr = nf90_get_var(sp%grpid, varid, data)
         call preserf_check_nf_with_msg(ncerr, 'get_var '//trim(fieldname)//' (3d)')
     end subroutine
@@ -1069,21 +1069,46 @@ contains
         end if
     end subroutine require_savepoint
 
-    !> Confirm the on-disk netCDF variable type matches what the
-    !> Fortran read overload expects. `validate_field_shape` already
-    !> checks the `/_fields/<name>:type_id` registry entry, but the
-    !> actual data variable under the savepoint group could in
-    !> principle have a different `xtype` (e.g. a corrupt or
-    !> third-party store whose registry says Float64 but whose
-    !> variable is Float32). netCDF would otherwise silently convert
-    !> via nf90_get_var and feed the caller cast values — abort
-    !> instead with a diagnostic identifying the mismatch.
-    subroutine require_variable_xtype(grpid, varid, fieldname, expected_xtype)
-        integer, intent(in) :: grpid, varid
+    !> Confirm the on-disk netCDF variable matches what the Fortran
+    !> read overload + the `/_fields/<name>` registry entry expect:
+    !> both the variable's `xtype` AND its actual dimension lengths.
+    !>
+    !> `validate_field_shape` already checks the registry's `type_id`
+    !> and `dims` against the caller's runtime shape; this helper
+    !> additionally cross-checks the *savepoint variable* on disk
+    !> against the same registry, so a store whose registry and
+    !> variable disagree (e.g. mutated by a third-party tool) is
+    !> rejected up-front instead of being silently coerced by
+    !> nf90_get_var or hitting a low-level netCDF error mid-read.
+    subroutine require_variable_xtype(s, sp_grpid, varid, fieldname, &
+                                       expected_xtype)
+        type(t_serializer), intent(in) :: s
+        integer, intent(in) :: sp_grpid, varid
         character(len=*), intent(in) :: fieldname
         integer, intent(in) :: expected_xtype
-        integer :: ncerr, actual_xtype
-        ncerr = nf90_inquire_variable(grpid, varid, xtype=actual_xtype)
+        integer :: ncerr, actual_xtype, actual_ndims, axis, registry_varid, &
+                   attr_len
+        integer(int32), allocatable :: expected_dims_c(:)
+        integer, allocatable :: dimids(:)
+        integer :: actual_len
+
+        ! Re-fetch the registry's `dims` attribute so the on-disk variable
+        ! comparison uses exactly the same reference values that
+        ! `validate_field_shape` checked the caller against.
+        ncerr = nf90_inq_varid(s%fields_grpid, trim(fieldname), registry_varid)
+        call preserf_check_nf_with_msg(ncerr, &
+            'inq_varid /_fields/'//trim(fieldname))
+        ncerr = nf90_inquire_attribute(s%fields_grpid, registry_varid, 'dims', &
+                                        len=attr_len)
+        call preserf_check_nf_with_msg(ncerr, &
+            'inquire_attribute dims (for variable check)')
+        allocate (expected_dims_c(attr_len))
+        ncerr = nf90_get_att(s%fields_grpid, registry_varid, 'dims', &
+                              expected_dims_c)
+        call preserf_check_nf_with_msg(ncerr, 'get_att dims (for variable check)')
+
+        ncerr = nf90_inquire_variable(sp_grpid, varid, xtype=actual_xtype, &
+                                       ndims=actual_ndims)
         call preserf_check_nf_with_msg(ncerr, &
             'inquire_variable '//trim(fieldname))
         if (actual_xtype /= expected_xtype) then
@@ -1093,6 +1118,42 @@ contains
                 ' but the variable has nc_type ', actual_xtype, &
                 '. Registry / variable mismatch in the store.'
             error stop 1
+        end if
+        if (actual_ndims /= size(expected_dims_c)) then
+            write (*, '(a,a,a,i0,a,i0,a)') &
+                'preserf: read of field "', trim(fieldname), &
+                '" expects rank ', size(expected_dims_c), &
+                ' but the on-disk variable has rank ', actual_ndims, '.'
+            error stop 1
+        end if
+        if (actual_ndims > 0) then
+            allocate (dimids(actual_ndims))
+            ncerr = nf90_inquire_variable(sp_grpid, varid, dimids=dimids)
+            call preserf_check_nf_with_msg(ncerr, &
+                'inquire_variable dimids '//trim(fieldname))
+            ! netcdf-fortran returns dimids in Fortran order
+            ! (fastest-varying first). The expected_dims_c vector is
+            ! C-order (slowest-first), so we compare dimids(k) against
+            ! expected_dims_c(rank - k + 1).
+            do axis = 1, actual_ndims
+                ncerr = nf90_inquire_dimension(sp_grpid, dimids(axis), &
+                                               len=actual_len)
+                call preserf_check_nf_with_msg(ncerr, &
+                    'inquire_dimension '//trim(fieldname))
+                if (actual_len /= &
+                    int(expected_dims_c(actual_ndims - axis + 1))) then
+                    write (*, '(a,a,a)') &
+                        'preserf: read of field "', trim(fieldname), &
+                        '" on-disk variable dimension lengths disagree '//&
+                        'with registry dims.'
+                    write (*, '(a,*(i0,1x))') &
+                        '  registered (C-order):    ', expected_dims_c
+                    write (*, '(a,*(i0,1x))') &
+                        '  variable axis (Fortran): ', axis, actual_len
+                    error stop 1
+                end if
+            end do
+            deallocate (dimids)
         end if
     end subroutine require_variable_xtype
 
