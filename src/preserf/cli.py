@@ -141,7 +141,9 @@ def _collect(inputs: list[str], recursive: bool) -> list[Path]:
             )
         else:
             files.append(path)
-    return files
+    # Overlapping inputs (e.g. a directory and a subdirectory of it) can
+    # resolve to the same file; de-duplicate while preserving order.
+    return list(dict.fromkeys(files))
 
 
 def _output_path(

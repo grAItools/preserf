@@ -141,7 +141,7 @@ def test_mode_passthrough_for_expression() -> None:
 
 
 def test_mode_requires_argument() -> None:
-    with pytest.raises(DirectiveError, match="Must specify a serialization mode"):
+    with pytest.raises(DirectiveError, match="exactly one serialization mode"):
         expand("!$SER MODE\n")
 
 
@@ -152,8 +152,13 @@ def test_mode_with_if_clause() -> None:
 
 
 def test_mode_if_keyword_without_value_is_error() -> None:
-    with pytest.raises(DirectiveError, match="Must specify a serialization mode"):
+    with pytest.raises(DirectiveError, match="exactly one serialization mode"):
         expand("!$SER MODE IF flag\n")
+
+
+def test_mode_rejects_extra_arguments() -> None:
+    with pytest.raises(DirectiveError, match="exactly one serialization mode"):
+        expand("!$SER MODE write extra\n")
 
 
 # --- REGISTER --------------------------------------------------------------

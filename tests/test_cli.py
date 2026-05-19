@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 import preserf
-from preserf.cli import _options, main, parse_args
+from preserf.cli import _collect, _options, main, parse_args
 
 _SOURCE = "module m\n!$SER ON\nend module m\n"
 
@@ -100,6 +100,14 @@ def test_main_output_with_recursive_dir_rejected(
     code = main([str(src), "-r", "-d", str(out_dir), "-o", str(tmp_path / "o.f90")])
     assert code == 1
     assert "single input" in capsys.readouterr().err
+
+
+def test_collect_deduplicates_overlapping_dirs(tmp_path: Path) -> None:
+    sub = tmp_path / "src" / "sub"
+    sub.mkdir(parents=True)
+    (sub / "a.f90").write_text(_SOURCE)
+    files = _collect([str(tmp_path / "src"), str(sub)], recursive=True)
+    assert len(files) == 1
 
 
 def test_main_recursive_requires_output_dir(

@@ -670,11 +670,11 @@ class Preprocessor:
         self._line = out
 
     def _ser_mode(self, args: list[str]) -> None:
-        positionals, _, _, if_statement = self._parse_args(args)
-        if not positionals:
+        positionals, keys, _, if_statement = self._parse_args(args)
+        if len(positionals) != 1 or keys:
             raise self._error(
                 directive=args[0],
-                msg="Must specify a serialization mode",
+                msg="Must specify exactly one serialization mode",
             )
         out = self._annotation()
         tab = ""
