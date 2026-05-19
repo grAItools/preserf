@@ -90,7 +90,7 @@ _REG_SHORTCUTS = {
 # expression rather than a plain field reference: it contains an arithmetic
 # operator or a ``merge`` intrinsic.
 _COMPUTED_OPS = ("*", "+", "-", "/")
-_RE_MERGE = re.compile(r"\bmerge\b")
+_RE_MERGE = re.compile(r"\bmerge\b", re.IGNORECASE)
 
 # Utility-module symbols always imported alongside any serialization call.
 _ALWAYS_PPSER = (
@@ -546,7 +546,7 @@ class Preprocessor:
         if positionals:
             raise self._error(
                 directive=args[0],
-                msg="Must specify a name and a list of key=value pairs",
+                msg="Must specify only key=value pairs",
             )
         out = self._annotation()
         if if_statement:

@@ -120,6 +120,13 @@ def test_data_merge_expression_is_write_only() -> None:
     assert "fs_read_field" not in out
 
 
+def test_data_uppercase_merge_is_write_only() -> None:
+    # Fortran intrinsic names are case-insensitive, so MERGE is computed too.
+    out = expand("!$SER DATA v=MERGE(1,0,mask)\n")
+    assert "fs_write_field" in out
+    assert "fs_read_field" not in out
+
+
 def test_data_field_named_like_merge_is_read_back() -> None:
     # "emerge" contains "merge" but is a plain field, not a computed value.
     out = expand("!$SER DATA emerge=emerge(:)\n")
