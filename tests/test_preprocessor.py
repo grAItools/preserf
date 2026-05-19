@@ -114,6 +114,18 @@ def test_data_computed_field_is_write_only() -> None:
     assert "fs_read_field" not in out
 
 
+def test_data_merge_expression_is_write_only() -> None:
+    out = expand("!$SER DATA v=merge(1,0,mask)\n")
+    assert "fs_write_field" in out
+    assert "fs_read_field" not in out
+
+
+def test_data_field_named_like_merge_is_read_back() -> None:
+    # "emerge" contains "merge" but is a plain field, not a computed value.
+    out = expand("!$SER DATA emerge=emerge(:)\n")
+    assert "fs_read_field" in out
+
+
 def test_accdata_emits_openacc_updates() -> None:
     out = expand("!$SER ACCDATA u=u(:)\n")
     assert "ACC_PREFIX UPDATE HOST ( u(:) )" in out
@@ -228,6 +240,12 @@ def test_metainfo_positionals_and_pairs() -> None:
     assert 'call fs_add_serializer_metainfo(ppser_serializer, "flag", flag)' in out
 
 
+def test_key_value_with_equals_in_value() -> None:
+    # A '=' inside a quoted value must not break key=value splitting.
+    out = expand("!$SER METAINFO tag='a=b'\n")
+    assert "'a=b'" in out
+
+
 def test_option_verbosity_mapping() -> None:
     assert "call fs_Option(verbosity=1)" in expand("!$SER OPTION verbosity=on\n")
     assert "call fs_Option(verbosity=0)" in expand("!$SER OPTION verbosity=off\n")
@@ -297,6 +315,12 @@ def test_tracer_all() -> None:
 def test_tracer_invalid_spec() -> None:
     with pytest.raises(DirectiveError, match="invalid"):
         expand("!$SER TRACER ###\n")
+
+
+def test_tracer_spec_with_trailing_junk_is_invalid() -> None:
+    # An unrecognized type suffix must not be silently truncated away.
+    with pytest.raises(DirectiveError, match="invalid"):
+        expand("!$SER TRACER QV#badtype\n")
 
 
 def test_tracer_imports_write_routine() -> None:

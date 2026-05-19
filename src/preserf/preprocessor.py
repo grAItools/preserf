@@ -86,9 +86,11 @@ _REG_SHORTCUTS = {
     "IJK1": "ie je ke1 0 nboundlines nboundlines nboundlines nboundlines 0 1 0 0",
 }
 
-# Operators that mark a DATA value as "computed": such fields are written
-# but never read back.
-_COMPUTED_SIGNS = ("*", "+", "-", "/", "merge")
+# A DATA value is "computed" (written but never read back) when it is an
+# expression rather than a plain field reference: it contains an arithmetic
+# operator or a ``merge`` intrinsic.
+_COMPUTED_OPS = ("*", "+", "-", "/")
+_RE_MERGE = re.compile(r"\bmerge\b")
 
 # Utility-module symbols always imported alongside any serialization call.
 _ALWAYS_PPSER = (
@@ -126,6 +128,13 @@ _RE_TRACER = re.compile(
     r"(?:#(tens|bd|surf|sedimvel))?"
     r"(?:@([a-zA-Z_0-9]+))?"
 )
+
+
+def _is_computed(value: str) -> bool:
+    """Whether a DATA value is a computed expression, so write-only."""
+    if any(op in value for op in _COMPUTED_OPS):
+        return True
+    return _RE_MERGE.search(value) is not None
 
 
 @dataclass
@@ -449,17 +458,14 @@ class Preprocessor:
                     )
                 if_statement = arg
                 continue
-            parts = arg.split("=")
+            # Split on the first '=' only, so a value may itself contain
+            # '=' (e.g. inside a quoted string literal).
+            parts = arg.split("=", 1)
             if len(parts) == 1:
                 positionals.append(parts[0])
-            elif len(parts) == 2:
+            else:
                 keys.append(parts[0])
                 values.append(parts[1])
-            else:
-                raise self._error(
-                    directive=args[0],
-                    msg="Problem extracting arguments and key=value pairs",
-                )
         return positionals, keys, values, if_statement
 
     def _parse_tracers(
@@ -480,7 +486,7 @@ class Preprocessor:
                     )
                 if_statement = arg
                 continue
-            m = _RE_TRACER.search(arg)
+            m = _RE_TRACER.fullmatch(arg)
             if m is None:
                 raise self._error(
                     directive=args[0],
@@ -718,7 +724,7 @@ class Preprocessor:
             )
         out += tab + f"  CASE({_MODES['read']})\n"
         for key, value in zip(keys, values, strict=True):
-            if any(sign in value for sign in _COMPUTED_SIGNS):
+            if _is_computed(value):
                 continue
             out += (
                 tab
@@ -732,7 +738,7 @@ class Preprocessor:
                 out += self._acc_update("DEVICE", value, tab)
         out += tab + f"  CASE({_MODES['read-perturb']})\n"
         for key, value in zip(keys, values, strict=True):
-            if any(sign in value for sign in _COMPUTED_SIGNS):
+            if _is_computed(value):
                 continue
             out += (
                 tab
