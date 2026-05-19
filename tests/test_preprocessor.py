@@ -145,6 +145,17 @@ def test_mode_requires_argument() -> None:
         expand("!$SER MODE\n")
 
 
+def test_mode_with_if_clause() -> None:
+    out = expand("!$SER MODE write IF flag\n")
+    assert "IF (flag) THEN" in out
+    assert "call ppser_set_mode(0)" in out
+
+
+def test_mode_if_keyword_without_value_is_error() -> None:
+    with pytest.raises(DirectiveError, match="Must specify a serialization mode"):
+        expand("!$SER MODE IF flag\n")
+
+
 # --- REGISTER --------------------------------------------------------------
 
 
@@ -368,6 +379,22 @@ def test_use_statement_after_standalone_subroutine() -> None:
     src = "subroutine s()\n!$SER ON\nend subroutine s\n"
     out = expand(src)
     assert out.index("subroutine s()") < out.index("USE m_serialize")
+
+
+def test_use_block_not_repeated_in_program_subprograms() -> None:
+    src = (
+        "program p\n"
+        "!$SER ON\n"
+        "contains\n"
+        "subroutine s()\n"
+        "!$SER OFF\n"
+        "end subroutine s\n"
+        "end program p\n"
+    )
+    out = expand(src)
+    # The program-level USE is host-associated into contained procedures,
+    # so it must be injected exactly once.
+    assert out.count("USE utils_ppser") == 1
 
 
 def test_extra_modules_added_to_use_block() -> None:

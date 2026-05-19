@@ -287,8 +287,9 @@ class Preprocessor:
         if self._module:
             raise self._error(msg=f"Unexpected {m.group('statement')} statement")
         self._emit_use_stmt()
-        if m.group("statement").upper() == "MODULE":
-            self._use_stmt_in_module = True
+        # Per the spec, contained subprograms host-associate the injected
+        # USE from both MODULE and PROGRAM units, so suppress re-injection.
+        self._use_stmt_in_module = True
         self._module = m.group("identifier")
 
     def _scan_subprogram(self) -> None:
@@ -669,19 +670,19 @@ class Preprocessor:
         self._line = out
 
     def _ser_mode(self, args: list[str]) -> None:
-        if len(args) < 2:
+        positionals, _, _, if_statement = self._parse_args(args)
+        if not positionals:
             raise self._error(
                 directive=args[0],
                 msg="Must specify a serialization mode",
             )
-        _, _, _, if_statement = self._parse_args(args)
         out = self._annotation()
         tab = ""
         if if_statement:
             out += f"IF ({if_statement}) THEN\n"
             tab = "  "
         self._calls.add(_METHODS["mode"])
-        value = args[1]
+        value = positionals[0]
         rendered = str(_MODES[value]) if value in _MODES else value
         out += tab + f"call {_METHODS['mode']}({rendered})\n"
         if if_statement:
