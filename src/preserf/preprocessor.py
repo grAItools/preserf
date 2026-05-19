@@ -645,7 +645,7 @@ class Preprocessor:
 
     def _ser_zero(self, args: list[str]) -> None:
         positionals, keys, _, if_statement = self._parse_args(args)
-        if keys:
+        if keys or not positionals:
             raise self._error(directive=args[0], msg="Must specify a list of fields")
         out = self._annotation()
         tab = ""

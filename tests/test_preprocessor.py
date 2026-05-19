@@ -231,6 +231,11 @@ def test_zero_rejects_key_value() -> None:
         expand("!$SER ZERO a=1\n")
 
 
+def test_zero_requires_fields() -> None:
+    with pytest.raises(DirectiveError, match="Must specify a list of fields"):
+        expand("!$SER ZERO\n")
+
+
 # --- VERBATIM / METAINFO / OPTION ------------------------------------------
 
 
