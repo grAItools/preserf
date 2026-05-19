@@ -88,7 +88,11 @@ They are the things pp_ser-generated source can already hit today.
 5. **Type-coverage matrix is `real64`-only for fields, scalar-only
    for metainfo.** No `bool` / `int32` / `int64` / `float32` field
    overloads, no 0D or 4D field overloads, no array-metainfo
-   variants.
+   variants. **String data fields** (Serialbox `TypeID::String` for
+   data, not metainfo) are also not supported — see
+   `storage_mapping.md` §9 "String data fields" — and there is no
+   `NF90_STRING` write path for field variables yet. String
+   *metainfo* (both scalar and array) is fully supported.
 6. **No tracer / k-buffer / OPTION support.** `!$SER TRACER`,
    `!$SER DATA_KBUFF`, `!$SER OPTION` would fail to link.
 7. **NCZarr targets unreachable.** `preserf_open_serializer` builds
@@ -111,9 +115,20 @@ Closes gap §1 and §2's runtime side.
   `fs_add_savepoint_metainfo`, `fs_add_serializer_metainfo` to a
   create-or-resolve-and-validate shape: on a writable store they
   create as today; on a read-only store they resolve the existing
-  group/var/attr and validate that the runtime arguments (type,
-  dims, halos, metainfo value + `__preserf_type_id`) match. Mismatch
-  aborts with a clear error.
+  group/var/attr and validate that the runtime arguments match.
+  Specifically:
+  - `fs_register_field`: type, dims, halos must match the
+    `/_fields/<name>` registry entry.
+  - `fs_create_savepoint`: the runtime `name` argument must match the
+    existing savepoint group's `name` attribute (per
+    `storage_mapping.md` §5 — savepoints are identified by index
+    `sp_NNNNNN` *plus* the `name` attribute, since Serialbox permits
+    multiple savepoints to share a name and they're disambiguated by
+    metainfo).
+  - metainfo helpers: value plus `__preserf_type_id` must match the
+    existing attribute.
+
+  Mismatch aborts with a clear error.
 - Resolve the `ppser_serializer` vs `ppser_serializer_ref`
   savepoint-grpid mismatch: either savepoints carry per-serializer
   grpids, or `fs_read_field` re-resolves the savepoint under `s`
@@ -143,6 +158,15 @@ Closes gap §5.
 - Array-metainfo overloads (`fs_add_savepoint_metainfo` /
   `fs_add_serializer_metainfo` for 1D arrays of each scalar type,
   per Serialbox `MetainfoValue::Array`).
+- **String data fields are explicitly deferred** to a separate slice
+  (call it Slice B′). Storage mapping §9 says `TypeID::String` for
+  data lands as `NF90_STRING` variables under the same
+  group-per-savepoint layout, with no schema-version bump expected,
+  but the Python reference reader (`tests/_storage.py
+  numpy_dtype_for`) currently rejects the type and there's no
+  `NF90_STRING` write path in `fs_write_field`. Bundling it into
+  Slice B would expand scope; tracking it separately keeps the
+  primary numeric matrix tractable.
 - The cross-language test (`tests/test_fortran_minimal.py`) grows a
   parametrised matrix: for each (rank, dtype), assert raw netCDF
   type via `Dataset[…].dtype` matches the TypeID → netCDF-type table
@@ -180,9 +204,21 @@ Independent of slices A–C; can land in parallel.
   Output uses preserf's helper API.
 - Widen `ppser_initialize` to accept the keyword surface pp_ser
   emits (gap §3): `singlefile`, `mpi_rank`, `rprecision`,
-  `rperturb`, `realtype`, `archive`, `unique_id`. Most of these are
-  metadata-only on the preserf side; `rprecision` / `rperturb` /
-  `realtype` need to thread into the read-perturb path from Slice A.
+  `rperturb`, `realtype`, `archive`, `unique_id`. Several of these
+  are *not* purely metadata:
+  - `mpi_rank`: per `storage_mapping.md` §9, this maps to a
+    `_rank<n>` suffix on the store name. `preserf_open_serializer`
+    must apply the suffix, otherwise parallel runs would clobber
+    each other's stores.
+  - `realtype` and `rprecision`: pp_ser-generated REGISTER calls
+    pass `ppser_realtype` / `ppser_reallength` for `real` fields
+    (see `pp_ser.py` "datatypes" map). The helper currently exposes
+    those as fixed constants; the port must let `ppser_initialize`
+    update them so single-precision real fields get registered with
+    the right type metadata. `rperturb` threads through to the
+    read-perturb path from Slice A.
+  - `singlefile`, `archive`, `unique_id`: metadata-only on the
+    preserf side; record them in root attrs for round-trip fidelity.
 - End-to-end test: run pp_ser on a representative `!$SER`-annotated
   Fortran source, compile the generated output against preserf's
   helpers, run it, and read the store back with `tests/_storage.py`.
@@ -278,5 +314,8 @@ since it's a latent bug rather than missing coverage.
   without going through netcdf-c). The whole point of the schema is
   that one Fortran helper produces both NetCDF4 and NCZarr.
 - Distributed / MPI-aware writes beyond what Serialbox itself
-  supported (`mpi_rank` is metadata-only).
+  supported. The `mpi_rank` keyword that Slice D wires up only
+  controls the `_rank<n>` suffix on the store name (one independent
+  store per rank, per `storage_mapping.md` §9); parallel HDF5 /
+  parallel NCZarr is a future option, not part of this roadmap.
 - A C API. pp_ser only generates Fortran.
