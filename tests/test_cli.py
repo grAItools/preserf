@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 import preserf
-from preserf.cli import main, parse_args
+from preserf.cli import _options, main, parse_args
 
 _SOURCE = "module m\n!$SER ON\nend module m\n"
 
@@ -18,6 +18,11 @@ def test_parse_args_defaults() -> None:
     args = parse_args([])
     assert args.inputs == []
     assert args.ifdef == "SERIALIZE"
+
+
+def test_modules_arg_is_trimmed() -> None:
+    args = parse_args(["x.f90", "--modules", "a_mod, b_mod ,c_mod"])
+    assert _options(args).modules == ("a_mod", "b_mod", "c_mod")
 
 
 def test_version_flag_exits() -> None:

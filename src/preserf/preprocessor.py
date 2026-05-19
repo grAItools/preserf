@@ -186,6 +186,10 @@ class Preprocessor:
 
     def process(self) -> str:
         """Return the preprocessed source (analysis pass, then generation)."""
+        # Analysis-pass results must survive into the generation pass, but
+        # not leak across separate process() calls; clear them up front.
+        self._calls = set()
+        self.intentin_to_remove = []
         self._reset()
         self._parse(generate=False)
         self._reset()
@@ -201,6 +205,7 @@ class Preprocessor:
         self._module = ""
         self._output = []
         self._skip_lines = 0
+        self._use_stmt_in_module = False
 
     def _parse(self, *, generate: bool) -> None:
         if self.options.acc_prefix:

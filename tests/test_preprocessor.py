@@ -380,6 +380,12 @@ def test_use_block_is_deterministic() -> None:
     assert expand(src) == expand(src)
 
 
+def test_process_is_idempotent_on_reuse() -> None:
+    src = "module m\n!$SER DATA u=u\n!$SER SAVEPOINT sp\nend module m\n"
+    pp = Preprocessor("test.f90", src)
+    assert pp.process() == pp.process()
+
+
 # --- intent(in) removal ----------------------------------------------------
 
 

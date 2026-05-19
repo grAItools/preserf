@@ -117,7 +117,7 @@ def _options(args: argparse.Namespace) -> Options:
         acc_prefix=args.acc_prefix,
         acc_if=args.acc_if,
         sp_as_var=args.sp_as_var,
-        modules=tuple(m for m in args.modules.split(",") if m),
+        modules=tuple(m.strip() for m in args.modules.split(",") if m.strip()),
     )
 
 
