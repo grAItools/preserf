@@ -160,7 +160,9 @@ class Options:
 class Preprocessor:
     """Expand ``!$SER`` directives in a single Fortran source file."""
 
-    def __init__(self, filename: str, source: str, options: Options | None = None):
+    def __init__(
+        self, filename: str, source: str, options: Options | None = None
+    ) -> None:
         self.filename = filename
         self._lines = source.splitlines(keepends=True)
         self.options = options or Options()
@@ -179,7 +181,6 @@ class Preprocessor:
         # stripped so read-mode can assign into them. Populated during the
         # analysis pass and consumed during generation.
         self.intentin_to_remove: list[str] = []
-        self.intentin_removed: list[str] = []
 
     # -- public API ---------------------------------------------------------
 
@@ -233,11 +234,17 @@ class Preprocessor:
                 self._output.append(self._line)
             self._line = ""
 
-        # Flush any leftover state: a trailing directive block needs its
+        # A continued !$SER directive (trailing `&`) that runs off the end
+        # of the file has no continuation line; surface it as a continuation
+        # error regardless of guard settings.
+        if pending:
+            self._line = pending
+            raise self._error(msg="Incorrect line continuation encountered")
+
+        # Flush leftover state: a trailing directive block still needs its
         # closing #endif (the reference pp_ser dropped it when the file
-        # ended on a directive), and a dangling continuation surfaces as an
-        # unterminated-#ifdef error rather than being silently discarded.
-        self._line = pending
+        # ended on a directive).
+        self._line = ""
         self._lex(final=True)
         if generate and self._line:
             self._output.append(self._line)
@@ -319,7 +326,8 @@ class Preprocessor:
         Read mode assigns into the field variables, so their ``INTENT(IN)``
         qualifier must be removed when serialization is active. The
         declaration's first line is wrapped in an ``#ifdef``/``#else`` pair
-        carrying the qualifier-free and original forms.
+        carrying the qualifier-free and original forms; when guards are
+        disabled the qualifier is dropped unconditionally instead.
         """
         if not self.intentin_to_remove or "::" not in self._line:
             return
@@ -341,13 +349,20 @@ class Preprocessor:
         matched = [x for x in self.intentin_to_remove if x in declared]
         if not matched:
             return
-        self.intentin_removed.extend(
-            x for x in matched if x not in self.intentin_removed
+        stripped = _RE_INTENT_IN_SUB.sub("", self._line)
+        if not self.options.ifdef:
+            # Guards disabled: serialization is always active, so drop the
+            # INTENT(IN) qualifier unconditionally rather than emitting an
+            # empty, invalid ``#ifdef`` line.
+            self._line = stripped
+            return
+        self._line = (
+            f"#ifdef {self.options.ifdef}\n"
+            + stripped
+            + "#else\n"
+            + self._line
+            + "#endif\n"
         )
-        guarded = f"#ifdef {self.options.ifdef}\n"
-        guarded += _RE_INTENT_IN_SUB.sub("", self._line)
-        guarded += "#else\n" + self._line + "#endif\n"
-        self._line = guarded
 
     @staticmethod
     def _declared_names(text: str) -> set[str]:

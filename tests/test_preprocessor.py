@@ -292,6 +292,16 @@ def test_bad_line_continuation() -> None:
         expand("!$SER DATA u=u &\nx = 1\n")
 
 
+def test_dangling_continuation_at_eof() -> None:
+    with pytest.raises(DirectiveError, match="Incorrect line continuation"):
+        expand("!$SER DATA u=u &\n")
+
+
+def test_dangling_continuation_at_eof_without_guards() -> None:
+    with pytest.raises(DirectiveError, match="Incorrect line continuation"):
+        expand("!$SER DATA u=u &\n", ifdef="")
+
+
 # --- line continuation -----------------------------------------------------
 
 
@@ -343,6 +353,15 @@ def test_intent_in_removed_for_read_fields() -> None:
     assert "#else" in out
     assert "real :: u" in out
     assert "real, intent(in) :: u" in out
+
+
+def test_intent_in_removed_unconditionally_when_guards_disabled() -> None:
+    src = "subroutine s(u)\nreal, intent(in) :: u\n!$SER DATA u=u\nend subroutine s\n"
+    out = expand(src, ifdef="")
+    assert "#ifdef" not in out
+    assert "#else" not in out
+    assert "real :: u" in out
+    assert "intent(in)" not in out
 
 
 def test_intent_in_kept_when_field_not_serialized() -> None:
