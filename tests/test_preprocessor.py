@@ -364,6 +364,16 @@ def test_if_must_be_last() -> None:
         expand("!$SER DATA u=u IF a IF b\n")
 
 
+def test_if_without_condition_is_error() -> None:
+    with pytest.raises(DirectiveError, match="IF must be followed by a condition"):
+        expand("!$SER DATA u=u IF\n")
+
+
+def test_tracer_if_without_condition_is_error() -> None:
+    with pytest.raises(DirectiveError, match="IF must be followed by a condition"):
+        expand("!$SER TRACER QV IF\n")
+
+
 def test_unterminated_module() -> None:
     with pytest.raises(DirectiveError, match="Unterminated module"):
         expand("module m\n!$SER ON\n")

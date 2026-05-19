@@ -466,6 +466,11 @@ class Preprocessor:
             else:
                 keys.append(parts[0])
                 values.append(parts[1])
+        if if_seen and not if_statement:
+            raise self._error(
+                directive=args[0],
+                msg="IF must be followed by a condition",
+            )
         return positionals, keys, values, if_statement
 
     def _parse_tracers(
@@ -493,6 +498,11 @@ class Preprocessor:
                     msg=f"Tracer specification {arg} is invalid",
                 )
             specs.append(m.groups())
+        if if_seen and not if_statement:
+            raise self._error(
+                directive=args[0],
+                msg="IF must be followed by a condition",
+            )
         return specs, if_statement
 
     def _annotation(self) -> str:
