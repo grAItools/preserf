@@ -664,6 +664,11 @@ class Preprocessor:
         self._line = out
 
     def _ser_mode(self, args: list[str]) -> None:
+        if len(args) < 2:
+            raise self._error(
+                directive=args[0],
+                msg="Must specify a serialization mode",
+            )
         _, _, _, if_statement = self._parse_args(args)
         out = self._annotation()
         tab = ""
@@ -760,6 +765,7 @@ class Preprocessor:
         k_value = pairs["k"]
         k_size = pairs["k_size"]
         self._calls.add(_METHODS["getmode"])
+        self._calls.add(_METHODS["datakbuff"])
         for key, value in zip(keys, values, strict=True):
             if key in ("k", "k_size"):
                 continue
@@ -796,6 +802,7 @@ class Preprocessor:
             else:
                 function += "by_name"
                 fargs.append(f"'{ident}'")
+            self._calls.add(function)
             fargs.append(f"stype='{stype or ''}'")
             if timelevel:
                 fargs.append(f"timelevel={timelevel}")

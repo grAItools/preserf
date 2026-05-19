@@ -140,6 +140,11 @@ def test_mode_passthrough_for_expression() -> None:
     assert "call ppser_set_mode(my_mode)" in expand("!$SER MODE my_mode\n")
 
 
+def test_mode_requires_argument() -> None:
+    with pytest.raises(DirectiveError, match="Must specify a serialization mode"):
+        expand("!$SER MODE\n")
+
+
 # --- REGISTER --------------------------------------------------------------
 
 
@@ -233,6 +238,13 @@ def test_data_kbuff_requires_k_and_k_size() -> None:
         expand("!$SER DATA_KBUFF f=field\n")
 
 
+def test_data_kbuff_imports_write_kbuff() -> None:
+    src = "module m\n!$SER DATA_KBUFF k=ki k_size=ks f=field\nend module m\n"
+    out = expand(src)
+    use_block = out[out.index("USE m_serialize") : out.index("call fs_write_kbuff")]
+    assert "fs_write_kbuff" in use_block
+
+
 def test_registertracers() -> None:
     assert "call fs_RegisterAllTracers()" in expand("!$SER REGISTERTRACERS\n")
 
@@ -254,6 +266,15 @@ def test_tracer_all() -> None:
 def test_tracer_invalid_spec() -> None:
     with pytest.raises(DirectiveError, match="invalid"):
         expand("!$SER TRACER ###\n")
+
+
+def test_tracer_imports_write_routine() -> None:
+    src = "module m\n!$SER TRACER QV\nend module m\n"
+    out = expand(src)
+    use_block = out[
+        out.index("USE utils_ppser") : out.index("call ppser_write_tracer_by_name")
+    ]
+    assert "ppser_write_tracer_by_name" in use_block
 
 
 # --- ON / OFF --------------------------------------------------------------
