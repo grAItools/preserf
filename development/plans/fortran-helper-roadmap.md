@@ -162,8 +162,8 @@ Closes gap §5.
   (call it Slice B′). Storage mapping §9 says `TypeID::String` for
   data lands as `NF90_STRING` variables under the same
   group-per-savepoint layout, with no schema-version bump expected,
-  but the Python reference reader (`tests/_storage.py
-  numpy_dtype_for`) currently rejects the type and there's no
+  but the Python reference reader (`numpy_dtype_for` in
+  `tests/_storage.py`) currently rejects the type and there's no
   `NF90_STRING` write path in `fs_write_field`. Bundling it into
   Slice B would expand scope; tracking it separately keeps the
   primary numeric matrix tractable.
