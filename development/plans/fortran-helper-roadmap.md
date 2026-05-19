@@ -88,11 +88,17 @@ They are the things pp_ser-generated source can already hit today.
 5. **Type-coverage matrix is `real64`-only for fields, scalar-only
    for metainfo.** No `bool` / `int32` / `int64` / `float32` field
    overloads, no 0D or 4D field overloads, no array-metainfo
-   variants. **String data fields** (Serialbox `TypeID::String` for
-   data, not metainfo) are also not supported — see
-   `storage_mapping.md` §9 "String data fields" — and there is no
-   `NF90_STRING` write path for field variables yet. String
-   *metainfo* (both scalar and array) is fully supported.
+   variants of *any* type — `fs_add_savepoint_metainfo` and
+   `fs_add_serializer_metainfo` only have scalar overloads
+   (`_l` / `_i4` / `_i8` / `_r4` / `_r8` / `_s`); 1D-array overloads
+   are part of Slice B. **String data fields** (Serialbox
+   `TypeID::String` for data, not metainfo) are also not supported —
+   see `storage_mapping.md` §9 "String data fields" — and there is
+   no `NF90_STRING` write path for field variables yet. *Scalar*
+   string metainfo is supported (both reference writers produce
+   `NC_CHAR`); *array* string metainfo is supported by the Python
+   reference writer (as `NC_STRING`) but not by the Fortran helper
+   in v0.1 (per `storage_mapping.md` §1's String-storage note).
 6. **No tracer / k-buffer / OPTION support.** `!$SER TRACER`,
    `!$SER DATA_KBUFF`, `!$SER OPTION` would fail to link.
 7. **NCZarr targets unreachable.** `preserf_open_serializer` builds
