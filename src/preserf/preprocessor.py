@@ -640,6 +640,7 @@ class Preprocessor:
         self._line = out
 
     def _ser_registertracers(self, args: list[str]) -> None:
+        self._require_no_args(args)
         self._calls.add(_METHODS["registertracers"])
         self._line = self._annotation() + "call fs_RegisterAllTracers()\n"
 
@@ -849,14 +850,21 @@ class Preprocessor:
         self._line = out
 
     def _ser_on(self, args: list[str]) -> None:
+        self._require_no_args(args)
         self._calls.add(_METHODS["on"])
         self._line = self._annotation() + f"call {_METHODS['on']}()\n"
 
     def _ser_off(self, args: list[str]) -> None:
+        self._require_no_args(args)
         self._calls.add(_METHODS["off"])
         self._line = self._annotation() + f"call {_METHODS['off']}()\n"
 
     # -- shared helpers -----------------------------------------------------
+
+    def _require_no_args(self, args: list[str]) -> None:
+        """Reject any token after the keyword for a no-argument directive."""
+        if len(args) != 1:
+            raise self._error(directive=args[0], msg="Takes no arguments")
 
     def _acc_update(self, direction: str, value: str, tab: str) -> str:
         """An OpenACC ``UPDATE`` directive line for an ACCDATA field."""

@@ -314,6 +314,11 @@ def test_registertracers() -> None:
     assert "call fs_RegisterAllTracers()" in expand("!$SER REGISTERTRACERS\n")
 
 
+def test_registertracers_rejects_arguments() -> None:
+    with pytest.raises(DirectiveError, match="Takes no arguments"):
+        expand("!$SER REGISTERTRACERS IF flag\n")
+
+
 def test_tracer_by_name() -> None:
     out = expand("!$SER TRACER QV#tens@nnow\n")
     assert "call ppser_write_tracer_by_name('QV', stype='tens', timelevel=nnow)" in out
@@ -354,6 +359,16 @@ def test_tracer_imports_write_routine() -> None:
 def test_on_off() -> None:
     assert "call fs_enable_serialization()" in expand("!$SER ON\n")
     assert "call fs_disable_serialization()" in expand("!$SER OFF\n")
+
+
+def test_on_rejects_arguments() -> None:
+    with pytest.raises(DirectiveError, match="Takes no arguments"):
+        expand("!$SER ON IF flag\n")
+
+
+def test_off_rejects_arguments() -> None:
+    with pytest.raises(DirectiveError, match="Takes no arguments"):
+        expand("!$SER OFF extra\n")
 
 
 # --- errors ----------------------------------------------------------------
