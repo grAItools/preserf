@@ -5,10 +5,13 @@ description = "A preprocessor for Fortran data serialization directives"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
-dependencies = []
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.0",
+]
 
 [project.scripts]
-preserf = "preserf.cli:main"
+preserf = "preserf.cli:app"
 
 [build-system]
 requires = ["hatchling"]
