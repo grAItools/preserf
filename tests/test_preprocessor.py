@@ -126,6 +126,12 @@ def test_data_field_named_like_merge_is_read_back() -> None:
     assert "fs_read_field" in out
 
 
+def test_data_rejects_positional_argument() -> None:
+    # A missing "=" (e.g. "v" instead of "v=v") must not be silently dropped.
+    with pytest.raises(DirectiveError, match="field=value pairs"):
+        expand("!$SER DATA u=u v\n")
+
+
 def test_accdata_emits_openacc_updates() -> None:
     out = expand("!$SER ACCDATA u=u(:)\n")
     assert "ACC_PREFIX UPDATE HOST ( u(:) )" in out
@@ -270,6 +276,11 @@ def test_data_kbuff_expansion() -> None:
 def test_data_kbuff_requires_k_and_k_size() -> None:
     with pytest.raises(DirectiveError, match="k and k_size"):
         expand("!$SER DATA_KBUFF f=field\n")
+
+
+def test_data_kbuff_rejects_positional_argument() -> None:
+    with pytest.raises(DirectiveError, match="field=value pairs"):
+        expand("!$SER DATA_KBUFF k=ki k_size=ks field\n")
 
 
 def test_data_kbuff_imports_write_kbuff() -> None:

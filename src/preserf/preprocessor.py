@@ -696,7 +696,12 @@ class Preprocessor:
         self._line = out
 
     def _ser_data(self, args: list[str], *, isacc: bool = False) -> None:
-        _, keys, values, if_statement = self._parse_args(args)
+        positionals, keys, values, if_statement = self._parse_args(args)
+        if positionals:
+            raise self._error(
+                directive=args[0],
+                msg="Must specify only field=value pairs",
+            )
         self._calls.add(_METHODS["datawrite"])
         self._calls.add(_METHODS["dataread"])
         self._calls.add(_METHODS["getmode"])
@@ -760,7 +765,12 @@ class Preprocessor:
         self._ser_data(args, isacc=True)
 
     def _ser_data_kbuff(self, args: list[str]) -> None:
-        _, keys, values, if_statement = self._parse_args(args)
+        positionals, keys, values, if_statement = self._parse_args(args)
+        if positionals:
+            raise self._error(
+                directive=args[0],
+                msg="Must specify only field=value pairs",
+            )
         out = self._annotation()
         tab = ""
         if if_statement:

@@ -110,6 +110,15 @@ def test_collect_deduplicates_overlapping_dirs(tmp_path: Path) -> None:
     assert len(files) == 1
 
 
+def test_collect_deduplicates_via_resolved_identity(tmp_path: Path) -> None:
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.f90").write_text(_SOURCE)
+    aliased = tmp_path / "src" / ".." / "src"
+    files = _collect([str(src), str(aliased)], recursive=True)
+    assert len(files) == 1
+
+
 def test_main_recursive_requires_output_dir(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
