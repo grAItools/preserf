@@ -206,9 +206,19 @@ Closes gap §6.
 
 Independent of slices A–C; can land in parallel.
 
-- Port `pp_ser.py` (currently a reference file under
-  `development/references/`) into the distributed Python package.
-  Output uses preserf's helper API.
+**Status:** the preprocessor port has landed (PR #6); the
+`ppser_initialize` widening and the end-to-end test below remain.
+
+- **Done (PR #6).** `pp_ser.py` (a reference file under
+  `development/references/`) is ported into the distributed Python
+  package as `src/preserf/preprocessor.py` — a typed, two-pass
+  reimplementation expanding every `!$SER` directive — alongside
+  `errors.py` (`DirectiveError` with file/line context) and a real
+  `cli.py` (single-file, output-dir and recursive modes). Generated
+  output uses preserf's helper API (`USE m_serialize` / `utils_ppser`).
+  Directive-by-directive unit tests live in `tests/test_preprocessor.py`
+  and `tests/test_cli.py`; deviations from the reference (all toward
+  correctness) are enumerated in the PR description.
 - Widen `ppser_initialize` to accept the keyword surface pp_ser
   emits (gap §3): `singlefile`, `mpi_rank`, `rprecision`,
   `rperturb`, `realtype`, `archive`, `unique_id`. Several of these
@@ -226,9 +236,10 @@ Independent of slices A–C; can land in parallel.
     read-perturb path from Slice A.
   - `singlefile`, `archive`, `unique_id`: metadata-only on the
     preserf side; record them in root attrs for round-trip fidelity.
-- End-to-end test: run pp_ser on a representative `!$SER`-annotated
-  Fortran source, compile the generated output against preserf's
-  helpers, run it, and read the store back with `tests/_storage.py`.
+- End-to-end test: run the ported preprocessor on a representative
+  `!$SER`-annotated Fortran source, compile the generated output
+  against preserf's helpers, run it, and read the store back with
+  `tests/_storage.py`.
 
 ### Slice E — Backend selector and NCZarr URL targets
 
