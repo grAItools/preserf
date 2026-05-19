@@ -754,7 +754,6 @@ class Preprocessor:
         if if_statement:
             out += f"IF ({if_statement}) THEN\n"
             tab = "  "
-        self._track_intentin(values)
 
         pairs = dict(zip(keys, values, strict=True))
         if "k" not in pairs or "k_size" not in pairs:
@@ -762,6 +761,12 @@ class Preprocessor:
                 directive=args[0],
                 msg="Must specify k and k_size key=value pairs",
             )
+        # Only the serialized field values may be assigned in read mode; the
+        # k / k_size index expressions are never written, so their INTENT(IN)
+        # must be preserved.
+        self._track_intentin(
+            [v for k, v in zip(keys, values, strict=True) if k not in ("k", "k_size")]
+        )
         k_value = pairs["k"]
         k_size = pairs["k_size"]
         self._calls.add(_METHODS["getmode"])

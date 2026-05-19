@@ -84,6 +84,19 @@ def test_main_output_with_multiple_inputs_rejected(
     assert "single input" in capsys.readouterr().err
 
 
+def test_main_output_with_recursive_dir_rejected(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.f90").write_text(_SOURCE)
+    (src / "b.f90").write_text(_SOURCE)
+    out_dir = tmp_path / "out"
+    code = main([str(src), "-r", "-d", str(out_dir), "-o", str(tmp_path / "o.f90")])
+    assert code == 1
+    assert "single input" in capsys.readouterr().err
+
+
 def test_main_recursive_requires_output_dir(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

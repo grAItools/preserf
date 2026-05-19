@@ -245,6 +245,21 @@ def test_data_kbuff_imports_write_kbuff() -> None:
     assert "fs_write_kbuff" in use_block
 
 
+def test_data_kbuff_keeps_intent_of_index_variables() -> None:
+    src = (
+        "subroutine s(field, ki, ks)\n"
+        "real, intent(in) :: field\n"
+        "integer, intent(in) :: ki, ks\n"
+        "!$SER DATA_KBUFF k=ki k_size=ks f=field\n"
+        "end subroutine s\n"
+    )
+    out = expand(src)
+    # The serialized field loses INTENT(IN); the k / k_size index variables
+    # are never written, so their INTENT(IN) is preserved.
+    assert "real :: field" in out
+    assert "integer, intent(in) :: ki, ks" in out
+
+
 def test_registertracers() -> None:
     assert "call fs_RegisterAllTracers()" in expand("!$SER REGISTERTRACERS\n")
 

@@ -180,9 +180,6 @@ def main(argv: list[str] | None = None) -> int:
     if not args.inputs:
         print("preserf: no input files", file=sys.stderr)
         return 1
-    if args.output and len(args.inputs) > 1:
-        print("preserf: --output requires a single input file", file=sys.stderr)
-        return 1
     if args.recursive and not args.output_dir:
         print("preserf: --recursive requires --output-dir", file=sys.stderr)
         return 1
@@ -192,6 +189,10 @@ def main(argv: list[str] | None = None) -> int:
         files = _collect(args.inputs, args.recursive)
     except ValueError as exc:
         print(f"preserf: {exc}", file=sys.stderr)
+        return 1
+
+    if args.output and len(files) > 1:
+        print("preserf: --output requires a single input file", file=sys.stderr)
         return 1
 
     for source in files:
