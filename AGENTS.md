@@ -11,7 +11,7 @@ A preprocessor for Fortran data serialization directives
 - Language: **python**
 - Package / build manager: **pixi**
 - License: MIT
-- Tool versions live in `.tool-versions` / `mise.toml` (single source of truth)
+- Tool versions live in `pixi.toml` / `pixi.lock` (single source of truth)
 
 ## Commands (prefer these over guessing)
 
@@ -49,7 +49,6 @@ For Claude Code users:
 
 ## Don't
 
-- Don't edit anything under `*/generated/` — it's overwritten by `make codegen`.
 - Don't add a runtime dependency without an ADR.
 - Don't run destructive Git: `push --force`, `reset --hard origin/*`,
   history rewrites on shared branches.
