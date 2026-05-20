@@ -1,0 +1,32 @@
+// OpenCode configuration. See https://opencode.ai/docs/config/
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // AGENTS.md is the canonical instructions file. We also load architecture
+  // and style as context so the primary agent has them at hand without
+  // bloating AGENTS.md itself.
+  "instructions": [
+    "AGENTS.md",
+    "docs/architecture.md",
+    "docs/style.md"
+  ],
+
+  // Default mode. `build` is the full-access primary; switch to `plan` for
+  // read-only planning sessions.
+  "default_agent": "build",
+
+  // Permission policy — mirrors .claude/settings.json deny list.
+  "permission": {
+    "bash": {
+      "make *": "allow",
+      "git status": "allow",
+      "git diff*": "allow",
+      "git log*": "allow",
+      "git show*": "allow",
+      "rg *": "allow",
+      "git push --force*": "deny",
+      "git reset --hard origin*": "deny",
+      "rm -rf*": "deny"
+    }
+  }
+}
