@@ -47,7 +47,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); [ \"$(echo $INPUT | jq -r '.stop_hook_active // false')\" = 'true' ] && exit 0; make verify || exit 2"
+            "command": "INPUT=$(cat); [ \"$(echo \"$INPUT\" | jq -r '.stop_hook_active // false')\" = 'true' ] && exit 0; make verify || exit 2"
           }
         ]
       }
