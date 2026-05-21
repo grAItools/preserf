@@ -1,0 +1,17 @@
+{
+  "name": "preserf",
+  "image": "mcr.microsoft.com/devcontainers/base:debian",
+  "features": {
+    "ghcr.io/prefix-dev/devcontainer-features/pixi:0": {}
+  },
+  "postCreateCommand": "pixi install -e dev",
+  "remoteUser": "vscode",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff"
+      ]
+    }
+  }
+}
