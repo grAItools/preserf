@@ -1,9 +1,10 @@
 # Changes here will be overwritten by Copier; NEVER EDIT MANUALLY.
-_commit: e8e6b3e
+_commit: 5a26601
 _src_path: gh:grAItools/harness-copier-template
 copilot: true
 cursor: false
 fmt_command: pixi run -e dev fmt
+generate_scripts: true
 include_claude_hooks: true
 include_example_adr: true
 include_example_skill: true
@@ -18,4 +19,6 @@ primary_language: python
 project_description: A preprocessor for Fortran data serialization directives
 project_name: preserf
 project_slug: preserf
+task_runner: make
 test_command: pixi run -e dev pytest
+verify_command: ./scripts/verify.sh

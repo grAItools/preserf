@@ -1,5 +1,5 @@
 ---
-description: Run the project's verification gate (make verify) and summarise the result
+description: "Run the project\u0027s verification gate (make verify) and summarise the result"
 ---
 
 Run `make verify`.

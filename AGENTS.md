@@ -15,10 +15,10 @@ A preprocessor for Fortran data serialization directives
 
 ## Commands (prefer these over guessing)
 
-- `make test` — `pixi run -e dev pytest`
-- `make lint` — `pixi run -e dev lint`
-- `make fmt`  — `pixi run -e dev fmt`
-- `make verify` — `scripts/verify.sh` (what the Claude Code `Stop` hook runs)
+- `make test` — fast unit tests (= `pixi run -e dev pytest`)
+- `make lint` — static checks (= `pixi run -e dev lint`)
+- `make fmt`  — auto-format (= `pixi run -e dev fmt`)
+- `make verify` — full verification gate (what the Claude Code `Stop` hook runs)
 
 If a command above is wrong for your environment, **fix the Makefile**, not
 this file.

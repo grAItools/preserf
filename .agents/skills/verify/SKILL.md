@@ -30,10 +30,11 @@ description: |
 
 ## Gotchas
 
-- The `Stop` hook in `.claude/settings.json` already runs `make verify`. This
-  skill is for the *interactive* case where the user wants verification
+- The `Stop` hook in `.claude/settings.json` already runs `make verify`.
+  This skill is for the *interactive* case where the user wants verification
   before the agent's natural stop.
 - `verify.sh` exits with code 2 on failure (Stop-hook convention). Don't
   treat exit 2 as a different signal from exit 1 — both mean "fix it".
-- On slow machines `make verify` may exceed 60s. If that becomes routine,
-  open an ADR to move slow suites to `make test-all` / CI.
+- On slow machines `make verify` may exceed 60s. If that becomes
+  routine, open an ADR to move slow suites to
+  `make test-all` / CI.
