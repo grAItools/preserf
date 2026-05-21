@@ -15,6 +15,4 @@ ln -s ../.agents/commands .opencode/commands
 
 Authoring tips: keep each command short and imperative — the description is
 what surfaces in the slash-command picker, and the body is the prompt the
-agent will follow. Reference `cmd('verify')` and the other shared macros via
-`{% from '_macros.jinja' import cmd with context %}` so the wording tracks
-the chosen `task_runner`.
+agent will follow.
