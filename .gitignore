@@ -208,3 +208,19 @@ __marimo__/
 # pixi environments
 .pixi
 
+
+# >>> ai-agent-harness (managed by copier) >>>
+# Personal overrides — never commit
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/.last_*
+.claude/checkpoints/
+.claude/shell-snapshots/
+.opencode/local/
+.codex/auth.json
+.cursor/settings.local.json
+
+# Agent scratch space (team decision; comment out to commit)
+specs/*/scratch.md
+.agents/.cache/
+# <<< ai-agent-harness (managed by copier) <<<
