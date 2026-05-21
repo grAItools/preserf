@@ -1,6 +1,6 @@
 {
   "name": "preserf",
-  "image": "mcr.microsoft.com/devcontainers/base:debian",
+  "image": "mcr.microsoft.com/devcontainers/base:debian-12",
   "features": {
     "ghcr.io/prefix-dev/devcontainer-features/pixi:0": {}
   },
