@@ -8,8 +8,8 @@ set -euo pipefail
 file="${1:-}"
 [[ -z "$file" ]] && { echo "usage: $0 <file>" >&2; exit 64; }
 
-# Only format files inside this repo and only known languages. Silently
-# skip everything else so the agent loop isn't spammed.
+# Dispatch by extension. Silently skip anything we don't know how to format
+# so the agent loop isn't spammed.
 case "$file" in
   *.py)
     command -v pixi >/dev/null 2>&1 || exit 0
