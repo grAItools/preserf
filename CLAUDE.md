@@ -9,7 +9,8 @@
   Invoke by capability, e.g. "use the verify skill".
 - **Subagents** are under `.claude/agents/` (symlink to `.agents/subagents/`).
   Be explicit: "use the explorer subagent to find where X is wired up".
-- **Slash commands** are under `.claude/commands/`: `/spec`, `/plan`, `/verify`.
+- **Slash commands** are under `.claude/commands/` (symlink to `.agents/commands/`):
+  `/spec`, `/plan`, `/verify`.
 - **Hooks** in `.claude/settings.json` enforce: auto-format on Write/Edit,
   block destructive bash, run `make verify` on Stop. They are deterministic
   and run outside your reasoning chain — don't try to work around them.

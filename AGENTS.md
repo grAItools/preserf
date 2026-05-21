@@ -35,13 +35,13 @@ For Claude Code users:
 
 - Skills: `.claude/skills/` (symlinked from `.agents/skills/`)
 - Subagents: `.claude/agents/` (symlinked from `.agents/subagents/`)
-- Slash commands: `.claude/commands/` — `/spec`, `/plan`, `/verify`
+- Slash commands: `.claude/commands/` (symlinked from `.agents/commands/`) — `/spec`, `/plan`, `/verify`
 
 ## Do
 
 - Run `make verify` before claiming a task is done.
 - For a net-new feature, create `specs/<YYYY-MM>-<slug>/` and write `spec.md`
-  and `plan.md` **before** writing code. See `.claude/commands/spec.md`.
+  and `plan.md` **before** writing code. See `.agents/commands/spec.md`.
 - For a new architectural choice (dependency, framework, persistence, auth),
   add an ADR in `docs/adr/`. ADRs are append-only; supersede with a new file.
 - When investigating a large codebase, prefer the `explorer` subagent (read-only)
