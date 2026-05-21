@@ -25,6 +25,7 @@ run() {
 }
 
 run "lint" pixi run -e dev lint
+run "typecheck" pixi run -e dev typecheck
 run "test" pixi run -e dev pytest
 
 if [ "$failed" -ne 0 ]; then
