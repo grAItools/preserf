@@ -19,6 +19,6 @@ primary_language: python
 project_description: A preprocessor for Fortran data serialization directives
 project_name: preserf
 project_slug: preserf
-task_runner: pixi
+task_runner: none
 test_command: pixi run test
 verify_command: pixi run verify
