@@ -1,6 +1,7 @@
 {
   "permissions": {
     "allow": [
+      "Bash(pixi:*)",
       "Bash(make:*)",
       "Bash(git status)",
       "Bash(git diff:*)",
@@ -26,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "test -x scripts/fmt-file.sh && scripts/fmt-file.sh \"$CLAUDE_TOOL_INPUT_FILE_PATH\" || true"
+            "command": "pixi run fmt 2>/dev/null || true"
           }
         ]
       }
@@ -47,7 +48,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); [ \"$(printf \u0027%s\u0027 \"$INPUT\" | jq -r \u0027.stop_hook_active // false\u0027)\" = \u0027true\u0027 ] \u0026\u0026 exit 0; make verify || exit 2"
+            "command": "INPUT=$(cat); [ \"$(printf \u0027%s\u0027 \"$INPUT\" | jq -r \u0027.stop_hook_active // false\u0027)\" = \u0027true\u0027 ] \u0026\u0026 exit 0; pixi run verify || exit 2"
           }
         ]
       }
