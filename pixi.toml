@@ -28,9 +28,10 @@ dev = { features = ["dev"], solve-group = "default" }
 
 [tasks]
 fmt = { cmd = ["ruff", "format", "src", "tests"], default-environment = "dev" }
+fmt-check = { cmd = ["ruff", "format", "--check", "src", "tests"], default-environment = "dev" }
 lint = { cmd = ["ruff", "check", "src", "tests"], default-environment = "dev" }
 test = { cmd = ["pytest"], default-environment = "dev" }
 test-all = { cmd = ["pytest"], default-environment = "dev" }
 typecheck = { cmd = ["mypy", "src"], default-environment = "dev" }
-verify = { depends-on = ["fmt", "lint", "typecheck"] }
+verify = { depends-on = ["fmt-check", "lint", "typecheck", "test"] }
 # clean = { cmd = ["rm", "-rf", "build", "dist", "preserf.egg-info"] }

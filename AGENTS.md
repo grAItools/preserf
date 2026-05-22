@@ -39,7 +39,7 @@ For Claude Code users:
 
 ## Do
 
-- Run `make verify` before claiming a task is done.
+- Run `pixi run verify` before claiming a task is done.
 - For a net-new feature, create `specs/<YYYY-MM>-<slug>/` and write `spec.md`
   and `plan.md` **before** writing code. See `.agents/commands/spec.md`.
 - For a new architectural choice (dependency, framework, persistence, auth),
