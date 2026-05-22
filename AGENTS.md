@@ -15,12 +15,12 @@ A preprocessor for Fortran data serialization directives
 
 ## Commands (prefer these over guessing)
 
-- `make test` — fast unit tests (= `pixi run -e dev pytest`)
-- `make lint` — static checks (= `pixi run -e dev lint`)
-- `make fmt`  — auto-format (= `pixi run -e dev fmt`)
-- `make verify` — full verification gate (what the Claude Code `Stop` hook runs)
+- `pixi run test` — fast unit tests
+- `pixi run lint` — static checks
+- `pixi run fmt` — auto-format
+- `pixi run verify` — full verification gate (what the Claude Code `Stop` hook runs)
 
-If a command above is wrong for your environment, **fix the Makefile**, not
+If a command above is wrong for your environment, **fix the pixi.toml file**, not
 this file.
 
 ## Where things live (capabilities, not paths)

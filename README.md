@@ -1,6 +1,6 @@
 # preserf - Preprocessor for Fortran data serialization directives
 
-preserf is a Python preprocessor that expands `!$SER` directives in Fortran
+`preserf` is a Python preprocessor that expands `!$SER` directives in Fortran
 source into explicit serialization calls.
 
 The repository contains two main pieces:
