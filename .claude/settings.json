@@ -2,7 +2,6 @@
   "permissions": {
     "allow": [
       "Bash(pixi:*)",
-      "Bash(make:*)",
       "Bash(git status)",
       "Bash(git diff:*)",
       "Bash(git log:*)",

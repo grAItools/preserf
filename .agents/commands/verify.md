@@ -1,8 +1,8 @@
 ---
-description: "Run the project\u0027s verification gate (make verify) and summarise the result"
+description: "Run the project\u0027s verification gate (pixi run verify) and summarise the result"
 ---
 
-Run `make verify`.
+Run `pixi run verify`.
 
 - If it exits 0: summarise what changed since the last verify (use `git diff
   --stat` and `git log -1`) and stop.
