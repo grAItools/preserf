@@ -13,6 +13,6 @@
 !> compile until the pp_ser-port follow-up widens
 !> `ppser_initialize`'s signature.
 module utils_ppser
-    use utils_preserf
-    implicit none
+   use utils_preserf
+   implicit none
 end module utils_ppser

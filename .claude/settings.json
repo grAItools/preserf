@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "pixi run fmt 2>/dev/null || true"
+            "command": "F=\"$CLAUDE_TOOL_INPUT_FILE_PATH\"; case \"$F\" in *.py) pixi run fmt-py-src -- \"$F\" 2>/dev/null || true ;; *.f90|*.F90|*.f|*.F) pixi run fmt-f-src -- \"$F\" 2>/dev/null || true ;; esac"
           }
         ]
       }

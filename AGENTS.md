@@ -4,7 +4,15 @@
 > GitHub Copilot, and (via the `@AGENTS.md` import in `CLAUDE.md`) Claude Code.
 > Closest AGENTS.md to the file being edited wins.
 
-A preprocessor for Fortran data serialization directives
+`preserf` is a preprocessor for Fortran data serialization directives
+implemented in Python. It expands `!$SER` directives in Fortran
+source into explicit serialization calls implemented in helper modules.
+
+The source code is splitted in two main parts:
+
+- `src/preserf/`: the preprocessor engine and CLI.
+- `src/preserf-fortran/`: Fortran helper modules that provide the runtime API
+  targeted by generated code.
 
 ## Stack
 
