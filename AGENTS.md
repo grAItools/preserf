@@ -8,7 +8,7 @@
 implemented in Python. It expands `!$SER` directives in Fortran
 source into explicit serialization calls implemented in helper modules.
 
-The source code is splitted in two main parts:
+The source code is split into two main parts:
 
 - `src/preserf/`: the preprocessor engine and CLI.
 - `src/preserf-fortran/`: Fortran helper modules that provide the runtime API

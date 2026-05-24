@@ -33,8 +33,8 @@ description: |
 - The `Stop` hook in `.claude/settings.json` already runs `pixi run verify`.
   This skill is for the *interactive* case where the user wants verification
   before the agent's natural stop.
-- `pixi run verify` exits with code 2 on failure (Stop-hook convention). Don't
-  treat exit 2 as a different signal from exit 1 — both mean "fix it".
+- `pixi run verify` exits with the failing task's code (typically 1). The
+  Stop hook maps any non-zero exit to 2 via `|| exit 2` — both mean "fix it".
 - On slow machines `pixi run verify` may exceed 60s. If that becomes
   routine, open an ADR to move slow suites to
   `pixi run test-all` / CI.
