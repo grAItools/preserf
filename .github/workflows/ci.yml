@@ -30,7 +30,7 @@ jobs:
         run: pixi run test-fortran
 
       # PRESERF_REQUIRE_FORTRAN=1 turns the Fortran-binary skip in
-      # tests/test_fortran_minimal.py into a hard failure, so a broken
+      # tests/integration_tests/test_fortran_wire_compat.py into a hard failure, so a broken
       # Fortran build cannot pass CI by silently skipping the wire-compat
       # test. The `verify` pixi task runs fmt-check, lint, typecheck and
       # the full pytest suite.

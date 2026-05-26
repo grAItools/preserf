@@ -5,11 +5,12 @@ Implements the schema documented in
 same code path produces either a NetCDF4/HDF5 file or a Zarr V2 store via
 NCZarr (selected by the URL / mode string).
 
-Lives under ``tests/`` rather than ``src/preserf/`` because this is a
-Python reference implementation used only by the round-trip test. It
-depends on ``netCDF4`` and ``numpy``, which are dev-only dependencies
-and not part of preserf's installable surface. The eventual Fortran
-helper module mirrors this layout via ``netcdf-fortran``.
+Lives under ``tests/_support/`` rather than ``src/preserf/`` because this
+is a Python reference implementation used only by the round-trip and
+cross-language integration tests. It depends on ``netCDF4`` and ``numpy``,
+which are dev-only dependencies and not part of preserf's installable
+surface. The eventual Fortran helper module mirrors this layout via
+``netcdf-fortran``.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ import preserf
 if TYPE_CHECKING:
     from pathlib import Path
 
-from ._serialbox import (
+from .serialbox import (
     FieldMetainfo,
     MetainfoMap,
     MetainfoValue,
@@ -411,7 +412,7 @@ def read_dump(url: str) -> SerialboxDump:
         root.close()
 
     # Reconstruct fields_table with offsets computed in fieldID order.
-    from ._serialbox import FieldOffsetEntry
+    from .serialbox import FieldOffsetEntry
 
     for fname, info in dump.field_map.items():
         data_by_id = dump.field_data.get(fname, {})

@@ -23,7 +23,7 @@ Already on `main`:
 
 - **PR #3 — storage mapping**
   (`development/references/storage_mapping.md`, plus the
-  `tests/_storage.py` / `tests/_serialbox.py` reference reader and a
+  `tests/_support/storage.py` / `tests/_support/serialbox.py` reference reader and a
   Serialbox ↔ preserf Python round-trip test).
 - **PR #4 — minimal Fortran helper** (`src/preserf-fortran/`):
   - `utils_preserf.f90` — lifecycle (`ppser_initialize` /
@@ -46,12 +46,12 @@ Already on `main`:
     2008` plus an explicit gfortran `-std=f2008`, project version
     threaded via `preserf_version.f90.in`).
   - `test/test_minimal.f90` native Fortran test +
-    `tests/test_fortran_minimal.py` cross-language wire-compat test
+    `tests/integration_tests/test_fortran_wire_compat.py` cross-language wire-compat test
     (skips when the Fortran binary is absent).
 
 The schema documented in
 [`storage_mapping.md`](../references/storage_mapping.md) is now exercised
-by both a Python writer (`tests/_storage.py`) and a Fortran writer
+by both a Python writer (`tests/_support/storage.py`) and a Fortran writer
 (`src/preserf-fortran/`).
 
 ## 2. Known gaps after PR #4
@@ -104,7 +104,7 @@ They are the things pp_ser-generated source can already hit today.
 7. **NCZarr targets unreachable.** `preserf_open_serializer` builds
    `<directory>/<prefix>.nc` and passes `NF90_NETCDF4`. No backend
    selector at the `ppser_initialize` boundary.
-8. **No CI for the Fortran build.** `tests/test_fortran_minimal.py`
+8. **No CI for the Fortran build.** `tests/integration_tests/test_fortran_wire_compat.py`
    skips by default; nothing on `main` blocks a Fortran regression.
 
 ## 3. Slice plan
@@ -169,12 +169,12 @@ Closes gap §5.
   data lands as `NF90_STRING` variables under the same
   group-per-savepoint layout, with no schema-version bump expected,
   but the Python reference reader (`numpy_dtype_for` in
-  `tests/_serialbox.py`, imported by `tests/_storage.py`) currently
+  `tests/_support/serialbox.py`, imported by `tests/_support/storage.py`) currently
   rejects the type and there's no `NF90_STRING` write path in
   `fs_write_field`. Bundling it into
   Slice B would expand scope; tracking it separately keeps the
   primary numeric matrix tractable.
-- The cross-language test (`tests/test_fortran_minimal.py`) grows a
+- The cross-language test (`tests/integration_tests/test_fortran_wire_compat.py`) grows a
   parametrised matrix: for each (rank, dtype), assert raw netCDF
   type via `Dataset[…].dtype` matches the TypeID → netCDF-type table
   in `storage_mapping.md §1`.
@@ -200,7 +200,7 @@ Closes gap §6.
   change the pp_ser port's emission shape) before deciding how
   options land in the store.
 - All three need cross-language coverage in
-  `tests/test_fortran_minimal.py` (or a sibling test program).
+  `tests/integration_tests/test_fortran_wire_compat.py` (or a sibling test program).
 
 ### Slice D — `pp_ser.py` port
 
@@ -239,7 +239,7 @@ Independent of slices A–C; can land in parallel.
 - End-to-end test: run the ported preprocessor on a representative
   `!$SER`-annotated Fortran source, compile the generated output
   against preserf's helpers, run it, and read the store back with
-  `tests/_storage.py`.
+  `tests/_support/storage.py`.
 
 ### Slice E — Backend selector and NCZarr URL targets
 
@@ -248,13 +248,13 @@ Closes gap §7.
 - Add a backend selector at `ppser_initialize`
   (`backend='netcdf4'|'nczarr-v2'`, default `netcdf4`). The
   `nczarr-v2` label matches the selector already used by the Python
-  reference path (`tests/_storage.py`).
+  reference path (`tests/_support/storage.py`).
 - Rework `preserf_open_serializer` to construct
   `file://<directory>/<prefix>.zarr#mode=nczarr,zarr2` when the
   backend is NCZarr, and pass appropriate creation flags.
-- Cross-language test wiring `tests/_storage.py`'s Zarr V2 reader
+- Cross-language test wiring `tests/_support/storage.py`'s Zarr V2 reader
   against a Fortran-written NCZarr store. This test exists today on
-  the Python side (`tests/test_round_trip.py`) for both backends;
+  the Python side (`tests/unit_tests/test_storage_round_trip.py`) for both backends;
   extend it to also accept Fortran-written input.
 - Zarr V3 (NCZarr V3 PR) explicitly deferred until the netcdf-c PR
   lands. See `development/decisions/0001-storage-model-mapping.md`.
@@ -272,7 +272,7 @@ Closes gap §8. **Status:** landed.
   `PRESERF_REQUIRE_FORTRAN=1` exported.
 - Build artefacts land under the top-level `build/preserf-fortran/`
   directory (already covered by `.gitignore`), not under `src/`. The
-  Python fixture `_BUILD_TEST_DIR` in `tests/test_fortran_minimal.py`
+  Python fixture `_BUILD_TEST_DIR` in `tests/integration_tests/test_fortran_wire_compat.py`
   points at the same path.
 - The pytest fixture still `pytest.skip`s when the binary is missing
   by default (preserves the local-dev ergonomics), but switches to a

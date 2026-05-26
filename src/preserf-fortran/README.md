@@ -67,7 +67,7 @@ implementation. These are tracked as follow-up PRs:
    `ppser_serializer_ref` against the same store so pp_ser's read DATA
    branches can call `fs_read_field(ppser_serializer_ref, ...)`).
    `fs_read_field` works against a read-only store, which is enough
-   for `tests/test_fortran_minimal.py`. However, pp_ser-generated
+   for `tests/integration_tests/test_fortran_wire_compat.py`. However, pp_ser-generated
    source also calls `fs_register_field`, `fs_create_savepoint`, and
    the metainfo helpers (`fs_add_serializer_metainfo` /
    `fs_add_savepoint_metainfo`) unconditionally — these directives
@@ -132,7 +132,7 @@ Out of scope for this PR (tracked as follow-ups):
   requires both reworking the path/URL construction in
   `preserf_open_serializer` and surfacing a backend selector at the
   `ppser_initialize` boundary, plus a cross-language test that exercises
-  it via `tests/_storage.py`. Not the one-line change the original draft
+  it via `tests/_support/storage.py`. Not the one-line change the original draft
   suggested.
 
 [axis-order]: ../../development/references/storage_mapping.md
@@ -145,23 +145,30 @@ Debian/Ubuntu; the `netcdf-fortran.pc` pkg-config file is what the
 CMake build looks for).
 
 ```sh
-cmake -S src/preserf-fortran -B src/preserf-fortran/build
-cmake --build src/preserf-fortran/build
-ctest --test-dir src/preserf-fortran/build --output-on-failure
+# Build the library + its native tests (entry point is the tests-fortran/ tree)
+cmake -S tests-fortran -B build/preserf-fortran
+cmake --build build/preserf-fortran
+ctest --test-dir build/preserf-fortran --output-on-failure
+```
+
+Or, via pixi:
+
+```sh
+pixi run build-fortran
+pixi run test-fortran
 ```
 
 ## Cross-language wire-compat test
 
 After building, the Python-side pytest at
-[`tests/test_fortran_minimal.py`](../../tests/test_fortran_minimal.py)
+[`tests/integration_tests/test_fortran_wire_compat.py`](../../tests/integration_tests/test_fortran_wire_compat.py)
 runs the `preserf_fortran_test_minimal` binary and reads the resulting
-store back with
-the Python reference reader at [`tests/_storage.py`](../../tests/_storage.py),
-asserting that every metadata attribute and the field data survives the
-round-trip:
+store back with the Python reference reader at
+[`tests/_support/storage.py`](../../tests/_support/storage.py), asserting
+that every metadata attribute and the field data survives the round-trip:
 
 ```sh
-uv run pytest tests/test_fortran_minimal.py -v
+pixi run test-integration
 ```
 
 If the binary hasn't been built, the test is skipped.

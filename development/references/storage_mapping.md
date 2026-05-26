@@ -189,19 +189,19 @@ distinct, non-conflicting obligations:
   emits each halo as an **unshadowed** plain `NF90_INT` attribute on
   the `/_fields/<name>` carrier — no `<name>__preserf_type_id` shadow
   tag, since the halo name already fixes the type. The Python
-  reference writer in `tests/_storage.py` has no dedicated bare-halo
+  reference writer in `tests/_support/storage.py` has no dedicated bare-halo
   writer path; if it ever needs to emit a halo it would go through
   the typed-metainfo channel (which also writes the shadow tag).
   Both the bare-integer and shadowed encodings are conformant
   on-disk forms.
 
   > **Reader-support note.** The v0.1 Python reference reader
-  > (`read_dump` in `tests/_storage.py`) decodes _only_ shadowed
+  > (`read_dump` in `tests/_support/storage.py`) decodes _only_ shadowed
   > metainfo: `_read_metainfo_attrs` skips any attribute that has no
   > `<name>__preserf_type_id` sibling. Unshadowed halo attributes
   > therefore do **not** surface in the `FieldMetainfo` objects
   > `read_dump` returns — they are reachable only through raw netCDF
-  > access. The cross-language test (`tests/test_fortran_minimal.py`)
+  > access. The cross-language test (`tests/integration_tests/test_fortran_wire_compat.py`)
   > accordingly asserts the Fortran-written halos directly via
   > `netCDF4.Variable.getncattr`, not through `read_dump`. So in v0.1
   > "halo round-trip" means the attributes survive on disk, not that
