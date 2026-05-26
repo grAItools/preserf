@@ -751,13 +751,17 @@ contains
       error stop 1
    end subroutine active_dims_inconsistent
 
-   !> Abort if `value` (a default-kind integer) cannot be represented
-   !> as int32. storage_mapping.md §1 pins the on-disk `dims` and halo
-   !> attributes to NC_INT (int32 on the wire), so widening the on-disk
-   !> type is not an option. Under a -fdefault-integer-8 build the
-   !> dummy arg can hold values past huge(0_int32) and a bare
+   !> Abort if `value` (a default-kind integer) exceeds the int32
+   !> upper bound. storage_mapping.md §1 pins the on-disk `dims` and
+   !> halo attributes to NC_INT (int32 on the wire), so widening the
+   !> on-disk type is not an option. Under a -fdefault-integer-8 build
+   !> the dummy arg can hold values past huge(0_int32) and a bare
    !> int(value, int32) would silently truncate; this guard turns that
-   !> into a clean error_stop. Carry-over from PR #4 review
+   !> into a clean error_stop. Only the upper bound is checked: every
+   !> current caller (active_dims_c_order, put_halo_attr) rejects
+   !> negative inputs with its own context-specific error message
+   !> before reaching here, so a redundant lower-bound check would
+   !> only ever fire as dead code. Carry-over from PR #4 review
    !> (fortran-helper-roadmap.md §4).
    subroutine require_fits_int32(value, label)
       integer, intent(in) :: value
