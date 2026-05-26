@@ -2,9 +2,9 @@
 
 ## What the agent runs
 
-- **Pre-claim-done gate**: `make verify` (= `scripts/verify.sh`).
-- **Fast loop**: `make test` — must finish in <60s. Add slow suites under
-  `make test-all`.
+- **Pre-claim-done gate**: `pixi run verify`.
+- **Fast loop**: `pixi run test` — must finish in <60s. Add slow suites under
+  `pixi run test-all`.
 
 ## Layering
 

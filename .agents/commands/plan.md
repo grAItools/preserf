@@ -16,14 +16,18 @@ You are expanding a feature spec into an implementation plan.
    # Plan
 
    ## Phase 1 — <name>
+
    **Scope.** <One paragraph.>
    **Steps.**
+
    1. <Concrete step>
    2. <Concrete step>
+
    **Tests.** <Which test(s) prove this phase works.>
    **Exit criteria.** <How we know we can move on.>
 
    ## Phase 2 — <name>
+
    ...
    ```
 

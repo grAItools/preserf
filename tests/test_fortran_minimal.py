@@ -123,22 +123,27 @@ def test_fortran_writes_python_reads(tmp_path: Path, fortran_binary: Path) -> No
         # casts to the registry dtype, so a wrong on-disk type would
         # still survive that path. The direct dtype check below catches
         # regressions in the kind-specific nf90_put_att branches.
-        assert raw.getncattr("use_gpu").dtype == np.dtype("int8"), \
+        assert raw.getncattr("use_gpu").dtype == np.dtype("int8"), (
             "use_gpu must be NF90_BYTE (int8)"
-        assert raw.getncattr("schema_version").dtype == np.dtype("int32"), \
+        )
+        assert raw.getncattr("schema_version").dtype == np.dtype("int32"), (
             "schema_version must be NF90_INT (int32)"
-        assert raw.getncattr("wallclock_ns").dtype == np.dtype("int64"), \
+        )
+        assert raw.getncattr("wallclock_ns").dtype == np.dtype("int64"), (
             "wallclock_ns must be NF90_INT64 (int64)"
-        assert raw.getncattr("tolerance32").dtype == np.dtype("float32"), \
+        )
+        assert raw.getncattr("tolerance32").dtype == np.dtype("float32"), (
             "tolerance32 must be NF90_FLOAT (float32)"
+        )
 
         # /_fields registry variables: type_id + dims attributes on the
         # dummy scalar carrier. Also verify the registry variable
         # itself is NC_INT (the schema's "dummy scalar" sentinel).
         fields_grp = raw.groups["_fields"]
         for fname in ("u", "v", "w"):
-            assert fields_grp.variables[fname].dtype == np.dtype("int32"), \
+            assert fields_grp.variables[fname].dtype == np.dtype("int32"), (
                 f"/_fields/{fname} carrier must be NF90_INT"
+            )
             assert fields_grp.variables[fname].getncattr("type_id") == 5
         # ON / OFF gate must have produced no side effects: the
         # fs_register_field call inside the disabled window targeted

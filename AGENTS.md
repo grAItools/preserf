@@ -4,7 +4,15 @@
 > GitHub Copilot, and (via the `@AGENTS.md` import in `CLAUDE.md`) Claude Code.
 > Closest AGENTS.md to the file being edited wins.
 
-A preprocessor for Fortran data serialization directives
+`preserf` is a preprocessor for Fortran data serialization directives
+implemented in Python. It expands `!$SER` directives in Fortran
+source into explicit serialization calls implemented in helper modules.
+
+The source code is split into two main parts:
+
+- `src/preserf/`: the preprocessor engine and CLI.
+- `src/preserf-fortran/`: Fortran helper modules that provide the runtime API
+  targeted by generated code.
 
 ## Stack
 
@@ -15,12 +23,12 @@ A preprocessor for Fortran data serialization directives
 
 ## Commands (prefer these over guessing)
 
-- `make test` — fast unit tests (= `pixi run -e dev pytest`)
-- `make lint` — static checks (= `pixi run -e dev lint`)
-- `make fmt`  — auto-format (= `pixi run -e dev fmt`)
-- `make verify` — full verification gate (what the Claude Code `Stop` hook runs)
+- `pixi run test` — fast unit tests
+- `pixi run lint` — static checks
+- `pixi run fmt` — auto-format
+- `pixi run verify` — full verification gate (what the Claude Code `Stop` hook runs)
 
-If a command above is wrong for your environment, **fix the Makefile**, not
+If a command above is wrong for your environment, **fix the pixi.toml file**, not
 this file.
 
 ## Where things live (capabilities, not paths)
@@ -39,7 +47,7 @@ For Claude Code users:
 
 ## Do
 
-- Run `make verify` before claiming a task is done.
+- Run `pixi run verify` before claiming a task is done.
 - For a net-new feature, create `specs/<YYYY-MM>-<slug>/` and write `spec.md`
   and `plan.md` **before** writing code. See `.agents/commands/spec.md`.
 - For a new architectural choice (dependency, framework, persistence, auth),
@@ -55,7 +63,7 @@ For Claude Code users:
 - Don't put secrets, hostnames, or per-developer paths in this file —
   they belong in `CLAUDE.local.md` (gitignored).
 - Don't auto-generate or expand this file beyond ~200 lines. The instruction
-  budget is finite; adding rules degrades adherence to *all* rules.
+  budget is finite; adding rules degrades adherence to _all_ rules.
 
 ## Conventions
 

@@ -16,8 +16,8 @@
 !> will fail to compile against this re-export until those follow-ups
 !> land.
 module m_serialize
-    use m_preserf
-    implicit none
-    ! `use m_preserf` re-exports everything m_preserf marks public; no
-    ! additional declarations are needed.
+   use m_preserf
+   implicit none
+   ! `use m_preserf` re-exports everything m_preserf marks public; no
+   ! additional declarations are needed.
 end module m_serialize

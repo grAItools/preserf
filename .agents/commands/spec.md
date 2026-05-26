@@ -14,15 +14,19 @@ You are creating a new feature spec.
    # <Title>
 
    ## Problem
+
    <One paragraph. Who has the problem, when, and what does it cost them?>
 
    ## Goal
+
    <One sentence. The observable change after this ships.>
 
    ## Non-goals
+
    <Bulleted list of things explicitly out of scope.>
 
    ## Success criteria
+
    <Bulleted, testable conditions. Each one becomes at least one test.>
    ```
 

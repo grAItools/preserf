@@ -3,15 +3,15 @@ _commit: v0.1.0-5-gea70ca1
 _src_path: gh:grAItools/harness-copier-template
 copilot: true
 cursor: false
-fmt_command: pixi run -e dev fmt
-generate_scripts: true
+fmt_command: pixi run fmt
+generate_scripts: false
 include_claude_hooks: true
 include_example_adr: true
 include_example_skill: true
 include_example_spec: false
 include_example_subagent: true
 license: MIT
-lint_command: pixi run -e dev lint
+lint_command: pixi run lint
 mcp: false
 mode: brownfield
 package_manager: pixi
@@ -19,6 +19,6 @@ primary_language: python
 project_description: A preprocessor for Fortran data serialization directives
 project_name: preserf
 project_slug: preserf
-task_runner: make
-test_command: pixi run -e dev pytest
-verify_command: ./scripts/verify.sh
+task_runner: none
+test_command: pixi run test
+verify_command: pixi run verify
