@@ -66,7 +66,7 @@ original case as written in the source.
 
 Directives that span multiple lines use `&` as a continuation character:
 
-- The initial line ends with `&` (space followed by ampersand):
+- The initial line ends with `&`, preceded by a space:
   ```
   !$SER DATA field1=var1 field2=var2 &
   ```

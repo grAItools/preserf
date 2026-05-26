@@ -33,7 +33,7 @@ fmt-py = { cmd = ["ruff", "format", "src", "tests"], default-environment = "dev"
 fmt-py-src = { cmd = ["ruff", "format"], default-environment = "dev" }
 fmt-f = { cmd = ["fprettify", "--recursive", "src/preserf-fortran"], default-environment = "dev" }
 fmt-f-src = { cmd = ["fprettify"], default-environment = "dev" }
-fmt = { depends-on = ["fmt-py", "fmt-f"] }
+fmt = { depends-on = ["fmt-py", "fmt-f", "fmt-d"] }
 fmt-py-check = { cmd = ["ruff", "format", "--check", "src", "tests"], default-environment = "dev" }
 fmt-f-check = { cmd = ["sh", "-c", "tmp=$(fprettify --diff --recursive src/preserf-fortran 2>&1); [ -z \"$tmp\" ] || { echo \"$tmp\"; exit 1; }"], default-environment = "dev" }
 fmt-d = { cmd = ["dprint", "fmt"], default-environment = "dev" }
