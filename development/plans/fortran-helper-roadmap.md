@@ -313,9 +313,6 @@ a slice is a judgement call.
   `logical`, `int64`, and `real32` in the native test, and the
   cross-language test asserts their raw netCDF dtypes — those rows
   are not a gap.)
-- `m_preserf.f90` — dimension sizes and halo extents are cast to
-  `int32` without an explicit upper-bound check; a 64-bit default
-  integer build could silently truncate.
 - `test/test_minimal.f90` — disabled-savepoint round-trip checks
   `grpid` and `idx` but not `owner_ncid`.
 - `test/test_minimal.f90` — only one enabled savepoint is created,
@@ -323,9 +320,9 @@ a slice is a judgement call.
   exercised end-to-end.
 
 Most of these fold into Slice A (read-mode tests) or Slice B
-(type-coverage tests). The int32 truncation note (4th bullet above)
-is a correctness fix that should land standalone before either,
-since it's a latent bug rather than missing coverage.
+(type-coverage tests). The previously listed int32 truncation note
+landed as a standalone fix in `active_dims_c_order` /
+`put_halo_attr` via the new `require_fits_int32` guard.
 
 ## 5. Out of scope
 

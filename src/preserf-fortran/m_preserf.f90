@@ -712,6 +712,15 @@ contains
          error stop 1
       end if
 
+      ! Bounds-check active dims before the int32 cast: under a
+      ! -fdefault-integer-8 build the dummy args are int64-wide and a
+      ! bare int(iSize, int32) would silently truncate values past
+      ! huge(0_int32) (fortran-helper-roadmap.md §4).
+      call require_fits_int32(iSize, 'iSize')
+      if (jSize > 0) call require_fits_int32(jSize, 'jSize')
+      if (kSize > 0) call require_fits_int32(kSize, 'kSize')
+      if (lSize > 0) call require_fits_int32(lSize, 'lSize')
+
       rank = 0
       if (iSize > 0) rank = 1
       if (jSize > 0) rank = 2
@@ -742,6 +751,30 @@ contains
       error stop 1
    end subroutine active_dims_inconsistent
 
+   !> Abort if `value` (a default-kind integer) exceeds the int32
+   !> upper bound. storage_mapping.md §1 pins the on-disk `dims` and
+   !> halo attributes to NC_INT (int32 on the wire), so widening the
+   !> on-disk type is not an option. Under a -fdefault-integer-8 build
+   !> the dummy arg can hold values past huge(0_int32) and a bare
+   !> int(value, int32) would silently truncate; this guard turns that
+   !> into a clean error_stop. Only the upper bound is checked: every
+   !> current caller (active_dims_c_order, put_halo_attr) rejects
+   !> negative inputs with its own context-specific error message
+   !> before reaching here, so a redundant lower-bound check would
+   !> only ever fire as dead code. Carry-over from PR #4 review
+   !> (fortran-helper-roadmap.md §4).
+   subroutine require_fits_int32(value, label)
+      integer, intent(in) :: value
+      character(len=*), intent(in) :: label
+      if (int(value, int64) > int(huge(0_int32), int64)) then
+         write (*, '(a,a,a,i0,a,i0)') &
+            'preserf: ', trim(label), &
+            ' exceeds int32 capacity; got ', value, &
+            ', max is ', huge(0_int32)
+         error stop 1
+      end if
+   end subroutine require_fits_int32
+
    subroutine put_halo_attr(grpid, varid, name, value)
       integer, intent(in) :: grpid, varid
       character(len=*), intent(in) :: name
@@ -758,6 +791,7 @@ contains
          error stop 1
       end if
       if (value == 0) return
+      call require_fits_int32(value, 'halo "'//trim(name)//'"')
       v = int(value, int32)
       ncerr = nf90_put_att(grpid, varid, name, v)
       call preserf_check_nf_with_msg(ncerr, 'put_att '//name)
