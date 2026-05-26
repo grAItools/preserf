@@ -35,7 +35,7 @@ fmt-f = { cmd = ["fprettify", "--recursive", "src/preserf-fortran"], default-env
 fmt-f-src = { cmd = ["fprettify"], default-environment = "dev" }
 fmt = { depends-on = ["fmt-py", "fmt-f", "fmt-d"] }
 fmt-py-check = { cmd = ["ruff", "format", "--check", "src", "tests"], default-environment = "dev" }
-fmt-f-check = { cmd = ["python", "-c", "import subprocess,sys;r=subprocess.run(['fprettify','--diff','--recursive','src/preserf-fortran'],capture_output=True,text=True);print(r.stdout,end='');sys.exit(1 if r.stdout.strip() else 0)"], default-environment = "dev" }
+fmt-f-check = { cmd = ["python", "-c", "import subprocess,sys;r=subprocess.run(['fprettify','--diff','--recursive','src/preserf-fortran'],capture_output=True,text=True);print(r.stdout,end='');sys.exit(1 if r.stdout.strip() or r.returncode != 0 else 0)"], default-environment = "dev" }
 fmt-d = { cmd = ["dprint", "fmt"], default-environment = "dev" }
 fmt-d-check = { cmd = ["dprint", "check"], default-environment = "dev" }
 fmt-check = { depends-on = ["fmt-py-check", "fmt-f-check", "fmt-d-check"] }
