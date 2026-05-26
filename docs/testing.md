@@ -26,12 +26,18 @@ into three layers:
 - `tests/integration_tests/` — cross-language wire-compat. The single
   test (`test_fortran_wire_compat.py`) builds a store with the Fortran
   helper and reads it back with `tests/_support/storage.py`. Skips
-  with `pytest.skip` when the Fortran binary at
-  `build/preserf-fortran/` is missing.
+  with `pytest.skip` when the Fortran test binary hasn't been built —
+  the `fortran_binary` fixture in `tests/conftest.py` probes
+  `build/preserf-fortran/unit/m_preserf/` plus the per-config subdirs
+  multi-config CMake generators produce.
 - `tests-fortran/unit/m_preserf/` — native Fortran via CMake/ctest.
-  `test_minimal.f90` exercises lifecycle, savepoint creation, and the
-  shipped write paths (`real64` 1D/2D/3D, scalar metainfo for `int32`
-  and `real64`).
+  `test_minimal.f90` exercises lifecycle, savepoint creation, the
+  shipped `real64` 1D/2D/3D field write paths, scalar serializer
+  metainfo across `character` / `int32` / `logical` / `int64` /
+  `real32`, and scalar savepoint metainfo for `int32` / `real64`. (The
+  logical / int64 / real32 / character savepoint overloads are
+  exercised only by the Python wire-compat test today — tracked as
+  tech debt on the roadmap.)
 
 `tests/_support/` is shared fixtures: `storage.py` (the preserf
 NetCDF4/Zarr V2 reader-writer used to round-trip stores in pure Python)
