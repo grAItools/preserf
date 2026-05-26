@@ -19,18 +19,18 @@ own design review when it lands.
 
 ## Progress at a glance
 
-| Slice | Title                                       | Status   | Tracking PR(s) |
-|-------|---------------------------------------------|----------|----------------|
-| A-1   | Read-mode resolve-and-validate              | planned  | —              |
-| A-2   | Read-perturb implementation                 | planned  | —              |
-| B     | Full type-coverage matrix (numeric)         | planned  | —              |
-| B′    | String data fields                          | deferred | —              |
-| C-0   | ADR: tracer descriptor storage              | planned  | —              |
-| C     | Tracers, k-buffer, OPTION                   | planned  | —              |
-| D     | pp_ser.py port + ppser_initialize widening  | partial  | #6 (core)      |
-| E     | Backend selector + NCZarr URL targets       | planned  | —              |
-| F     | CI for the Fortran build                    | shipped  | #14, #15       |
-| G     | Append mode                                 | planned  | —              |
+| Slice | Title                                      | Status   | Tracking PR(s) |
+| ----- | ------------------------------------------ | -------- | -------------- |
+| A-1   | Read-mode resolve-and-validate             | planned  | —              |
+| A-2   | Read-perturb implementation                | planned  | —              |
+| B     | Full type-coverage matrix (numeric)        | planned  | —              |
+| B′    | String data fields                         | deferred | —              |
+| C-0   | ADR: tracer descriptor storage             | planned  | —              |
+| C     | Tracers, k-buffer, OPTION                  | planned  | —              |
+| D     | pp_ser.py port + ppser_initialize widening | partial  | #6 (core)      |
+| E     | Backend selector + NCZarr URL targets      | planned  | —              |
+| F     | CI for the Fortran build                   | shipped  | #14, #15       |
+| G     | Append mode                                | planned  | —              |
 
 Update this table on every slice-PR merge — it is the single source of
 truth for "where are we", with the section-level prose providing detail.
