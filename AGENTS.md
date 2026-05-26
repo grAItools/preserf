@@ -36,8 +36,11 @@ this file.
 - Architecture overview: [`docs/architecture.md`](docs/architecture.md)
 - Style guide: [`docs/style.md`](docs/style.md)
 - Testing strategy: [`docs/testing.md`](docs/testing.md)
-- ADRs (decisions of record): [`docs/adr/`](docs/adr/)
+- ADRs (decisions of record): [`docs/adr/`](docs/adr/) — Nygard format
 - Per-feature specs: [`specs/<YYYY-MM>-<slug>/`](specs/)
+- Long-running slice plans: [`development/plans/`](development/plans/)
+- Reference docs too detailed for `docs/`: [`development/references/`](development/references/)
+- Per-PR release history: [`CHANGELOG.md`](CHANGELOG.md)
 
 For Claude Code users:
 
