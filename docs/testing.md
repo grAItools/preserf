@@ -40,12 +40,13 @@ format, used to validate the schema mapping).
 
 ## CI mode
 
-`.github/workflows/ci.yml:38` exports `PRESERF_REQUIRE_FORTRAN=1` for the
-`pixi run verify` step. With that flag set, the wire-compat fixture
-turns its `pytest.skip` into a hard `pytest.fail` — a broken Fortran
-build cannot let the suite pass by silently skipping the cross-language
-test. `xfail` is deliberately _not_ used because an xfailed test still
-lets the suite pass.
+The "Run full verify gate" step in
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) exports
+`PRESERF_REQUIRE_FORTRAN=1` when invoking `pixi run verify`. With that
+flag set, the wire-compat fixture turns its `pytest.skip` into a hard
+`pytest.fail` — a broken Fortran build cannot let the suite pass by
+silently skipping the cross-language test. `xfail` is deliberately
+_not_ used because an xfailed test still lets the suite pass.
 
 ## Determinism
 

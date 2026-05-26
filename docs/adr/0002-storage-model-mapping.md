@@ -117,14 +117,22 @@ requests the time-series-per-field layout as a secondary output mode.
 
 ## References
 
-- Serialbox JSON metadata schema: `src/serialbox/core/SerializerImpl.cpp:39-70`,
-  `src/serialbox/core/SavepointVectorSerializer.cpp:15-32`,
-  `src/serialbox/core/FieldMetainfoImplSerializer.cpp:15-19`,
-  `src/serialbox/core/SavepointImplSerializer.cpp:15-18`.
-- Serialbox metainfo type system: `src/serialbox/core/MetainfoValueImpl.h:141-157`,
-  `src/serialbox/core/Type.h:55-74`.
-- Serialbox binary archive layout: `src/serialbox/core/archive/BinaryArchive.cpp:171-325`.
+The `src/serialbox/...` and `src/serialbox-fortran/...` paths below refer
+to files in the upstream [GridTools/serialbox](https://github.com/GridTools/serialbox)
+repository, not to this repo. Line ranges were taken against `master` at
+the time the ADR was drafted and may drift; the file and function names
+are the stable anchors.
+
+- Serialbox JSON metadata schema: `src/serialbox/core/SerializerImpl.cpp`
+  (≈L39-70), `src/serialbox/core/SavepointVectorSerializer.cpp` (≈L15-32),
+  `src/serialbox/core/FieldMetainfoImplSerializer.cpp` (≈L15-19),
+  `src/serialbox/core/SavepointImplSerializer.cpp` (≈L15-18).
+- Serialbox metainfo type system: `src/serialbox/core/MetainfoValueImpl.h`
+  (≈L141-157), `src/serialbox/core/Type.h` (≈L55-74).
+- Serialbox binary archive layout:
+  `src/serialbox/core/archive/BinaryArchive.cpp` (≈L171-325).
 - Serialbox Fortran helper API used by the preprocessor:
-  `src/serialbox-fortran/m_serialize.f90`, `src/serialbox-fortran/utils_ppser.f90`.
+  `src/serialbox-fortran/m_serialize.f90`,
+  `src/serialbox-fortran/utils_ppser.f90`.
 - Zarr V2 specification: <https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html>.
 - NCZarr (Zarr support inside netcdf-c): <https://docs.unidata.ucar.edu/nug/current/nczarr_head.html>.

@@ -46,11 +46,11 @@ A real preserf example, from
 > checking the range. NetCDF attributes are `int32`-typed and a silent
 > wrap would corrupt the registry without anyone noticing.
 >
-> **Do** route the cast through `require_fits_int32` (see
-> `src/preserf-fortran/m_preserf.f90:718`), which `error stop`s with a
-> clear message if the value exceeds `huge(0_int32)`. The guard is
-> applied in `active_dims_c_order` and `put_halo_attr`, the two places
-> where user-supplied dim/halo sizes enter the wire format.
+> **Do** route the cast through the `require_fits_int32` subroutine in
+> `src/preserf-fortran/m_preserf.f90`, which `error stop`s with a clear
+> message if the value exceeds `huge(0_int32)`. The guard is applied in
+> `active_dims_c_order` and `put_halo_attr`, the two places where
+> user-supplied dim/halo sizes enter the wire format.
 
 Generalising: **don't trust an implicit conversion at a wire boundary;
 do raise a typed error that names the offending field**. The same

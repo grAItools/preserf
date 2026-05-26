@@ -46,8 +46,8 @@ end-to-end against preserf alone.
 - `netcdf-fortran` (≥4.6.0, conda-forge) — the Fortran helper writes via
   `nf90_*`. Introduced by ADR
   [`docs/adr/0002-storage-model-mapping.md`](adr/0002-storage-model-mapping.md);
-  the URL/mode string passed to `ppser_initialize` selects NetCDF4 or
-  NCZarr V2 at runtime.
+  in v0.1 only the NetCDF4 path is wired up, with NCZarr V2 / Zarr URL
+  targets planned for Slice E.
 - Dev-only: `ruff`, `mypy`, `pytest`, `dprint`, `fprettify`, `cmake`,
   `fortran-compiler` (conda-forge). All managed via `pixi.toml`.
 
@@ -60,10 +60,17 @@ end-to-end against preserf alone.
   `preserf_*` routines exported from `m_preserf` / `utils_preserf`.
   pp_ser-generated source binds to those by `USE m_serialize` /
   `USE utils_ppser` (the alias modules).
-- **Storage backend.** Both NetCDF4 (`<dir>/<prefix>.nc`) and NCZarr V2
-  (`file://<dir>/<prefix>.zarr#mode=nczarr,zarr2`) are reachable through
-  the same `nf90_*` code path. Group-per-savepoint layout, with
-  `/_fields` registry and `/savepoints/sp_NNNNNN` subgroups. The concrete
+- **Storage backend.** v0.1 of the Fortran helper writes
+  `<dir>/<prefix>.nc` via `NF90_NETCDF4` only — `preserf_open_serializer`
+  in `src/preserf-fortran/utils_preserf.f90` hardcodes that path and
+  flag. ADR
+  [`docs/adr/0002-storage-model-mapping.md`](adr/0002-storage-model-mapping.md)
+  designs the format choice as a URL / mode string
+  (`file://<dir>/<prefix>.zarr#mode=nczarr,zarr2` for NCZarr V2) so that
+  both backends share the same `nf90_*` code path; wiring up that
+  selector is tracked as Slice E in the roadmap, closing v0.1 gap §7.
+  Either backend uses the same group-per-savepoint layout, with
+  `/_fields` registry and `/savepoints/sp_NNNNNN` subgroups; the concrete
   attribute and dtype mapping is in
   [`development/references/storage_mapping.md`](../development/references/storage_mapping.md).
 
