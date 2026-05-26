@@ -3,16 +3,20 @@
 This test runs the ``preserf_fortran_test_minimal`` binary built from
 ``src/preserf-fortran/test/test_minimal.f90`` and validates the resulting
 store via ``tests/_storage.py``. If the Fortran library hasn't been built
-the test is skipped — the Fortran build is intentionally not part of
-``uv run pytest`` because it depends on an external toolchain
-(``gfortran`` + ``netcdf-fortran``) that not every developer has.
+the test is skipped by default — the Fortran build is intentionally not
+part of ``pixi run test`` because it depends on a toolchain
+(``gfortran`` + ``netcdf-fortran``) that not every local environment
+needs eagerly available.
 
 To build the binary locally::
 
-    cmake -S src/preserf-fortran -B src/preserf-fortran/build
-    cmake --build src/preserf-fortran/build
+    pixi run build-fortran
 
-Then ``uv run pytest tests/test_fortran_minimal.py`` will pick it up.
+Then ``pixi run test`` will pick it up.
+
+In CI (and any environment that should treat a missing binary as a
+regression rather than a skip), set ``PRESERF_REQUIRE_FORTRAN=1`` — the
+``fortran_binary`` fixture then fails the test instead of skipping it.
 """
 
 from __future__ import annotations
@@ -28,7 +32,7 @@ from ._serialbox import TypeID
 from ._storage import read_dump
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_BUILD_TEST_DIR = _REPO_ROOT / "src/preserf-fortran/build/test"
+_BUILD_TEST_DIR = _REPO_ROOT / "build/preserf-fortran/test"
 
 
 def _locate_binary() -> Path | None:
@@ -56,11 +60,17 @@ def _locate_binary() -> Path | None:
 def fortran_binary() -> Path:
     binary = _locate_binary()
     if binary is None:
-        pytest.skip(
+        message = (
             f"Fortran test binary not found under {_BUILD_TEST_DIR} "
             "(checked single-config + Debug/Release subdirs); "
             "see tests/test_fortran_minimal.py docstring for build steps."
         )
+        # CI sets PRESERF_REQUIRE_FORTRAN=1 to turn a missing binary into a
+        # hard failure. A plain pytest.skip would let a broken Fortran build
+        # slip through `pixi run verify` silently.
+        if os.environ.get("PRESERF_REQUIRE_FORTRAN") == "1":
+            pytest.fail(message)
+        pytest.skip(message)
     return binary
 
 
