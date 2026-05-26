@@ -6,10 +6,12 @@
 
 `preserf` is a preprocessor for Fortran data serialization directives.
 `!$SER` directives embedded in Fortran source are expanded into explicit
-calls into a Fortran runtime API; that API writes to NetCDF4 or NCZarr V2
-stores. The project ships both the preprocessor (Python) and the runtime
-API (Fortran), so a pp_ser-annotated source can be compiled and run
-end-to-end against preserf alone.
+calls into a Fortran runtime API; that API writes to NetCDF4 stores in
+v0.1, with NCZarr V2 (and eventually V3) targets designed by ADR 0002
+but not yet wired up — see the Storage backend bullet below. The project
+ships both the preprocessor (Python) and the runtime API (Fortran), so
+a pp_ser-annotated source can be compiled and run end-to-end against
+preserf alone.
 
 ## Module map
 
