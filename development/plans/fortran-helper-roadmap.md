@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-05-18
+status: active
+date: 2026-05-26
 owners: preserf maintainers
 related:
   - development/decisions/0001-storage-model-mapping.md
@@ -16,6 +16,24 @@ v0.1 write-mode subset (merged in PR #4) to a complete drop-in replacement
 for the Serialbox Fortran helpers that `pp_ser`-generated source links
 against. It is descriptive, not prescriptive — each slice still needs its
 own design review when it lands.
+
+## Progress at a glance
+
+| Slice | Title                                       | Status   | Tracking PR(s) |
+|-------|---------------------------------------------|----------|----------------|
+| A-1   | Read-mode resolve-and-validate              | planned  | —              |
+| A-2   | Read-perturb implementation                 | planned  | —              |
+| B     | Full type-coverage matrix (numeric)         | planned  | —              |
+| B′    | String data fields                          | deferred | —              |
+| C-0   | ADR: tracer descriptor storage              | planned  | —              |
+| C     | Tracers, k-buffer, OPTION                   | planned  | —              |
+| D     | pp_ser.py port + ppser_initialize widening  | partial  | #6 (core)      |
+| E     | Backend selector + NCZarr URL targets       | planned  | —              |
+| F     | CI for the Fortran build                    | shipped  | #14, #15       |
+| G     | Append mode                                 | planned  | —              |
+
+Update this table on every slice-PR merge — it is the single source of
+truth for "where are we", with the section-level prose providing detail.
 
 ## 1. What is already shipped
 
@@ -41,18 +59,30 @@ Already on `main`:
   - `m_serialize` / `utils_ppser` alias modules so pp_ser-generated
     source using the historical Serialbox module names compiles
     unchanged.
-  - `CMakeLists.txt` + `test/CMakeLists.txt` (CMake 3.20+,
+  - `src/preserf-fortran/CMakeLists.txt` (CMake 3.20+,
     `pkg-config` discovery of `netcdf-fortran`, `Fortran_STANDARD
     2008` plus an explicit gfortran `-std=f2008`, project version
-    threaded via `preserf_version.f90.in`).
-  - `test/test_minimal.f90` native Fortran test +
-    `tests/integration_tests/test_fortran_wire_compat.py` cross-language wire-compat test
-    (skips when the Fortran binary is absent).
+    threaded via `preserf_version.f90.in`); the native-test build is
+    driven from `tests-fortran/CMakeLists.txt` (with per-suite config
+    at `tests-fortran/unit/m_preserf/CMakeLists.txt`).
+  - `tests-fortran/unit/m_preserf/test_minimal.f90` native Fortran
+    test + `tests/integration_tests/test_fortran_wire_compat.py`
+    cross-language wire-compat test (skips when the Fortran binary is
+    absent).
 
 The schema documented in
 [`storage_mapping.md`](../references/storage_mapping.md) is now exercised
 by both a Python writer (`tests/_support/storage.py`) and a Fortran writer
 (`src/preserf-fortran/`).
+
+Hardening that has landed since PR #4:
+
+- **PR #16** — `require_fits_int32` guard in `active_dims_c_order` /
+  `put_halo_attr` closes a latent truncation on very large dim sizes /
+  halo extents.
+- **PR #17** — test reorganization into `tests/unit_tests/`,
+  `tests/integration_tests/`, and `tests-fortran/unit/m_preserf/`; all
+  path references in this roadmap reflect that layout.
 
 ## 2. Known gaps after PR #4
 
@@ -111,11 +141,24 @@ They are the things pp_ser-generated source can already hit today.
 
 Each slice is intended to land as one PR. Slices are roughly ordered
 by how much they unblock real pp_ser-generated source. They are not
-strictly sequential — Slice B can land before or after Slice A.
+strictly sequential — Slice B can land before or after the Slice A
+sub-slices.
 
-### Slice A — Read-mode "create-or-resolve-and-validate"
+**Cross-slice dependencies (non-obvious):**
 
-Closes gap §1 and §2's runtime side.
+- **A-2 depends on D** — read-perturb sources its scale from
+  `ppser_zrperturb`, which only becomes runtime-controllable once
+  Slice D's `rperturb` keyword threading lands.
+- **C depends on C-0** — the tracer storage ADR (C-0) must accept
+  before the tracer API (C) commits to a layout.
+- **E depends on D** — the `backend` keyword threads through
+  `ppser_initialize` alongside the other widened keywords; landing E
+  first would require touching the same signature twice.
+- A-1, B, and G are independent of each other and of D.
+
+### Slice A-1 — Read-mode "create-or-resolve-and-validate"
+
+Closes gap §1.
 
 - Switch `fs_register_field`, `fs_create_savepoint`,
   `fs_add_savepoint_metainfo`, `fs_add_serializer_metainfo` to a
@@ -148,6 +191,15 @@ Closes gap §1 and §2's runtime side.
   `ppser_serializer` vs `ppser_serializer_ref` savepoint-grpid case
   is actually covered — the same-store round-trip alone hits the
   implicit-ref path.
+
+### Slice A-2 — Read-perturb implementation
+
+Closes gap §2's runtime side.
+
+**Depends on Slice D's `rperturb` keyword threading reaching
+`ppser_zrperturb`**, since the perturb scale is sourced from that
+module-level variable.
+
 - Implement read-perturb (5-arg `fs_read_field`). Algorithm matches
   Serialbox's `zrperturb` semantics (multiplicative noise scaled by
   `ppser_zrperturb`). Cross-language test covering at least `real64`
@@ -179,18 +231,32 @@ Closes gap §5.
   type via `Dataset[…].dtype` matches the TypeID → netCDF-type table
   in `storage_mapping.md §1`.
 
+### Slice C-0 — ADR: tracer descriptor storage
+
+Docs-only prelude to Slice C. Splits the schema decision out of the
+implementation PR so layout review and code review can run on
+independent change-sets.
+
+- Decide where tracer descriptors live in the store. Candidate is a
+  `/_tracers` sibling of `/_fields`; the ADR should weigh that against
+  inlining descriptors into the existing `/_fields` registry.
+- Decide what attribute set identifies a tracer (name, dtype, units,
+  the Serialbox tracer flags).
+- Land as `development/decisions/0002-tracer-storage.md` following
+  the template at `development/decisions/adr-template.md`.
+- Update `development/references/storage_mapping.md` once the ADR is
+  accepted, before Slice C opens.
+
 ### Slice C — Tracers, k-buffer, OPTION
 
-Closes gap §6.
+Closes gap §6. **Depends on Slice C-0** (tracer storage ADR).
 
 - `fs_RegisterAllTracers` (from `!$SER REGISTERTRACERS`) and the
   tracer write API — `ppser_write_tracer_by_name`,
   `ppser_write_tracer_by_idx`, `ppser_write_tracer_all` (from
   `!$SER TRACER`, per
   `development/references/directives_specification.md` §§3.11 / 3.14).
-  Needs the storage mapping to spell out where tracer descriptors
-  live — candidate is a `/_tracers` sibling of `/_fields`. Document
-  the decision in a new ADR.
+  Implementation follows the layout ratified in Slice C-0's ADR.
 - `fs_write_kbuff` (`!$SER DATA_KBUFF`). Needs the k-buffer flush
   semantics from `pp_ser.py` to be re-derived.
 - `fs_Option` (`!$SER OPTION`). pp_ser emits OPTION entries as
@@ -206,19 +272,24 @@ Closes gap §6.
 
 Independent of slices A–C; can land in parallel.
 
-**Status:** the preprocessor port has landed (PR #6); the
-`ppser_initialize` widening and the end-to-end test below remain.
+**Status:** partial — the preprocessor port has landed (PR #6); the
+`ppser_initialize` widening and the end-to-end test remain.
 
-- **Done (PR #6).** `pp_ser.py` (a reference file under
-  `development/references/`) is ported into the distributed Python
-  package as `src/preserf/preprocessor.py` — a typed, two-pass
-  reimplementation expanding every `!$SER` directive — alongside
-  `errors.py` (`DirectiveError` with file/line context) and a real
-  `cli.py` (single-file, output-dir and recursive modes). Generated
-  output uses preserf's helper API (`USE m_serialize` / `utils_ppser`).
-  Directive-by-directive unit tests live in `tests/test_preprocessor.py`
-  and `tests/test_cli.py`; deviations from the reference (all toward
-  correctness) are enumerated in the PR description.
+**Done (PR #6).**
+`pp_ser.py` (a reference file under `development/references/`) is
+ported into the distributed Python package as
+`src/preserf/preprocessor.py` — a typed, two-pass reimplementation
+expanding every `!$SER` directive — alongside `errors.py`
+(`DirectiveError` with file/line context) and a real `cli.py`
+(single-file, output-dir and recursive modes). Generated output uses
+preserf's helper API (`USE m_serialize` / `utils_ppser`).
+Directive-by-directive unit tests live in
+`tests/unit_tests/test_preprocessor.py` and
+`tests/unit_tests/test_cli.py`; deviations from the reference (all
+toward correctness) are enumerated in the PR description.
+
+**Open.**
+
 - Widen `ppser_initialize` to accept the keyword surface pp_ser
   emits (gap §3): `singlefile`, `mpi_rank`, `rprecision`,
   `rperturb`, `realtype`, `archive`, `unique_id`. Several of these
@@ -233,7 +304,7 @@ Independent of slices A–C; can land in parallel.
     those as fixed constants; the port must let `ppser_initialize`
     update them so single-precision real fields get registered with
     the right type metadata. `rperturb` threads through to the
-    read-perturb path from Slice A.
+    read-perturb path from Slice A-2 (which depends on this work).
   - `singlefile`, `archive`, `unique_id`: metadata-only on the
     preserf side; record them in root attrs for round-trip fidelity.
 - End-to-end test: run the ported preprocessor on a representative
@@ -254,8 +325,9 @@ Closes gap §7.
   backend is NCZarr, and pass appropriate creation flags.
 - Cross-language test wiring `tests/_support/storage.py`'s Zarr V2 reader
   against a Fortran-written NCZarr store. This test exists today on
-  the Python side (`tests/unit_tests/test_storage_round_trip.py`) for both backends;
-  extend it to also accept Fortran-written input.
+  the Python side (`tests/unit_tests/test_storage_round_trip.py`) for
+  both the `netcdf4` and `nczarr-v2` backends; extend it to also
+  accept Fortran-written input.
 - Zarr V3 (NCZarr V3 PR) explicitly deferred until the netcdf-c PR
   lands. See `development/decisions/0001-storage-model-mapping.md`.
 
@@ -302,7 +374,7 @@ a slice is a judgement call.
   runtime shape against the registry (it does not take halo
   arguments), so the missing cases are mismatched dtype and
   mismatched dims; halo-mismatch validation belongs to the
-  Slice A resolve-and-validate path on `fs_register_field`, not to
+  Slice A-1 resolve-and-validate path on `fs_register_field`, not to
   the write side.
 - `m_preserf.f90` — read-side `require_variable_xtype` rejection has
   no negative test.
@@ -313,18 +385,42 @@ a slice is a judgement call.
   `logical`, `int64`, and `real32` in the native test, and the
   cross-language test asserts their raw netCDF dtypes — those rows
   are not a gap.)
-- `test/test_minimal.f90` — disabled-savepoint round-trip checks
-  `grpid` and `idx` but not `owner_ncid`.
-- `test/test_minimal.f90` — only one enabled savepoint is created,
-  so the `next_sp_index` increment and `sp_000001` naming aren't
-  exercised end-to-end.
+- `tests-fortran/unit/m_preserf/test_minimal.f90` —
+  disabled-savepoint round-trip checks `grpid` and `idx` but not
+  `owner_ncid`.
+- `tests-fortran/unit/m_preserf/test_minimal.f90` — only one enabled
+  savepoint is created, so the `next_sp_index` increment and
+  `sp_000001` naming aren't exercised end-to-end.
 
-Most of these fold into Slice A (read-mode tests) or Slice B
+Most of these fold into Slice A-1 (read-mode tests) or Slice B
 (type-coverage tests). The previously listed int32 truncation note
-landed as a standalone fix in `active_dims_c_order` /
-`put_halo_attr` via the new `require_fits_int32` guard.
+landed as PR #16 (see §1) — `require_fits_int32` is now applied in
+`active_dims_c_order` / `put_halo_attr`.
 
-## 5. Out of scope
+## 5. v1.0 — Definition of Done
+
+The roadmap should cut a v1.0 of `preserf-fortran` when all of the
+following hold:
+
+1. Slices A-1, A-2, B, C-0, C, D (full), and E have landed on `main`.
+2. `tests/integration_tests/test_fortran_wire_compat.py` parametrises
+   over the full (rank × dtype × backend) matrix and passes in CI
+   with `PRESERF_REQUIRE_FORTRAN=1`.
+3. The native-Fortran test exercises at least one read-mode round-trip
+   per shipped slice (A-1 read-back, A-2 perturb-read, B type matrix,
+   C tracer write+read).
+4. No `error stop` remains as a stub in `src/preserf-fortran/` — every
+   compile-only overload either has an implementation or has been
+   removed.
+5. The `_preserf_*` housekeeping attributes documented in
+   `storage_mapping.md` §1 round-trip without drift between writer
+   and reader.
+
+**Explicitly deferred past v1.0:** Slice B′ (string data fields) and
+Slice G (append mode); both are documented as low-priority today and
+should not block a v1.0 cut. If demand emerges, they ship as v1.1.
+
+## 6. Out of scope
 
 - A second backend implementation (e.g. native HDF5, native Zarr
   without going through netcdf-c). The whole point of the schema is
