@@ -9,7 +9,7 @@
 !> read-only and reads all three fields back to verify lossless
 !> round-trip.
 !>
-!> The Python test in tests/test_fortran_minimal.py runs this binary
+!> The Python test in tests/integration_tests/test_fortran_wire_compat.py runs this binary
 !> and additionally validates the on-disk attribute and variable types
 !> directly via netCDF4 (so the kind-specific `nf90_put_att` branches
 !> are protected against on-disk type regressions).
@@ -79,7 +79,7 @@ program test_minimal
    ! pair is supplied, the reference store is opened *before* the
    ! writable main store is created/truncated, so a missing reference
    ! path must abort without destroying the target file. This branch
-   ! just triggers the abort; tests/test_fortran_minimal.py drives the
+   ! just triggers the abort; tests/integration_tests/test_fortran_wire_compat.py drives the
    ! scenario and asserts the writable target survived intact.
    if (command_argument_count() >= 2) then
       block

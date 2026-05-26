@@ -116,7 +116,7 @@ documented separately in `development/references/storage_mapping.md`.
 
 ### Confirmation
 
-The mapping is validated by a round-trip test (`tests/test_round_trip.py`) that:
+The mapping is validated by a round-trip test (`tests/unit_tests/test_storage_round_trip.py`) that:
 
 1. Builds an in-memory `SerialboxDump` covering the parts of the Serialbox
    data model relevant to v1 of the mapping: all six metainfo `TypeID`s in

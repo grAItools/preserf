@@ -19,14 +19,14 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from ._serialbox import (
+from tests._support.serialbox import (
     FieldMetainfo,
     MetainfoValue,
     Savepoint,
     SerialboxDump,
     TypeID,
 )
-from ._storage import read_dump, write_dump
+from tests._support.storage import read_dump, write_dump
 
 
 def _make_dump() -> SerialboxDump:
@@ -109,7 +109,7 @@ def _make_dump() -> SerialboxDump:
     ]
 
     # Build a plausible fields_table; offsets will be re-computed on write.
-    from ._serialbox import FieldOffsetEntry
+    from tests._support.serialbox import FieldOffsetEntry
 
     for fname, data_by_id in dump.field_data.items():
         dump.fields_table[fname] = [

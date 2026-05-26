@@ -46,7 +46,7 @@ set_tests_properties(preserf_fortran_minimal PROPERTIES
     FIXTURES_REQUIRED preserf_fortran_output_dir
     PASS_REGULAR_EXPRESSION "preserf-fortran: hello-world OK"
     # Match the 60-second cap the Python wrapper applies to the same
-    # binary in tests/test_fortran_minimal.py, so a netCDF/HDF5
-    # deadlock cannot block ctest indefinitely either.
+    # binary in tests/integration_tests/test_fortran_wire_compat.py, so a
+    # netCDF/HDF5 deadlock cannot block ctest indefinitely either.
     TIMEOUT 60
 )

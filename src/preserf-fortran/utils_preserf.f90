@@ -78,7 +78,7 @@ module utils_preserf
    integer, save, public :: serialisation_enabled = 1
 
    ! Schema version written into _preserf_schema_version. Must match
-   ! tests/_storage.py SCHEMA_VERSION.
+   ! tests/_support/storage.py SCHEMA_VERSION.
    integer(int32), parameter, public :: PRESERF_SCHEMA_VERSION = 1
 
    ! Cap matching storage_mapping.md §5 (sp_{idx:06d} naming).
@@ -130,12 +130,12 @@ contains
    !> helper calls `nf90_create(directory//'/'//prefix//'.nc', ...)`
    !> directly and does not create parent directories — `nf90_create`
    !> propagates the underlying HDF5 / system error if the parent is
-   !> missing. The Python reference writer in `tests/_storage.py`
+   !> missing. The Python reference writer in `tests/_support/storage.py`
    !> creates the directory with `mkdir(parents=True, exist_ok=True)`;
    !> Fortran callers are responsible for an equivalent step before
    !> calling `ppser_initialize`. The CTest target
    !> `preserf_fortran_minimal_setup` runs `cmake -E make_directory`
-   !> for this reason; tests/test_fortran_minimal.py uses pytest's
+   !> for this reason; tests/integration_tests/test_fortran_wire_compat.py uses pytest's
    !> `tmp_path` fixture.
    !>
    !> `mode` is one of: 'w' (write, create or truncate), 'r' (read-only).
