@@ -12,12 +12,12 @@ URL target from the Fortran helper is tracked as a follow-up — see
 
 ## Modules
 
-| Module           | Purpose                                                                  |
-|------------------|--------------------------------------------------------------------------|
-| `m_preserf`      | Main API: `fs_register_field`, `fs_create_savepoint`, `fs_write_field`, `fs_read_field`, `fs_add_savepoint_metainfo`, `fs_add_serializer_metainfo`, `fs_enable_serialization`, `fs_disable_serialization`. |
-| `utils_preserf`  | Lifecycle + module-level state (`ppser_serializer`, `ppser_savepoint`, `ppser_initialize`, `ppser_finalize`, `ppser_set_mode`, `ppser_get_mode`). |
-| `m_serialize`    | Drop-in re-export of `m_preserf` under Serialbox's historical module name. |
-| `utils_ppser`    | Drop-in re-export of `utils_preserf` under Serialbox's historical module name. |
+| Module          | Purpose                                                                                                                                                                                                    |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `m_preserf`     | Main API: `fs_register_field`, `fs_create_savepoint`, `fs_write_field`, `fs_read_field`, `fs_add_savepoint_metainfo`, `fs_add_serializer_metainfo`, `fs_enable_serialization`, `fs_disable_serialization`. |
+| `utils_preserf` | Lifecycle + module-level state (`ppser_serializer`, `ppser_savepoint`, `ppser_initialize`, `ppser_finalize`, `ppser_set_mode`, `ppser_get_mode`).                                                          |
+| `m_serialize`   | Drop-in re-export of `m_preserf` under Serialbox's historical module name.                                                                                                                                 |
+| `utils_ppser`   | Drop-in re-export of `utils_preserf` under Serialbox's historical module name.                                                                                                                             |
 
 The `m_serialize` / `utils_ppser` aliases preserve the historical
 module identifiers pp_ser-generated source imports, but the
@@ -110,6 +110,7 @@ implementation. These are tracked as follow-up PRs:
    4.5.x wrapper makes awkward.
 
 Out of scope for this PR (tracked as follow-ups):
+
 - Full type-coverage matrix (bool / i32 / i64 / f32 + 0D..4D for fields,
   array metainfo variants).
 - `fs_write_kbuff` (k-buffer / `!$SER DATA_KBUFF`).
@@ -119,7 +120,7 @@ Out of scope for this PR (tracked as follow-ups):
   test exercises only the implicit same-store reference path
   (`ppser_initialize(..., 'r')` opens `ppser_serializer_ref` against the
   same store). The explicit-ref branch — which `ppser_initialize`
-  deliberately orders to open the read-only reference *before* the
+  deliberately orders to open the read-only reference _before_ the
   writable target so a bad reference path doesn't truncate an existing
   file — is not yet tested. Covering "bad reference path doesn't
   clobber the main store" needs a separate Fortran test program that's

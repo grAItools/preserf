@@ -66,7 +66,7 @@ original case as written in the source.
 
 Directives that span multiple lines use `&` as a continuation character:
 
-- The initial line ends with ` &` (space followed by ampersand):
+- The initial line ends with `&` (space followed by ampersand):
   ```
   !$SER DATA field1=var1 field2=var2 &
   ```
@@ -82,11 +82,13 @@ before the arguments are parsed. Trailing `&` characters and surrounding
 whitespace are stripped from continued lines.
 
 Continuation detection regex (initial line):
+
 ```
 ^ *!\$ser *(.*) & *$
 ```
 
 Continuation prefix regex (subsequent lines):
+
 ```
 ^ *!\$ser& *
 ```
@@ -120,6 +122,7 @@ classifies each token (after the keyword) into one of three categories:
 ```
 
 Rules:
+
 - `IF` is recognized case-insensitively.
 - Only **one** condition token is permitted after `IF`. If additional tokens
   follow, this is a syntax error.
@@ -165,6 +168,7 @@ source file and line number:
 **Purpose**: Initialize the serialization environment.
 
 **Syntax**:
+
 ```
 !$SER INIT <arg1> [<arg2> ...] [IF <condition>]
 ```
@@ -175,6 +179,7 @@ These typically correspond to named Fortran arguments for the initialization
 subroutine (e.g., `singlefile=.true.`).
 
 **Generated code**:
+
 ```fortran
 ! file: <file> lineno: #<n>
 [IF (<condition>) THEN]
@@ -193,6 +198,7 @@ call ppser_initialize( &
 **API call**: `ppser_initialize`
 
 **Example**:
+
 ```fortran
 !$SER INIT singlefile=.true.
 ```
@@ -206,6 +212,7 @@ call ppser_initialize( &
 **Purpose**: Finalize and clean up the serialization environment.
 
 **Syntax**:
+
 ```
 !$SER CLEANUP [<arg1> ...]
 ```
@@ -216,6 +223,7 @@ general argument parser for the arguments—all remaining tokens are passed
 directly.
 
 **Generated code**:
+
 ```fortran
 ! file: <file> lineno: #<n>
 ! cleanup serialization environment
@@ -225,6 +233,7 @@ call ppser_finalize(<arg1>,<arg2>,...)
 **API call**: `ppser_finalize`
 
 **Example**:
+
 ```fortran
 !$SER CLEANUP
 ```
@@ -238,11 +247,13 @@ call ppser_finalize(<arg1>,<arg2>,...)
 **Purpose**: Create a named savepoint with optional metadata key-value pairs.
 
 **Syntax**:
+
 ```
 !$SER SAVEPOINT <name> [<key1>=<value1> ...] [IF <condition>]
 ```
 
 **Arguments**:
+
 - Exactly **one** positional argument: the savepoint name (a string identifier).
   More or fewer positional arguments is a syntax error.
 - Zero or more key-value pairs providing savepoint metadata.
@@ -253,6 +264,7 @@ quoted string literal (`'name'`). When the `--sp-as-var` / `sp_as_var` option
 is enabled, it is passed as a bare variable reference (no quotes).
 
 **Generated code**:
+
 ```fortran
 ! file: <file> lineno: #<n>
 [IF (<condition>) THEN]
@@ -264,6 +276,7 @@ call fs_add_savepoint_metainfo(ppser_savepoint, '<key2>', <value2>)
 ```
 
 With `sp_as_var` enabled:
+
 ```fortran
 call fs_create_savepoint(<name>, ppser_savepoint)
 ```
@@ -271,6 +284,7 @@ call fs_create_savepoint(<name>, ppser_savepoint)
 **API calls**: `fs_create_savepoint`, `fs_add_savepoint_metainfo`
 
 **Example**:
+
 ```fortran
 !$SER SAVEPOINT DycoreUnittest.DoStep-in LargeTimeStep=ntstep Test=Blabla IF ntstep>0
 ```
@@ -286,11 +300,13 @@ generated code dispatches between write, read, and read-with-perturbation modes
 at runtime.
 
 **Syntax**:
+
 ```
 !$SER DATA <field1>=<expr1> [<field2>=<expr2> ...] [IF <condition>]
 ```
 
 **Arguments**:
+
 - Zero or more key-value pairs where:
   - `key` = the serialized field name (a string identifier)
   - `value` = a Fortran expression for the field data (e.g., `u(:,:,:,nnow)`)
@@ -298,7 +314,7 @@ at runtime.
 
 **Computed field detection**: If a value expression contains any of the
 characters/substrings `*`, `+`, `-`, `/`, or the word `merge`, the field is
-considered *computed*. Computed fields are only written (serialized out); they
+considered _computed_. Computed fields are only written (serialized out); they
 are **not** read back in read or read-perturb modes.
 
 **Intent(in) handling**: Field variables that appear in `DATA` directives are
@@ -308,6 +324,7 @@ preprocessor generates `#ifdef`/`#else`/`#endif` blocks that remove the
 write into these variables).
 
 **Generated code**:
+
 ```fortran
 ! file: <file> lineno: #<n>
 [IF (<condition>) THEN]
@@ -336,6 +353,7 @@ Computed fields (those containing `*`, `+`, `-`, `/`, or `merge`) are
 **API calls**: `fs_write_field`, `fs_read_field`, `ppser_get_mode`
 
 **Example**:
+
 ```fortran
 !$SER DATA u=u(:,:,:,nnow)
 !$SER DATA v=v_in(:,:,:)+v_ref(:,:,:,nnow) IF allocated(v_in)
@@ -352,6 +370,7 @@ Computed fields (those containing `*`, `+`, `-`, `/`, or `merge`) are
 transfer directives (`!$acc update host/device`) around the serialization calls.
 
 **Syntax**:
+
 ```
 !$SER ACCDATA <field1>=<expr1> [<field2>=<expr2> ...] [IF <condition>]
 ```
@@ -380,16 +399,19 @@ output file (unless disabled via the `--no-prefix` option), which makes
 vertical-level-specific serialization.
 
 **Syntax**:
+
 ```
 !$SER DATA_KBUFF k=<k_expr> k_size=<ksize_expr> <field1>=<expr1> [<field2>=<expr2> ...] [IF <condition>]
 ```
 
 **Arguments**:
+
 - **Required** key-value pairs: `k=<expression>` and `k_size=<expression>`.
 - Additional key-value pairs for the fields to serialize.
 - Optional `IF` clause.
 
 **Generated code**:
+
 ```fortran
 ! file: <file> lineno: #<n>
 [IF (<condition>) THEN]
@@ -413,6 +435,7 @@ regular field arguments; they are appended as named parameters to each call.
 **Purpose**: Set the serialization mode at runtime.
 
 **Syntax**:
+
 ```
 !$SER MODE <mode> [IF <condition>]
 ```
@@ -422,7 +445,7 @@ regular field arguments; they are appended as named parameters to each call.
 **Predefined mode values**:
 
 | Mode Name      | Numeric Value |
-|----------------|---------------|
+| -------------- | ------------- |
 | `write`        | `0`           |
 | `read`         | `1`           |
 | `read-perturb` | `2`           |
@@ -434,6 +457,7 @@ its numeric value is substituted. Otherwise the argument is passed through
 verbatim (assumed to be a Fortran variable or expression).
 
 **Generated code**:
+
 ```fortran
 ! file: <file> lineno: #<n>
 [IF (<condition>) THEN]
@@ -452,11 +476,13 @@ call ppser_set_mode(<numeric_value_or_expression>)
 **Purpose**: Set runtime options for the serialization framework.
 
 **Syntax**:
+
 ```
 !$SER OPTION <key1>=<value1> [<key2>=<value2> ...] [IF <condition>]
 ```
 
 **Arguments**:
+
 - **Only** key-value pairs are accepted. Positional arguments are a syntax
   error ("Must specify a name and a list of key=value pairs").
 - Optional `IF` clause.
@@ -465,6 +491,7 @@ call ppser_set_mode(<numeric_value_or_expression>)
 `off` and `on` are automatically mapped to `0` and `1` respectively.
 
 **Generated code**:
+
 ```fortran
 ! file: <file> lineno: #<n>
 [IF (<condition>) THEN]
@@ -475,6 +502,7 @@ call fs_Option(<key1>=<value1>, <key2>=<value2>, ...)
 **API call**: `fs_Option`
 
 **Example**:
+
 ```fortran
 !$SER OPTION verbosity=on
 ```
@@ -488,11 +516,13 @@ call fs_Option(<key1>=<value1>, <key2>=<value2>, ...)
 **Purpose**: Attach metadata key-value pairs to the serializer object.
 
 **Syntax**:
+
 ```
 !$SER METAINFO [<varname1> ...] [<key1>=<value1> ...] [IF <condition>]
 ```
 
 **Arguments**:
+
 - **Positional arguments**: Treated as variable names where both the metadata
   key and the value are the variable name itself (i.e., the variable name is
   used as the string key and the variable is used as the value).
@@ -501,6 +531,7 @@ call fs_Option(<key1>=<value1>, <key2>=<value2>, ...)
 - Optional `IF` clause.
 
 **Generated code**:
+
 ```fortran
 ! file: <file> lineno: #<n>
 [IF (<condition>) THEN]
@@ -525,11 +556,13 @@ Key-value pairs are processed first, then positional arguments.
 the serializer.
 
 **Syntax**:
+
 ```
 !$SER REGISTER <name> <type> [<shortcut_or_dims...>] [IF <condition>]
 ```
 
 **Arguments**:
+
 - At least **two** positional arguments are required: `<name>` and `<type>`.
   Fewer is a syntax error.
 - The `<name>` is automatically single-quoted in the generated call.
@@ -542,10 +575,10 @@ the serializer.
 
 **Data Types**:
 
-| Type keyword | Type string    | Length variable     |
-|-------------|----------------|---------------------|
-| `integer`   | `'int'`        | `ppser_intlength`   |
-| `real`      | `ppser_realtype`| `ppser_reallength`  |
+| Type keyword | Type string      | Length variable    |
+| ------------ | ---------------- | ------------------ |
+| `integer`    | `'int'`          | `ppser_intlength`  |
+| `real`       | `ppser_realtype` | `ppser_reallength` |
 
 Any other type value (e.g., a variable like `fs_realtype`) is passed through
 as the type string directly and is used as-is for both the type and length
@@ -562,22 +595,22 @@ expansion) matches one of the predefined shortcut codes, it is expanded into
 `iSize`, `jSize`, `kSize`, `lSize`, `iMinusHalo`, `iPlusHalo`, `jMinusHalo`,
 `jPlusHalo`, `kMinusHalo`, `kPlusHalo`, `lMinusHalo`, `lPlusHalo`.
 
-| Shortcut | Expansion |
-|----------|-----|
-| *(empty)* | `1 0 0 0 0 0 0 0 0 0 0 0` |
-| `I`      | `ie 0 0 0 nboundlines nboundlines 0 0 0 0 0 0` |
-| `J`      | `je 0 0 0 nboundlines nboundlines 0 0 0 0 0 0` |
-| `J2`     | `je 2 0 0 nboundlines nboundlines 0 0 0 0 0 0` |
-| `K`      | `ke 0 0 0 0 0 0 0 0 0 0 0` |
-| `K1`     | `ke1 0 0 0 0 1 0 0 0 0 0 0` |
-| `IJ`     | `ie je 0 0 nboundlines nboundlines nboundlines nboundlines 0 0 0 0` |
-| `IJ3`    | `ie je 3 0 nboundlines nboundlines nboundlines nboundlines 0 0 0 0` |
-| `IK`     | `ie ke 0 0 nboundlines nboundlines 0 0 0 0 0 0` |
-| `IK1`    | `ie ke1 0 0 nboundlines nboundlines 0 0 0 1 0 0` |
-| `JK`     | `je ke 0 0 nboundlines nboundlines 0 0 0 0 0 0` |
-| `JK1`    | `je ke1 0 0 nboundlines nboundlines 0 1 0 0 0 0` |
-| `IJK`    | `ie je ke 0 nboundlines nboundlines nboundlines nboundlines 0 0 0 0` |
-| `IJK1`   | `ie je ke1 0 nboundlines nboundlines nboundlines nboundlines 0 1 0 0` |
+| Shortcut  | Expansion                                                             |
+| --------- | --------------------------------------------------------------------- |
+| _(empty)_ | `1 0 0 0 0 0 0 0 0 0 0 0`                                             |
+| `I`       | `ie 0 0 0 nboundlines nboundlines 0 0 0 0 0 0`                        |
+| `J`       | `je 0 0 0 nboundlines nboundlines 0 0 0 0 0 0`                        |
+| `J2`      | `je 2 0 0 nboundlines nboundlines 0 0 0 0 0 0`                        |
+| `K`       | `ke 0 0 0 0 0 0 0 0 0 0 0`                                            |
+| `K1`      | `ke1 0 0 0 0 1 0 0 0 0 0 0`                                           |
+| `IJ`      | `ie je 0 0 nboundlines nboundlines nboundlines nboundlines 0 0 0 0`   |
+| `IJ3`     | `ie je 3 0 nboundlines nboundlines nboundlines nboundlines 0 0 0 0`   |
+| `IK`      | `ie ke 0 0 nboundlines nboundlines 0 0 0 0 0 0`                       |
+| `IK1`     | `ie ke1 0 0 nboundlines nboundlines 0 0 0 1 0 0`                      |
+| `JK`      | `je ke 0 0 nboundlines nboundlines 0 0 0 0 0 0`                       |
+| `JK1`     | `je ke1 0 0 nboundlines nboundlines 0 1 0 0 0 0`                      |
+| `IJK`     | `ie je ke 0 nboundlines nboundlines nboundlines nboundlines 0 0 0 0`  |
+| `IJK1`    | `ie je ke1 0 nboundlines nboundlines nboundlines nboundlines 0 1 0 0` |
 
 Shortcut matching regex: `^($|[IJK][IJK1-9]*)` (case-insensitive after
 uppercasing).
@@ -586,6 +619,7 @@ If the third argument is not a recognized shortcut, all dimension arguments
 are passed through verbatim.
 
 **Generated code**:
+
 ```fortran
 ! file: <file> lineno: #<n>
 [IF (<condition>) THEN]
@@ -596,6 +630,7 @@ call fs_register_field(ppser_serializer, '<name>', <type>, <length>, <dim_params
 **API call**: `fs_register_field`
 
 **Examples**:
+
 ```fortran
 !$SER REG u fs_realtype IJK
 !$SER REGISTER u fs_realtype ie je ke 1 nboundlines nboundlines nboundlines nboundlines 0 0 0 0
@@ -612,6 +647,7 @@ call fs_register_field(ppser_serializer, '<name>', <type>, <length>, <dim_params
 **Purpose**: Register all tracer fields with the serialization framework.
 
 **Syntax**:
+
 ```
 !$SER REGISTERTRACERS
 ```
@@ -619,6 +655,7 @@ call fs_register_field(ppser_serializer, '<name>', <type>, <length>, <dim_params
 **Arguments**: None.
 
 **Generated code**:
+
 ```fortran
 ! file: <file> lineno: #<n>
 call fs_RegisterAllTracers()
@@ -635,17 +672,20 @@ call fs_RegisterAllTracers()
 **Purpose**: Set one or more fields to zero (using the configured real type).
 
 **Syntax**:
+
 ```
 !$SER ZERO <field1> [<field2> ...] [IF <condition>]
 ```
 
 **Arguments**:
+
 - One or more positional arguments naming the fields to zero.
 - Key-value pairs are **not** allowed (syntax error: "Must specify a list of
   fields").
 - Optional `IF` clause.
 
 **Generated code**:
+
 ```fortran
 ! file: <file> lineno: #<n>
 [IF (<condition>) THEN]
@@ -661,6 +701,7 @@ Where `<real_type>` is the configured Fortran real kind parameter (default:
 **API calls**: None (generates inline Fortran assignments).
 
 **Example**:
+
 ```fortran
 !$SER ZERO a b c d
 ```
@@ -677,6 +718,7 @@ allows embedding any Fortran statement that should only be active when
 serialization is enabled (since the output is wrapped in `#ifdef` guards).
 
 **Syntax**:
+
 ```
 !$SER VERBATIM <fortran_code>
 ```
@@ -685,6 +727,7 @@ serialization is enabled (since the output is wrapped in `#ifdef` guards).
 as-is.
 
 **Generated code**:
+
 ```fortran
 <fortran_code>
 ```
@@ -694,6 +737,7 @@ No source annotation comment is generated for VERBATIM directives.
 **API calls**: None.
 
 **Examples**:
+
 ```fortran
 !$SER VERBATIM CHARACTER (LEN=6) :: fs_realtype
 !$SER VERBATIM SELECT CASE (ireals)
@@ -713,6 +757,7 @@ No source annotation comment is generated for VERBATIM directives.
 selecting tracers by name, by index/index range, or all tracers.
 
 **Syntax**:
+
 ```
 !$SER TRACER <tracerspec1> [<tracerspec2> ...] [IF <condition>]
 ```
@@ -743,6 +788,7 @@ Where:
 - **`@<timelevel>`** (optional): A time level identifier (`[a-zA-Z_0-9]+`).
 
 Full regex for tracer specification:
+
 ```
 ^([a-zA-Z_0-9]+|\$[a-zA-Z_0-9\(\)]+(?:-[a-zA-Z_0-9\(\)]+)?|%all)(?:#(tens|bd|surf|sedimvel))?(?:@([a-zA-Z_0-9]+))?
 ```
@@ -750,21 +796,25 @@ Full regex for tracer specification:
 **Generated code** (per tracer spec):
 
 For **name-based** access:
+
 ```fortran
 call ppser_write_tracer_by_name('<name>', stype='<stype>', timelevel=<timelevel>)
 ```
 
 For **index-based** access (single index):
+
 ```fortran
 call ppser_write_tracer_by_idx(<expr>, stype='<stype>', timelevel=<timelevel>)
 ```
 
 For **index-based** access (range):
+
 ```fortran
 call ppser_write_tracer_by_idx(<expr1>, <expr2>, stype='<stype>', timelevel=<timelevel>)
 ```
 
 For **all** tracers:
+
 ```fortran
 call ppser_write_tracer_all(stype='', timelevel=<timelevel>)
 ```
@@ -784,6 +834,7 @@ The `stype` argument is always present (empty string if not specified). The
 **Purpose**: Enable serialization at runtime.
 
 **Syntax**:
+
 ```
 !$SER ON
 ```
@@ -791,6 +842,7 @@ The `stype` argument is always present (empty string if not specified). The
 **Arguments**: None.
 
 **Generated code**:
+
 ```fortran
 ! file: <file> lineno: #<n>
 call fs_enable_serialization()
@@ -807,6 +859,7 @@ call fs_enable_serialization()
 **Purpose**: Disable serialization at runtime.
 
 **Syntax**:
+
 ```
 !$SER OFF
 ```
@@ -814,6 +867,7 @@ call fs_enable_serialization()
 **Arguments**: None.
 
 **Generated code**:
+
 ```fortran
 ! file: <file> lineno: #<n>
 call fs_disable_serialization()
@@ -825,24 +879,24 @@ call fs_disable_serialization()
 
 ## 4. Keyword Abbreviations Summary
 
-| Directive        | Full Keyword(s)   | Abbreviation(s) |
-|------------------|--------------------|-----------------|
-| Init             | `INIT`             | `INI`           |
-| Cleanup          | `CLEANUP`          | `CLE`           |
-| Data             | `DATA`             | `DAT`           |
-| Data (k-buffer)  | `DATA_KBUFF`       | `KBU`           |
-| Data (ACC)       | `ACCDATA`          | `ACC`           |
-| Mode             | `MODE`             | `MOD`           |
-| Option           | `OPTION`           | `OPT`           |
-| Metainfo         | `METAINFO`         | *(none)*        |
-| Verbatim         | `VERBATIM`         | `VER`           |
-| Register         | `REGISTER`         | `REG`           |
-| RegisterTracers  | `REGISTERTRACERS`  | *(none)*        |
-| Zero             | `ZERO`             | `ZER`           |
-| Savepoint        | `SAVEPOINT`        | `SAV`           |
-| Tracer           | `TRACER`           | `TRA`           |
-| On               | `ON`               | *(none)*        |
-| Off              | `OFF`              | *(none)*        |
+| Directive       | Full Keyword(s)   | Abbreviation(s) |
+| --------------- | ----------------- | --------------- |
+| Init            | `INIT`            | `INI`           |
+| Cleanup         | `CLEANUP`         | `CLE`           |
+| Data            | `DATA`            | `DAT`           |
+| Data (k-buffer) | `DATA_KBUFF`      | `KBU`           |
+| Data (ACC)      | `ACCDATA`         | `ACC`           |
+| Mode            | `MODE`            | `MOD`           |
+| Option          | `OPTION`          | `OPT`           |
+| Metainfo        | `METAINFO`        | _(none)_        |
+| Verbatim        | `VERBATIM`        | `VER`           |
+| Register        | `REGISTER`        | `REG`           |
+| RegisterTracers | `REGISTERTRACERS` | _(none)_        |
+| Zero            | `ZERO`            | `ZER`           |
+| Savepoint       | `SAVEPOINT`       | `SAV`           |
+| Tracer          | `TRACER`          | `TRA`           |
+| On              | `ON`              | _(none)_        |
+| Off             | `OFF`             | _(none)_        |
 
 ---
 
@@ -855,21 +909,21 @@ only the symbols that are actually needed. Symbols are drawn from two modules:
 
 Imported symbols (only those actually used):
 
-| Symbol                       | Used by Directive(s)         |
-|------------------------------|------------------------------|
-| `fs_write_field`             | DATA, ACCDATA                |
-| `fs_read_field`              | DATA, ACCDATA                |
-| `fs_write_kbuff`             | DATA_KBUFF                   |
-| `fs_Option`                  | OPTION                       |
-| `fs_add_serializer_metainfo` | METAINFO                     |
-| `fs_register_field`          | REGISTER                     |
-| `fs_RegisterAllTracers`      | REGISTERTRACERS              |
-| `fs_AddFieldMetaInfo`        | *(reserved, not yet used)*   |
-| `fs_create_savepoint`        | SAVEPOINT                    |
-| `fs_add_savepoint_metainfo`  | SAVEPOINT                    |
-| `fs_add_field_metainfo`      | *(reserved, not yet used)*   |
-| `fs_enable_serialization`    | ON                           |
-| `fs_disable_serialization`   | OFF                          |
+| Symbol                       | Used by Directive(s)       |
+| ---------------------------- | -------------------------- |
+| `fs_write_field`             | DATA, ACCDATA              |
+| `fs_read_field`              | DATA, ACCDATA              |
+| `fs_write_kbuff`             | DATA_KBUFF                 |
+| `fs_Option`                  | OPTION                     |
+| `fs_add_serializer_metainfo` | METAINFO                   |
+| `fs_register_field`          | REGISTER                   |
+| `fs_RegisterAllTracers`      | REGISTERTRACERS            |
+| `fs_AddFieldMetaInfo`        | _(reserved, not yet used)_ |
+| `fs_create_savepoint`        | SAVEPOINT                  |
+| `fs_add_savepoint_metainfo`  | SAVEPOINT                  |
+| `fs_add_field_metainfo`      | _(reserved, not yet used)_ |
+| `fs_enable_serialization`    | ON                         |
+| `fs_disable_serialization`   | OFF                        |
 
 ### 5.2 Utility Module (`utils_ppser`)
 
@@ -877,19 +931,19 @@ Always imported when any serialization call is present. Imported symbols
 include all `ppser_*` methods that were used, plus these always-included
 utility symbols:
 
-| Symbol                    | Description                              |
-|---------------------------|------------------------------------------|
-| `ppser_savepoint`         | The current savepoint variable            |
-| `ppser_serializer`        | The serializer instance (for writing)     |
-| `ppser_serializer_ref`    | The reference serializer (for reading)    |
-| `ppser_intlength`         | Integer field length constant             |
-| `ppser_reallength`        | Real field length constant                |
-| `ppser_realtype`          | Real field type identifier                |
-| `ppser_zrperturb`         | Perturbation value for read-perturb mode  |
-| `ppser_get_mode`          | Function to query current mode            |
-| `ppser_set_mode`          | MODE directive                            |
-| `ppser_initialize`        | INIT directive                            |
-| `ppser_finalize`          | CLEANUP directive                         |
+| Symbol                 | Description                              |
+| ---------------------- | ---------------------------------------- |
+| `ppser_savepoint`      | The current savepoint variable           |
+| `ppser_serializer`     | The serializer instance (for writing)    |
+| `ppser_serializer_ref` | The reference serializer (for reading)   |
+| `ppser_intlength`      | Integer field length constant            |
+| `ppser_reallength`     | Real field length constant               |
+| `ppser_realtype`       | Real field type identifier               |
+| `ppser_zrperturb`      | Perturbation value for read-perturb mode |
+| `ppser_get_mode`       | Function to query current mode           |
+| `ppser_set_mode`       | MODE directive                           |
+| `ppser_initialize`     | INIT directive                           |
+| `ppser_finalize`       | CLEANUP directive                        |
 
 Additional modules can be added to the `USE` statement via the `--module`
 (`-m`) command-line option as a comma-separated list.
@@ -901,20 +955,20 @@ Additional modules can be added to the `USE` statement via the `--module`
 These options control the behavior of the preprocessor and affect the generated
 output:
 
-| Option               | CLI Flag              | Default      | Description |
-|----------------------|-----------------------|--------------|-------------|
-| `ifdef`              | *(constructor only)*  | `SERIALIZE`  | C preprocessor symbol for `#ifdef`/`#endif` guards. Empty string disables guards. |
-| `real`               | *(constructor only)*  | `ireals`     | Fortran real kind parameter used in ZERO directives (`0.0_<real>`). |
-| `module`             | *(constructor only)*  | `m_serialize`| Name of the Fortran serialization module for `USE` statements. |
-| `identical`          | `-i`                  | `True`       | When `False`, skip writing output if it is identical to existing file. |
-| `acc_prefix`         | `-p` (negated)        | `True`       | Generate `#define ACC_PREFIX !$acc` at the top of output. |
-| `acc_if`             | `-a`                  | `''`         | IF clause to append to OpenACC update directives. |
-| `sp_as_var`          | `-s`                  | `False`      | Pass savepoint names as variable references instead of string literals. |
-| `modules`            | `-m`                  | `''`         | Comma-separated list of extra modules to add to `USE` statements. |
-| `verbose`            | `-v`                  | `False`      | Enable verbose output during processing. |
-| `output_dir`         | `-d`                  | `''`         | Target directory for preprocessed output files. |
-| `output_file`        | `-o`                  | `''`         | Explicit output file path (single file mode). |
-| `recursive`          | `-r`                  | `False`      | Recursively process source directories, mirroring the tree. |
+| Option        | CLI Flag             | Default       | Description                                                                       |
+| ------------- | -------------------- | ------------- | --------------------------------------------------------------------------------- |
+| `ifdef`       | _(constructor only)_ | `SERIALIZE`   | C preprocessor symbol for `#ifdef`/`#endif` guards. Empty string disables guards. |
+| `real`        | _(constructor only)_ | `ireals`      | Fortran real kind parameter used in ZERO directives (`0.0_<real>`).               |
+| `module`      | _(constructor only)_ | `m_serialize` | Name of the Fortran serialization module for `USE` statements.                    |
+| `identical`   | `-i`                 | `True`        | When `False`, skip writing output if it is identical to existing file.            |
+| `acc_prefix`  | `-p` (negated)       | `True`        | Generate `#define ACC_PREFIX !$acc` at the top of output.                         |
+| `acc_if`      | `-a`                 | `''`          | IF clause to append to OpenACC update directives.                                 |
+| `sp_as_var`   | `-s`                 | `False`       | Pass savepoint names as variable references instead of string literals.           |
+| `modules`     | `-m`                 | `''`          | Comma-separated list of extra modules to add to `USE` statements.                 |
+| `verbose`     | `-v`                 | `False`       | Enable verbose output during processing.                                          |
+| `output_dir`  | `-d`                 | `''`          | Target directory for preprocessed output files.                                   |
+| `output_file` | `-o`                 | `''`          | Explicit output file path (single file mode).                                     |
+| `recursive`   | `-r`                 | `False`       | Recursively process source directories, mirroring the tree.                       |
 
 ---
 
@@ -922,24 +976,24 @@ output:
 
 The preprocessor reports errors and terminates for the following conditions:
 
-| Condition | Message |
-|-----------|---------|
-| Unknown directive keyword | `Unknown directive encountered` |
-| Multiple tokens after `IF` | `IF statement must be last argument` |
-| Malformed key=value (more than one `=`) | `Problem extracting arguments and key=value pairs` |
-| REGISTER with fewer than 2 positional args | `Must specify a name, a type and the field sizes` |
-| REGISTER with unrecognized data type | `Data type "<type>" not understood. Valid types are: ...` |
-| REGISTER with key=value pairs | `Metainformation for fields are not yet implemented` |
-| OPTION with positional args | `Must specify a name and a list of key=value pairs` |
-| ZERO with key=value pairs | `Must specify a list of fields` |
-| SAVEPOINT with != 1 positional arg | `Must specify a name and a list of key=value pairs` |
-| TRACER with invalid spec | `Tracer specification <spec> is invalid` |
-| Unterminated `#ifdef` at end of file | `Unterminated #ifdef <symbol> encountered` |
-| Unterminated module/program at end of file | `Unterminated module or program unit encountered` |
-| Nested module/program statement | `Unexpected module/program statement` |
-| Mismatched end module/program name | `Was expecting "end module/program <name>"` |
-| Unexpected end module/program | `Unexpected "end module/program" statement` |
-| Incorrect line continuation | `Incorrect line continuation encountered` |
+| Condition                                  | Message                                                   |
+| ------------------------------------------ | --------------------------------------------------------- |
+| Unknown directive keyword                  | `Unknown directive encountered`                           |
+| Multiple tokens after `IF`                 | `IF statement must be last argument`                      |
+| Malformed key=value (more than one `=`)    | `Problem extracting arguments and key=value pairs`        |
+| REGISTER with fewer than 2 positional args | `Must specify a name, a type and the field sizes`         |
+| REGISTER with unrecognized data type       | `Data type "<type>" not understood. Valid types are: ...` |
+| REGISTER with key=value pairs              | `Metainformation for fields are not yet implemented`      |
+| OPTION with positional args                | `Must specify a name and a list of key=value pairs`       |
+| ZERO with key=value pairs                  | `Must specify a list of fields`                           |
+| SAVEPOINT with != 1 positional arg         | `Must specify a name and a list of key=value pairs`       |
+| TRACER with invalid spec                   | `Tracer specification <spec> is invalid`                  |
+| Unterminated `#ifdef` at end of file       | `Unterminated #ifdef <symbol> encountered`                |
+| Unterminated module/program at end of file | `Unterminated module or program unit encountered`         |
+| Nested module/program statement            | `Unexpected module/program statement`                     |
+| Mismatched end module/program name         | `Was expecting "end module/program <name>"`               |
+| Unexpected end module/program              | `Unexpected "end module/program" statement`               |
+| Incorrect line continuation                | `Incorrect line continuation encountered`                 |
 
 ---
 

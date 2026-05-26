@@ -36,27 +36,27 @@ How should the Serialbox data model be laid out in NetCDF4 / Zarr V2 so that:
 
 ## Decision Drivers
 
-* **Fidelity** to the Serialbox data model — no lossy coercion. Heterogeneous
+- **Fidelity** to the Serialbox data model — no lossy coercion. Heterogeneous
   savepoints (different fields at different savepoints, repeated savepoint
   names distinguished only by metainfo) must round-trip.
-* **Single Fortran codebase**: avoid maintaining one helper module per
+- **Single Fortran codebase**: avoid maintaining one helper module per
   physical format.
-* **Standard tooling reachability**: outputs must be openable by ecosystem
+- **Standard tooling reachability**: outputs must be openable by ecosystem
   tools (xarray, zarr-python, ncdump) without custom readers.
-* **Forward path to Zarr V3** without rewriting the Fortran layer.
-* **Type preservation**: Serialbox metainfo supports bool / i32 / i64 /
+- **Forward path to Zarr V3** without rewriting the Fortran layer.
+- **Type preservation**: Serialbox metainfo supports bool / i32 / i64 /
   f32 / f64 / string and arrays of each — all of these must round-trip with
   their type.
 
 ## Considered Options
 
-* **NCZarr (Zarr V2 backed) + NetCDF4, unified through `netcdf-fortran`**
-* **Two separate backends**: native HDF5 calls for NetCDF4, direct Zarr
+- **NCZarr (Zarr V2 backed) + NetCDF4, unified through `netcdf-fortran`**
+- **Two separate backends**: native HDF5 calls for NetCDF4, direct Zarr
   writes (e.g. via a C library) for Zarr V2.
-* **Time-series-per-field** layout: one variable per registered field along
+- **Time-series-per-field** layout: one variable per registered field along
   an unlimited `savepoint` dimension, with auxiliary coordinate variables for
   savepoint metainfo.
-* **Group-per-savepoint** layout: one subgroup per savepoint, with one
+- **Group-per-savepoint** layout: one subgroup per savepoint, with one
   variable per field present at that savepoint.
 
 ## Decision Outcome
@@ -66,10 +66,10 @@ Chosen options:
 1. **Backend**: NCZarr-unified through `netcdf-fortran`. preserf's Fortran
    helper module calls `nf90_*` only. The physical format is selected by the
    file URL / mode string passed at `ppser_initialize` time:
-   * `<dir>/<prefix>.nc` → NetCDF4 (HDF5).
-   * `file://<dir>/<prefix>.zarr#mode=nczarr,zarr2` → Zarr V2 store.
-   When the netcdf-c Zarr V3 PR is merged, the same code path will gain
-   `#mode=nczarr,zarr3` with no Fortran changes.
+   - `<dir>/<prefix>.nc` → NetCDF4 (HDF5).
+   - `file://<dir>/<prefix>.zarr#mode=nczarr,zarr2` → Zarr V2 store.
+     When the netcdf-c Zarr V3 PR is merged, the same code path will gain
+     `#mode=nczarr,zarr3` with no Fortran changes.
 
 2. **Layout**: **Group-per-savepoint**. The root group carries `global_meta_info`
    as typed attributes. A `/_fields` subgroup mirrors Serialbox's `field_map`
@@ -91,26 +91,26 @@ documented separately in `development/references/storage_mapping.md`.
 
 ### Consequences
 
-* Good, because a single `m_preserf` / `utils_preserf` Fortran module covers
+- Good, because a single `m_preserf` / `utils_preserf` Fortran module covers
   both target formats; the user-visible choice is one URL string.
-* Good, because Serialbox's typed metainfo (including arrays) maps 1:1 onto
+- Good, because Serialbox's typed metainfo (including arrays) maps 1:1 onto
   netCDF attributes, which are natively vector-valued in both backends.
-* Good, because the layout is openable by xarray (`xr.open_datatree`) and
+- Good, because the layout is openable by xarray (`xr.open_datatree`) and
   zarr-python (`zarr.open_group`) without any preserf code. Stores written
-  through NCZarr are *not* consolidated by default — readers that prefer
+  through NCZarr are _not_ consolidated by default — readers that prefer
   `zarr.open_consolidated` need to either consolidate the metadata
   themselves first (`zarr.consolidate_metadata(...)`) or have preserf opt
   in to writing `.zmetadata` at close time (tracked as future work, see §9
   of the storage mapping reference).
-* Good, because the Zarr V3 migration is a future configuration change, not
+- Good, because the Zarr V3 migration is a future configuration change, not
   a code change.
-* Neutral, because Serialbox's per-field offset table and checksum machinery
+- Neutral, because Serialbox's per-field offset table and checksum machinery
   is not reproduced — integrity is delegated to the underlying format
   (HDF5 / Zarr per-chunk hashing if enabled).
-* Bad, because pure append workloads (Serialbox `MODE_APPEND`) carry a
+- Bad, because pure append workloads (Serialbox `MODE_APPEND`) carry a
   modest rewrite cost under NCZarr V2 compared to Serialbox's offset-append
   binary archive. Acceptable for pp_ser-driven coarse-grained workflows.
-* Bad, because we depend on the `netcdf-c` build having NCZarr enabled
+- Bad, because we depend on the `netcdf-c` build having NCZarr enabled
   (default in recent releases) — this is now a hard build requirement for
   the Fortran helper layer.
 
@@ -142,62 +142,62 @@ once the `m_preserf` / `utils_preserf` modules land.
 
 ### NCZarr-unified through `netcdf-fortran`
 
-* Good, because the Fortran helper module is implemented once.
-* Good, because both formats receive the same fixes and feature work.
-* Good, because the upcoming Zarr V3 NCZarr support is a free upgrade.
-* Neutral, because the URL / mode string vocabulary is a netcdf-c concept
+- Good, because the Fortran helper module is implemented once.
+- Good, because both formats receive the same fixes and feature work.
+- Good, because the upcoming Zarr V3 NCZarr support is a free upgrade.
+- Neutral, because the URL / mode string vocabulary is a netcdf-c concept
   that preserf users have to learn (small surface).
-* Bad, because preserf inherits whatever NCZarr V2 limitations exist in the
+- Bad, because preserf inherits whatever NCZarr V2 limitations exist in the
   installed netcdf-c version.
 
 ### Two separate backends (HDF5 + direct Zarr)
 
-* Good, because each backend can be tuned to its native format's idioms.
-* Bad, because two Fortran implementations to maintain and test.
-* Bad, because direct Zarr writes from Fortran require a separate C/Fortran
+- Good, because each backend can be tuned to its native format's idioms.
+- Bad, because two Fortran implementations to maintain and test.
+- Bad, because direct Zarr writes from Fortran require a separate C/Fortran
   shim — the very thing NCZarr already provides.
-* Bad, because behavioural drift between backends becomes likely.
+- Bad, because behavioural drift between backends becomes likely.
 
 ### Group-per-savepoint layout
 
-* Good, because heterogeneous fields-per-savepoint is the natural shape — no
+- Good, because heterogeneous fields-per-savepoint is the natural shape — no
   fill values, no padding, no fictitious dimensions.
-* Good, because savepoint metainfo lives exactly where it semantically
+- Good, because savepoint metainfo lives exactly where it semantically
   belongs (on the savepoint group).
-* Good, because field-level static metadata (type id, dims, halos) is
+- Good, because field-level static metadata (type id, dims, halos) is
   centralised in `/_fields` and not duplicated on every snapshot.
-* Neutral, because xarray prefers time-series layouts; opening with
+- Neutral, because xarray prefers time-series layouts; opening with
   `xr.open_datatree` works but per-savepoint analysis takes one extra
   indexing step.
-* Bad, because writing many savepoints produces many small groups — fine for
+- Bad, because writing many savepoints produces many small groups — fine for
   HDF5 and Zarr, but visually noisier than a flat time-series.
 
 ### Time-series-per-field layout
 
-* Good, because the result looks like a conventional netCDF / Zarr dataset
+- Good, because the result looks like a conventional netCDF / Zarr dataset
   with a `savepoint` dimension; trivial to load into xarray.
-* Bad, because it forces every field to be present at every savepoint
-  (introducing fill values for missing fields) — a *semantic* change from
+- Bad, because it forces every field to be present at every savepoint
+  (introducing fill values for missing fields) — a _semantic_ change from
   Serialbox.
-* Bad, because savepoints sharing a name but differing in metainfo must be
+- Bad, because savepoints sharing a name but differing in metainfo must be
   reconciled via composite coordinate variables, complicating the schema.
-* Bad, because k-buffer writes (`DATA_KBUFF`) interact awkwardly with an
+- Bad, because k-buffer writes (`DATA_KBUFF`) interact awkwardly with an
   unlimited leading dimension.
 
 ## More Information
 
-* Serialbox JSON metadata schema: `src/serialbox/core/SerializerImpl.cpp:39-70`,
+- Serialbox JSON metadata schema: `src/serialbox/core/SerializerImpl.cpp:39-70`,
   `src/serialbox/core/SavepointVectorSerializer.cpp:15-32`,
   `src/serialbox/core/FieldMetainfoImplSerializer.cpp:15-19`,
   `src/serialbox/core/SavepointImplSerializer.cpp:15-18`.
-* Serialbox metainfo type system: `src/serialbox/core/MetainfoValueImpl.h:141-157`,
+- Serialbox metainfo type system: `src/serialbox/core/MetainfoValueImpl.h:141-157`,
   `src/serialbox/core/Type.h:55-74`.
-* Serialbox binary archive layout: `src/serialbox/core/archive/BinaryArchive.cpp:171-325`.
-* Serialbox Fortran helper API used by the preprocessor:
+- Serialbox binary archive layout: `src/serialbox/core/archive/BinaryArchive.cpp:171-325`.
+- Serialbox Fortran helper API used by the preprocessor:
   `src/serialbox-fortran/m_serialize.f90`, `src/serialbox-fortran/utils_ppser.f90`.
-* Zarr V2 specification: <https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html>.
-* NCZarr (Zarr support inside netcdf-c): <https://docs.unidata.ucar.edu/nug/current/nczarr_head.html>.
-* Concrete attribute / group naming conventions:
+- Zarr V2 specification: <https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html>.
+- NCZarr (Zarr support inside netcdf-c): <https://docs.unidata.ucar.edu/nug/current/nczarr_head.html>.
+- Concrete attribute / group naming conventions:
   `development/references/storage_mapping.md`.
 
 Revisit when: the netcdf-c Zarr V3 PR is merged, or if a downstream user

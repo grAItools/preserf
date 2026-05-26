@@ -9,15 +9,19 @@ One file per architecturally significant decision, named
 # N. <Decision title>
 
 ## Status
+
 <Proposed | Accepted | Deprecated | Superseded by ADR M>
 
 ## Context
+
 <What is the issue we're seeing that is motivating this decision?>
 
 ## Decision
+
 <What we're going to do.>
 
 ## Consequences
+
 <What becomes easier, harder, or different as a result?>
 ```
 

@@ -63,7 +63,7 @@ They are the things pp_ser-generated source can already hit today.
    `fs_create_savepoint`, `fs_add_savepoint_metainfo` and
    `fs_add_serializer_metainfo` unconditionally **create** their
    netCDF objects. pp_ser-generated source calls these directives
-   *outside* the `SELECT CASE (ppser_get_mode())` that gates DATA
+   _outside_ the `SELECT CASE (ppser_get_mode())` that gates DATA
    blocks, so pointing a generated read run at an existing read-only
    store aborts at the first create call — `fs_register_field`'s
    `nf90_def_var` on the registry carrier, or `fs_create_savepoint`'s
@@ -72,7 +72,7 @@ They are the things pp_ser-generated source can already hit today.
    path validates the registry on `s%fields_grpid` but pulls the data
    variable from `sp%grpid` — `ppser_savepoint` lives on
    `ppser_serializer` rather than `ppser_serializer_ref`, so an
-   *explicit* reference store would validate against one file and
+   _explicit_ reference store would validate against one file and
    read from another.
 2. **Read-perturb is a stub.** The 5-arg
    `fs_read_field(..., perturb)` overloads exist so pp_ser-emitted
@@ -88,15 +88,15 @@ They are the things pp_ser-generated source can already hit today.
 5. **Type-coverage matrix is `real64`-only for fields, scalar-only
    for metainfo.** No `bool` / `int32` / `int64` / `float32` field
    overloads, no 0D or 4D field overloads, no array-metainfo
-   variants of *any* type — `fs_add_savepoint_metainfo` and
+   variants of _any_ type — `fs_add_savepoint_metainfo` and
    `fs_add_serializer_metainfo` only have scalar overloads
    (`_l` / `_i4` / `_i8` / `_r4` / `_r8` / `_s`); 1D-array overloads
    are part of Slice B. **String data fields** (Serialbox
    `TypeID::String` for data, not metainfo) are also not supported —
    see `storage_mapping.md` §9 "String data fields" — and there is
-   no `NF90_STRING` write path for field variables yet. *Scalar*
+   no `NF90_STRING` write path for field variables yet. _Scalar_
    string metainfo is supported (both reference writers produce
-   `NC_CHAR`); *array* string metainfo is supported by the Python
+   `NC_CHAR`); _array_ string metainfo is supported by the Python
    reference writer (as `NC_STRING`) but not by the Fortran helper
    in v0.1 (per `storage_mapping.md` §1's String-storage note).
 6. **No tracer / k-buffer / OPTION support.** `!$SER TRACER`,
@@ -128,7 +128,7 @@ Closes gap §1 and §2's runtime side.
   - `fs_create_savepoint`: the runtime `name` argument must match the
     existing savepoint group's `name` attribute (per
     `storage_mapping.md` §5 — savepoints are identified by index
-    `sp_NNNNNN` *plus* the `name` attribute, since Serialbox permits
+    `sp_NNNNNN` _plus_ the `name` attribute, since Serialbox permits
     multiple savepoints to share a name and they're disambiguated by
     metainfo).
   - metainfo helpers: value plus `__preserf_type_id` must match the
@@ -142,7 +142,7 @@ Closes gap §1 and §2's runtime side.
   state but more I/O.
 - Add a native Fortran test that round-trips a write run and then a
   read run against the same store, exercising the resolve+validate
-  branch end-to-end. Add a *second* scenario that uses an explicit
+  branch end-to-end. Add a _second_ scenario that uses an explicit
   `directory_ref`/`prefix_ref` pair pointing at a different store
   (or otherwise deliberately mismatched `s` / `sp` pairing) so the
   `ppser_serializer` vs `ppser_serializer_ref` savepoint-grpid case
@@ -222,7 +222,7 @@ Independent of slices A–C; can land in parallel.
 - Widen `ppser_initialize` to accept the keyword surface pp_ser
   emits (gap §3): `singlefile`, `mpi_rank`, `rprecision`,
   `rperturb`, `realtype`, `archive`, `unique_id`. Several of these
-  are *not* purely metadata:
+  are _not_ purely metadata:
   - `mpi_rank`: per `storage_mapping.md` §9, this maps to a
     `_rank<n>` suffix on the store name. `preserf_open_serializer`
     must apply the suffix, otherwise parallel runs would clobber
@@ -276,7 +276,7 @@ Closes gap §8.
   missing. Once CI provides the binary, gate that skip to local
   runs only (e.g. an env-var override or a `--require-fortran`
   pytest flag) so the CI run fails outright when the binary is
-  absent. `xfail` is *not* enough — an xfailed test still lets the
+  absent. `xfail` is _not_ enough — an xfailed test still lets the
   suite pass, so a CI regression could hide behind a non-executed
   test.
 

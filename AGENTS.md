@@ -63,7 +63,7 @@ For Claude Code users:
 - Don't put secrets, hostnames, or per-developer paths in this file —
   they belong in `CLAUDE.local.md` (gitignored).
 - Don't auto-generate or expand this file beyond ~200 lines. The instruction
-  budget is finite; adding rules degrades adherence to *all* rules.
+  budget is finite; adding rules degrades adherence to _all_ rules.
 
 ## Conventions
 
