@@ -44,4 +44,7 @@ test = { cmd = ["pytest"], default-environment = "dev" }
 test-all = { cmd = ["pytest"], default-environment = "dev" }
 typecheck = { cmd = ["mypy", "src"], default-environment = "dev" }
 verify = { depends-on = ["fmt-check", "lint", "typecheck", "test"] }
+build-fortran = { cmd = ["sh", "-c", "cmake -S src/preserf-fortran -B build/preserf-fortran && cmake --build build/preserf-fortran"], default-environment = "dev" }
+test-fortran = { cmd = ["ctest", "--test-dir", "build/preserf-fortran", "--output-on-failure"], default-environment = "dev" }
+clean-fortran = { cmd = ["rm", "-rf", "build/preserf-fortran"], default-environment = "dev" }
 # clean = { cmd = ["rm", "-rf", "build", "dist", "preserf.egg-info"] }

@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify (linux-64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          environments: dev
+          cache: true
+
+      - name: Build Fortran helper
+        run: pixi run build-fortran
+
+      - name: Run native Fortran tests (ctest)
+        run: pixi run test-fortran
+
+      # PRESERF_REQUIRE_FORTRAN=1 turns the Fortran-binary skip in
+      # tests/test_fortran_minimal.py into a hard failure, so a broken
+      # Fortran build cannot pass CI by silently skipping the wire-compat
+      # test. The `verify` pixi task runs fmt-check, lint, typecheck and
+      # the full pytest suite.
+      - name: Run full verify gate
+        env:
+          PRESERF_REQUIRE_FORTRAN: "1"
+        run: pixi run verify

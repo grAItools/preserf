@@ -261,24 +261,25 @@ Closes gap §7.
 
 ### Slice F — CI for the Fortran build
 
-Closes gap §8.
+Closes gap §8. **Status:** landed.
 
-- GitHub Actions workflow on `ubuntu-latest` that installs
-  `gfortran` + `libnetcdff-dev`, runs
-  `cmake -S src/preserf-fortran -B src/preserf-fortran/build`
-  followed by `cmake --build src/preserf-fortran/build`, then
-  `ctest --test-dir src/preserf-fortran/build`, then
-  `pytest tests/test_fortran_minimal.py`. The build directory must
-  match `_BUILD_TEST_DIR` in `tests/test_fortran_minimal.py`
-  (`src/preserf-fortran/build/test`); a top-level `build/` would
-  not be found.
-- The pytest fixture currently `pytest.skip`s when the binary is
-  missing. Once CI provides the binary, gate that skip to local
-  runs only (e.g. an env-var override or a `--require-fortran`
-  pytest flag) so the CI run fails outright when the binary is
-  absent. `xfail` is _not_ enough — an xfailed test still lets the
-  suite pass, so a CI regression could hide behind a non-executed
-  test.
+- GitHub Actions workflow `.github/workflows/ci.yml` runs on
+  `ubuntu-latest` and provisions the toolchain via pixi (no raw
+  `apt install` — the base pixi environment already declares
+  `fortran-compiler` and `netcdf-fortran`, and the `dev` feature adds
+  `cmake`). The workflow runs `pixi run build-fortran`,
+  `pixi run test-fortran`, then `pixi run verify` with
+  `PRESERF_REQUIRE_FORTRAN=1` exported.
+- Build artefacts land under the top-level `build/preserf-fortran/`
+  directory (already covered by `.gitignore`), not under `src/`. The
+  Python fixture `_BUILD_TEST_DIR` in `tests/test_fortran_minimal.py`
+  points at the same path.
+- The pytest fixture still `pytest.skip`s when the binary is missing
+  by default (preserves the local-dev ergonomics), but switches to a
+  hard `pytest.fail` when `PRESERF_REQUIRE_FORTRAN=1` is set — so CI
+  cannot let a broken Fortran build pass by silently skipping the
+  wire-compat test. `xfail` would not be enough — an xfailed test
+  still lets the suite pass.
 
 ### Slice G — Append mode
 
