@@ -38,10 +38,10 @@ fmt-py-check = { cmd = ["ruff", "format", "--check", "src", "tests"], default-en
 fmt-f-check = { cmd = ["sh", "-c", "tmp=$(fprettify --diff --recursive src/preserf-fortran 2>&1); [ -z \"$tmp\" ] || { echo \"$tmp\"; exit 1; }"], default-environment = "dev" }
 fmt-d = { cmd = ["dprint", "fmt"], default-environment = "dev" }
 fmt-d-check = { cmd = ["dprint", "check"], default-environment = "dev" }
-fmt-check = { depends-on = ["fmt-py-check", "fmt-f-check"] }
+fmt-check = { depends-on = ["fmt-py-check", "fmt-f-check", "fmt-d-check"] }
 lint = { cmd = ["ruff", "check", "src", "tests"], default-environment = "dev" }
 test = { cmd = ["pytest"], default-environment = "dev" }
 test-all = { cmd = ["pytest"], default-environment = "dev" }
 typecheck = { cmd = ["mypy", "src"], default-environment = "dev" }
-verify = { depends-on = ["fmt-check", "fmt-d-check", "lint", "typecheck", "test"] }
+verify = { depends-on = ["fmt-check", "lint", "typecheck", "test"] }
 # clean = { cmd = ["rm", "-rf", "build", "dist", "preserf.egg-info"] }
