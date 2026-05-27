@@ -1,13 +1,17 @@
 # preserf specs
 
 Per-feature spec directories under
-`specs/<YYYY-MM>-<slice-letter>-<slug>/`, each closing one gap left
+`specs/<YYYY-MM>-<slug>/`, each closing one gap left
 in the v0.1 Fortran helper that shipped in
 [#4](https://github.com/grAItools/preserf/pull/4). Two files per
 spec dir: `spec.md` (WHAT and WHY, per
 [`.agents/commands/spec.md`](../.agents/commands/spec.md)) and
 `plan.md` (phased plan, per
-[`.agents/commands/plan.md`](../.agents/commands/plan.md)). Slice C-0
+[`.agents/commands/plan.md`](../.agents/commands/plan.md)). The
+single-letter slice labels (A-1, A-2, B, C, D, E, G) used in the
+progress table below and across the spec prose are historical labels
+that originated in PR #4's gap analysis; they bridge cross-references
+in ADRs and CHANGELOG entries to the rename-able spec dirs. Slice C-0
 is ADR-only and lands directly as `docs/adr/0003-tracer-storage.md`
 when work begins; Slice F shipped via [#14](https://github.com/grAItools/preserf/pull/14)
 and [#15](https://github.com/grAItools/preserf/pull/15); Slice B′
@@ -15,18 +19,18 @@ and [#15](https://github.com/grAItools/preserf/pull/15); Slice B′
 
 ## Progress at a glance
 
-| Slice | Title                                                                          | Status        | Tracking PR(s) |
-| ----- | ------------------------------------------------------------------------------ | ------------- | -------------- |
-| A-1   | [Read-mode resolve-and-validate](2026-05-a1-fortran-read-mode/)                | planned       | —              |
-| A-2   | [Read-perturb implementation](2026-05-a2-fortran-read-perturb/)                | planned       | —              |
-| B     | [Full type-coverage matrix (numeric)](2026-05-b-fortran-type-coverage-matrix/) | planned       | —              |
-| B′    | String data fields                                                             | deferred      | —              |
-| C-0   | ADR: tracer descriptor storage (lands as `docs/adr/0003-tracer-storage.md`)    | planned       | —              |
-| C     | [Tracers, k-buffer, OPTION](2026-05-c-fortran-tracers-kbuff-option/)           | planned       | —              |
-| D     | [pp_ser.py port — open work](2026-05-d-preprocessor-port-open-work/)           | partial       | #6 (core)      |
-| E     | [Backend selector + NCZarr URL targets](2026-05-e-fortran-backend-selector/)   | planned       | —              |
-| F     | CI for the Fortran build                                                       | shipped       | #14, #15       |
-| G     | [Append mode](2026-05-g-fortran-append-mode/)                                  | deferred-v1.0 | —              |
+| Slice | Title                                                                        | Status        | Tracking PR(s) |
+| ----- | ---------------------------------------------------------------------------- | ------------- | -------------- |
+| A-1   | [Read-mode resolve-and-validate](2026-05-fortran-read-mode/)                 | planned       | —              |
+| A-2   | [Read-perturb implementation](2026-05-fortran-read-perturb/)                 | planned       | —              |
+| B     | [Full type-coverage matrix (numeric)](2026-05-fortran-type-coverage-matrix/) | planned       | —              |
+| B′    | String data fields                                                           | deferred      | —              |
+| C-0   | ADR: tracer descriptor storage (lands as `docs/adr/0003-tracer-storage.md`)  | planned       | —              |
+| C     | [Tracers, k-buffer, OPTION](2026-05-fortran-tracers-kbuff-option/)           | planned       | —              |
+| D     | [pp_ser.py port — open work](2026-05-preprocessor-port-open-work/)           | partial       | #6 (core)      |
+| E     | [Backend selector + NCZarr URL targets](2026-05-fortran-backend-selector/)   | planned       | —              |
+| F     | CI for the Fortran build                                                     | shipped       | #14, #15       |
+| G     | [Append mode](2026-05-fortran-append-mode/)                                  | deferred-v1.0 | —              |
 
 Update this table on every slice-PR merge — single source of truth for
 "where are we", with per-spec detail in each linked dir.
