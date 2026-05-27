@@ -24,8 +24,9 @@ preserf alone.
     for the directive grammar.
   - `cli.py` — Typer-based CLI. Three modes: single-file
     (`preserf input.f90 -o output.f90`), output-dir
-    (`preserf input.f90 -O outdir/`), and recursive
-    (`preserf -r src/ -O out/`).
+    (`preserf input.f90 -d outdir/`), and recursive
+    (`preserf -r -d out/ src/`, where `--recursive` requires
+    `--output-dir`).
   - `errors.py` — `DirectiveError` carries file/line context.
 - `src/preserf-fortran/` — Fortran runtime helper.
   - `m_preserf.f90` — canonical API (`fs_register_field`,

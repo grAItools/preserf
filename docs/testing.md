@@ -29,7 +29,7 @@ into three layers:
   with `pytest.skip` when the Fortran test binary hasn't been built —
   the `fortran_binary` fixture in `tests/conftest.py` probes
   `build/preserf-fortran/unit/m_preserf/` plus the per-config subdirs
-  multi-config CMake generators produce.
+  that multi-config CMake generators produce.
 - `tests-fortran/unit/m_preserf/` — native Fortran via CMake/ctest.
   `test_minimal.f90` exercises lifecycle, savepoint creation, the
   shipped `real64` 1D/2D/3D field write paths, scalar serializer
