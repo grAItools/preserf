@@ -20,7 +20,7 @@ preserf alone.
     scans the source to learn which serializer calls will be needed; **pass
     2** (generation) injects the right `USE` imports and rewrites each
     `!$SER` line as a guarded block of Fortran calls. See
-    [`development/references/directives_specification.md`](../development/references/directives_specification.md)
+    [`docs/references/directives_specification.md`](references/directives_specification.md)
     for the directive grammar.
   - `cli.py` — Typer-based CLI. Three modes: single-file
     (`preserf input.f90 -o output.f90`), output-dir
@@ -75,7 +75,7 @@ preserf alone.
   Either backend uses the same group-per-savepoint layout, with
   `/_fields` registry and `/savepoints/sp_NNNNNN` subgroups; the concrete
   attribute and dtype mapping is in
-  [`development/references/storage_mapping.md`](../development/references/storage_mapping.md).
+  [`docs/references/storage_mapping.md`](references/storage_mapping.md).
 
 ## See also
 

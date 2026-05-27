@@ -15,10 +15,12 @@
   block destructive bash, run `pixi run verify` on Stop. They are
   deterministic and run outside your reasoning chain — don't try to work
   around them.
-- **Roadmap, references, and the per-PR changelog** live under
-  `development/plans/`, `development/references/`, and `CHANGELOG.md` at
-  the repo root. `docs/` is for evergreen architecture/style/testing
-  prose; `docs/adr/` is for ADRs.
+- **Specs, references, and the per-PR changelog** live under
+  `specs/` (per-slice spec/plan dirs), `docs/references/` (long-form
+  schemas / directive grammar), and `CHANGELOG.md` at the repo root.
+  `docs/` is for evergreen architecture/style/testing prose;
+  `docs/adr/` is for ADRs; `vendor/` is for upstream source kept for
+  reference.
 
 # Working with this repo
 

@@ -28,9 +28,9 @@ The repository contains two main pieces:
 
 - Project architecture overview: [docs/architecture.md](docs/architecture.md)
 - Directive grammar and expansion contract:
-  [development/references/directives_specification.md](development/references/directives_specification.md)
+  [docs/references/directives_specification.md](docs/references/directives_specification.md)
 - Storage model mapping:
-  [development/references/storage_mapping.md](development/references/storage_mapping.md)
+  [docs/references/storage_mapping.md](docs/references/storage_mapping.md)
 - Fortran runtime helpers and compatibility details:
   [src/preserf-fortran/README.md](src/preserf-fortran/README.md)
 - Testing strategy: [docs/testing.md](docs/testing.md)

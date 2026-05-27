@@ -10,7 +10,7 @@
 !> src/preserf-fortran/README.md "Known limitations" §NCZarr).
 !>
 !> Backed by the schema documented in
-!> `development/references/storage_mapping.md`.
+!> `docs/references/storage_mapping.md`.
 module utils_preserf
    use, intrinsic :: iso_fortran_env, only: int32, real64
    use netcdf
