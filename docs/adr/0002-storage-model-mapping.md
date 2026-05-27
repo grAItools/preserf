@@ -39,7 +39,9 @@ The mapping must satisfy:
 
 - _NCZarr (Zarr V2 backed) + NetCDF4, unified through `netcdf-fortran`_ —
   one Fortran codebase parameterised by a URL / mode string. Inherits any
-  NCZarr V2 limitations in the installed netcdf-c.
+  NCZarr V2 limitations in the installed netcdf-c, and exposes the
+  netcdf-c URL / mode-string vocabulary as a small user-facing surface
+  preserf users have to learn.
 - _Two separate backends_ — native HDF5 calls for NetCDF4, direct Zarr
   writes (via a C library) for Zarr V2. Each backend can be tuned, but two
   Fortran implementations to maintain and behavioural drift becomes likely.
@@ -48,12 +50,15 @@ The mapping must satisfy:
 
 - _Group-per-savepoint_ — one subgroup per savepoint, with one variable per
   field actually written at that savepoint. Heterogeneous fields-per-savepoint
-  is natural; many small groups but tooling handles them fine.
+  is natural; field-level static metadata (type id, dims, halos) is
+  centralised in `/_fields` rather than duplicated on every snapshot;
+  many small groups but tooling handles them fine.
 - _Time-series-per-field_ — one variable per registered field along an
   unlimited `savepoint` dimension. Looks like a conventional netCDF dataset
   but forces every field to be present at every savepoint (semantic change
-  from Serialbox), and composite coordinate variables are needed to
-  disambiguate savepoints sharing a name.
+  from Serialbox), composite coordinate variables are needed to
+  disambiguate savepoints sharing a name, and k-buffer writes
+  (`DATA_KBUFF`) interact awkwardly with an unlimited leading dimension.
 
 ## Decision
 
