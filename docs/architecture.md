@@ -82,5 +82,4 @@ preserf alone.
 - ADRs of record: [`adr/`](adr/)
 - Style guide: [`style.md`](style.md)
 - Testing strategy: [`testing.md`](testing.md)
-- Roadmap: [`../development/plans/fortran-helper-roadmap.md`](../development/plans/fortran-helper-roadmap.md)
-- v0.1 gap reference: [`../development/references/v0.1-gap-analysis.md`](../development/references/v0.1-gap-analysis.md)
+- Per-slice specs (and overview): [`../specs/README.md`](../specs/README.md)

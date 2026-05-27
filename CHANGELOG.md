@@ -6,10 +6,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Slice plan and gap reference live in
-[`development/plans/fortran-helper-roadmap.md`](development/plans/fortran-helper-roadmap.md)
-and
-[`development/references/v0.1-gap-analysis.md`](development/references/v0.1-gap-analysis.md).
+Per-slice spec / plan dirs live under [`specs/`](specs/) (overview in
+[`specs/README.md`](specs/README.md)). v0.1 gaps the specs close are
+embedded in each spec's Problem section.
 
 ## [0.2.0-dev] — post-v0.1.0 main, unreleased
 
