@@ -1,7 +1,7 @@
 """preserf storage layout (group-per-savepoint) on NetCDF4 / NCZarr V2.
 
 Implements the schema documented in
-``development/references/storage_mapping.md``. Driven by ``netCDF4`` so the
+``docs/references/storage_mapping.md``. Driven by ``netCDF4`` so the
 same code path produces either a NetCDF4/HDF5 file or a Zarr V2 store via
 NCZarr (selected by the URL / mode string).
 

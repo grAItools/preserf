@@ -1,7 +1,7 @@
 # preserf Storage Mapping Reference
 
 **Status**: Draft, accompanies ADR
-`development/decisions/0001-storage-model-mapping.md`.
+[`docs/adr/0002-storage-model-mapping.md`](../adr/0002-storage-model-mapping.md).
 
 This document specifies the concrete on-disk layout that `preserf` uses to
 represent a Serialbox-equivalent dump. The same layout is produced for both

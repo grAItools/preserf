@@ -2,7 +2,7 @@
 !>
 !> This module exposes the `fs_*` API that `pp_ser`-expanded directives
 !> emit. The on-disk layout is the group-per-savepoint schema documented
-!> in `development/references/storage_mapping.md`.
+!> in `docs/references/storage_mapping.md`.
 !>
 !> v0.1 covers the directives needed for a hello-world flow:
 !>   * `fs_register_field` — REGISTER directive

@@ -1,0 +1,4 @@
+# Per the AGENTS.md "Working memory" note: scratch.md is the agent's
+# working memory and should not be committed. Promote durable content
+# into spec.md / plan.md / an ADR / docs/ before clearing.
+*/scratch.md

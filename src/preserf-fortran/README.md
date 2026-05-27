@@ -2,13 +2,13 @@
 
 Fortran helper modules that pp_ser-generated `!$SER` directive code links
 against. **v0.1 writes NetCDF4 stores** following the group-per-savepoint
-layout documented in [`../../development/references/storage_mapping.md`][mapping].
+layout documented in [`../../docs/references/storage_mapping.md`][mapping].
 The schema itself is also defined for NCZarr V2 (and is forward-compatible
 with Zarr V3 once netcdf-c's NCZarr V3 PR lands), but emitting an NCZarr
 URL target from the Fortran helper is tracked as a follow-up — see
 "Known limitations" below.
 
-[mapping]: ../../development/references/storage_mapping.md
+[mapping]: ../../docs/references/storage_mapping.md
 
 ## Modules
 
@@ -135,7 +135,7 @@ Out of scope for this PR (tracked as follow-ups):
   it via `tests/_support/storage.py`. Not the one-line change the original draft
   suggested.
 
-[axis-order]: ../../development/references/storage_mapping.md
+[axis-order]: ../../docs/references/storage_mapping.md
 
 ## Building
 
