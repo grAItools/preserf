@@ -42,6 +42,7 @@ this file.
 
 ## Do
 
+- If `pixi` is not available, install it before starting any development work. 
 - Run `pixi run verify` before claiming a task is done.
 - For a net-new feature, follow the four-phase loop:
   `/spec` (Product Owner) → `/plan` (Architect) → `/build` (Developer)

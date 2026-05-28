@@ -1,7 +1,5 @@
 # Style guide
 
-> One worked example beats a page of prose. Show, don't tell.
-
 ## Tooling
 
 `preserf` mixes Python and Fortran; both are auto-formatted and statically

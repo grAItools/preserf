@@ -1,7 +1,5 @@
 # Architecture
 
-> One-page overview. Anything longer belongs in an ADR or a dedicated doc.
-
 ## High-level
 
 `preserf` is a preprocessor for Fortran data serialization directives.
