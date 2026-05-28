@@ -14,6 +14,18 @@ embedded in each spec's Problem section.
 
 ### Added
 
+- Read-perturb implementation (Slice A-2): the 5-arg
+  `fs_read_field(..., perturb)` overloads (`real64` 1D/2D/3D) now read the
+  stored field and apply symmetric multiplicative noise
+  `data*(1 + perturb*(2*r - 1))` (`r ~ U[0,1)` via Fortran intrinsic
+  `RANDOM_NUMBER`), matching the original COSMO `serialize` read-perturb
+  (`mode=2`) semantics that pp_ser emits as `ppser_zrperturb`. The 5th arg
+  carries the scale, so a zero scale is the identity. The previous
+  compile-only `error stop` stub (`read_perturb_not_implemented`) is gone.
+  A new `perturb-roundtrip` `tests-fortran/unit/m_preserf` ctest scenario
+  writes a `real64` field, reads it back with scale `0.1` asserting every
+  element stays within `[orig*0.9, orig*1.1]` with non-zero overall
+  deviation, and confirms scale `0.0` reads back unperturbed.
 - Read-mode create-or-resolve-and-validate (Slice A-1): `fs_register_field`,
   `fs_create_savepoint`, and the scalar `fs_add_savepoint_metainfo` /
   `fs_add_serializer_metainfo` overloads now resolve and validate the

@@ -29,12 +29,23 @@ lands.
 
 ## Success criteria
 
-- `fs_read_field` 5-arg overloads apply multiplicative noise scaled
-  by `ppser_zrperturb` and return without `error stop`.
-- The numerical algorithm matches Serialbox's `zrperturb` semantics
-  (verified by porting Serialbox's reference test, or by reproducing
-  a known-good output for at least one fixture).
-- Cross-language test in `tests/integration_tests/` covering at
-  least `real64` 3D end-to-end (Fortran writes, Fortran reads back
-  with perturbation, Python reads the same store and asserts the
-  expected perturbed values).
+- `fs_read_field` 5-arg overloads apply multiplicative noise
+  `data*(1 + ppser_zrperturb*(2*r - 1))` (`r ~ U[0,1)`) and return
+  without `error stop`; a zero scale is the identity.
+- The algorithm matches Serialbox's `zrperturb` multiplicative-noise
+  semantics. Because the RNG is left unseeded (intrinsic
+  `RANDOM_NUMBER`, processor-dependent seed), correctness is verified
+  by **bounds**, not exact values.
+- Native Fortran ctest (`tests-fortran/unit/m_preserf`,
+  `perturb-roundtrip`) covers `real64` 1D / 2D / 3D: write a field,
+  re-open read-only, perturb-read it, and assert every element lands
+  in `[orig*(1-|scale|), orig*(1+|scale|)]` with non-zero overall
+  deviation, plus a scale-0 identity re-read per rank.
+
+A cross-language test asserting _exact_ perturbed values is
+deliberately out of scope: perturbation is applied only in Fortran
+memory, so the on-disk store stays unperturbed and a Python reader
+cannot observe it without a deterministic, cross-language-reproducible
+PRNG (which we chose not to introduce). Wire-compatibility of the
+unperturbed store is already covered by
+`tests/integration_tests/test_fortran_wire_compat.py`.

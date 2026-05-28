@@ -22,7 +22,7 @@ and [#15](https://github.com/grAItools/preserf/pull/15); Slice B′
 | Slice | Title                                                                        | Status        | Tracking PR(s) |
 | ----- | ---------------------------------------------------------------------------- | ------------- | -------------- |
 | A-1   | [Read-mode resolve-and-validate](2026-05-fortran-read-mode/)                 | shipped       | —              |
-| A-2   | [Read-perturb implementation](2026-05-fortran-read-perturb/)                 | planned       | —              |
+| A-2   | [Read-perturb implementation](2026-05-fortran-read-perturb/)                 | shipped       | —              |
 | B     | [Full type-coverage matrix (numeric)](2026-05-fortran-type-coverage-matrix/) | planned       | —              |
 | B′    | String data fields                                                           | deferred      | —              |
 | C-0   | ADR: tracer descriptor storage (lands as `docs/adr/0003-tracer-storage.md`)  | planned       | —              |

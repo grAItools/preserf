@@ -26,16 +26,15 @@ Serialbox's `zrperturb` semantics.
 
 **Tests.**
 
-- Cross-language test in
-  `tests/integration_tests/test_fortran_wire_compat.py` (or a
-  sibling): Fortran writes a `real64` 3D field, Fortran reads it back
-  with `perturb=...`, Python reads the same store and asserts the
-  perturbed values match the algorithm's expected output for the
-  given scale.
-- Native Fortran scenario: write + perturb-read round-trip with a
-  known scale, asserting non-zero deviation from the original and
-  matching the algorithm's expected pattern.
+- Native Fortran scenario (`perturb-roundtrip`): write `real64`
+  1D / 2D / 3D fields, re-open read-only, perturb-read each with a
+  known scale, and assert every element lands within
+  `[orig*(1-|scale|), orig*(1+|scale|)]` with non-zero overall
+  deviation; a scale-0 re-read is the identity per rank.
+- A cross-language exact-value test is out of scope (unseeded RNG;
+  perturbation is in-memory only, so the on-disk store is
+  unperturbed). See `spec.md` for the rationale.
 
-**Exit criteria.** Cross-language `real64` 3D perturb-read passes in
-CI with `PRESERF_REQUIRE_FORTRAN=1`; the `error stop` is gone from
-the 5-arg overloads.
+**Exit criteria.** `perturb-roundtrip` passes under
+`pixi run test-fortran` with `PRESERF_REQUIRE_FORTRAN=1`; the
+`error stop` is gone from the 5-arg overloads.
