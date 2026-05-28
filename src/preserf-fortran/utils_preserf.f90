@@ -66,13 +66,19 @@ module utils_preserf
    ! Real-field type metadata for pp_ser-emitted `fs_register_field`
    ! calls. These are mutable `save` state (not `parameter`) so the
    ! `realtype` / `rprecision` keywords on `!$SER INIT` can override
-   ! them via `ppser_initialize`; the literals here are the defaults
-   ! that match Serialbox's double-precision default. `ppser_realtype`
-   ! is fixed-length (padded with blanks); `type_id_from_datatype`
-   ! trims before matching, so the padding is harmless.
-   integer, public, save :: ppser_reallength = 8
-   character(len=16), public, save :: ppser_realtype = 'double'
-   real(real64), public, save :: ppser_zrperturb = 0.0_real64
+   ! them via `ppser_initialize`; the `PPSER_DEFAULT_*` parameters
+   ! below are the Serialbox double-precision defaults, used both as
+   ! the initial values here and as the reset target on every fresh
+   ! `ppser_initialize` (so a prior override does not stick across a
+   ! later init that omits the keyword). `ppser_realtype` is
+   ! fixed-length (padded with blanks); `type_id_from_datatype` trims
+   ! before matching, so the padding is harmless.
+   integer, parameter, public :: PPSER_DEFAULT_REALLENGTH = 8
+   character(len=*), parameter, public :: PPSER_DEFAULT_REALTYPE = 'double'
+   real(real64), parameter, public :: PPSER_DEFAULT_RPERTURB = 0.0_real64
+   integer, public, save :: ppser_reallength = PPSER_DEFAULT_REALLENGTH
+   character(len=16), public, save :: ppser_realtype = PPSER_DEFAULT_REALTYPE
+   real(real64), public, save :: ppser_zrperturb = PPSER_DEFAULT_RPERTURB
 
    ! Mode: 0 = write, 1 = read, 2 = read-perturb.
    integer, save :: ppser_mode_state = 0
@@ -197,6 +203,15 @@ contains
       ! is the real byte length; `realtype` is the type string passed
       ! to `fs_register_field`; `rperturb` feeds the read-perturb path
       ! (Slice A-2) via `ppser_zrperturb`.
+      !
+      ! Reset to the Serialbox defaults FIRST. These three are module
+      ! SAVE state, so without a reset an override from a prior init in
+      ! the same process would stick across a later init that omits the
+      ! keyword — the omitting init must see the documented default, not
+      ! the stale override.
+      ppser_reallength = PPSER_DEFAULT_REALLENGTH
+      ppser_realtype = PPSER_DEFAULT_REALTYPE
+      ppser_zrperturb = PPSER_DEFAULT_RPERTURB
       if (present(rprecision)) ppser_reallength = rprecision
       if (present(realtype)) ppser_realtype = realtype
       if (present(rperturb)) ppser_zrperturb = rperturb

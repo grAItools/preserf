@@ -144,6 +144,21 @@ program test_minimal
                call ppser_initialize(out_dir, 'fkw', 'w', rperturb=1.5_real64)
                if (ppser_zrperturb /= 1.5_real64) error stop &
                   'init-keywords: rperturb did not update ppser_zrperturb'
+               ! realtype / rprecision were omitted on this init, so the
+               ! prior init's overrides must NOT stick: they are module
+               ! SAVE state and ppser_initialize resets them to the
+               ! Serialbox defaults on every fresh session.
+               if (trim(ppser_realtype) /= 'double') error stop &
+                  'init-keywords: realtype override stuck across re-init'
+               if (ppser_reallength /= 8) error stop &
+                  'init-keywords: rprecision override stuck across re-init'
+               call ppser_finalize()
+
+               ! rperturb omitted here must likewise fall back to the
+               ! default (0), not the 1.5 override from the init above.
+               call ppser_initialize(out_dir, 'fkw', 'w')
+               if (ppser_zrperturb /= 0.0_real64) error stop &
+                  'init-keywords: rperturb override stuck across re-init'
                call ppser_finalize()
 
                ! --- mpi_rank suffixes the store name: one file per rank,
