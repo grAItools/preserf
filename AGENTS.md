@@ -1,7 +1,5 @@
 # preserf — Agent Instructions
 
-> README for AI coding agents. Closest AGENTS.md to the file being edited wins.
-
 `preserf` is a preprocessor for Fortran data serialization directives
 implemented in Python. It expands `!$SER` directives in Fortran
 source into explicit serialization calls implemented in helper modules.
@@ -18,7 +16,7 @@ The source code is split into two main parts:
 - Package / build manager: **pixi**
 - License: MIT
 - Tool versions live in `pixi.toml` / `pixi.lock` (single source of truth);
-  install steps and new-machine setup: see
+  for `pixi` install steps and environment setup see:
   [`docs/tool-bootstrap.md`](docs/tool-bootstrap.md).
 
 ## Commands (prefer these over guessing)
