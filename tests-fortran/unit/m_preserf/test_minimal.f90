@@ -212,6 +212,149 @@ program test_minimal
             ! Unreachable: the length guard must abort before returning.
             error stop &
                'preserf-test_minimal: over-long realtype was accepted'
+         else if (scenario == 'read-roundtrip') then
+            ! Slice A-1 Phase 1 + Phase 3: write a store, finalize, then
+            ! re-open read-only and replay the same REGISTER / SAVEPOINT /
+            ! METAINFO directives pp_ser emits outside the DATA-mode
+            ! SELECT CASE. None of them may attempt an nf90_def_* on the
+            ! read-only handle. Two savepoints exercise the read-side
+            ! next_sp_index increment (sp_000000 → sp_000001).
+            block
+               real(real64) :: u_back(3)
+               integer :: i
+               call write_store(out_dir, 'frtrip', 100.0_real64)
+               call ppser_initialize(out_dir, 'frtrip', 'r')
+               if (ppser_get_mode() /= 1) error stop &
+                  'read-roundtrip: ppser_initialize(..., "r") should set mode 1'
+               ! Serializer + field metainfo / registry validation
+               ! (all matching the written store).
+               call fs_add_serializer_metainfo(ppser_serializer, 'author', &
+                                               'fortran-test')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      1, 2, 0, 0, 0, 0, 0, 0)
+               ! Savepoint 0 (sp_000000).
+               call fs_create_savepoint('step', ppser_savepoint)
+               if (ppser_savepoint%idx /= 0) error stop &
+                  'read-roundtrip: first savepoint should resolve idx 0'
+               call fs_add_savepoint_metainfo(ppser_savepoint, 'ntstep', 1_int32)
+               call fs_add_savepoint_metainfo(ppser_savepoint, 't', 0.5_real64)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', u_back)
+               do i = 1, 3
+                  if (u_back(i) /= 100.0_real64 + real(i, real64)) error stop &
+                     'read-roundtrip: sp_000000 data round-trip mismatch'
+               end do
+               ! Savepoint 1 (sp_000001) — proves the index advanced.
+               call fs_create_savepoint('step2', ppser_savepoint)
+               if (ppser_savepoint%idx /= 1) error stop &
+                  'read-roundtrip: second savepoint should resolve idx 1'
+               call fs_add_savepoint_metainfo(ppser_savepoint, 'ntstep', 2_int32)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', u_back)
+               do i = 1, 3
+                  if (u_back(i) /= 100.0_real64 + real(i + 3, real64)) error stop &
+                     'read-roundtrip: sp_000001 data round-trip mismatch'
+               end do
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: read-roundtrip OK'
+               stop
+            end block
+         else if (scenario == 'read-ref') then
+            ! Slice A-1 Phase 2: with an explicit directory_ref / prefix_ref
+            ! the savepoint is resolved against the PRIMARY serializer (as
+            ! pp_ser's SAVEPOINT directive does) but the read targets the
+            ! REFERENCE serializer. The data must come from the reference
+            ! file, not the primary — proving fs_read_field re-resolves the
+            ! savepoint under its own serializer.
+            block
+               real(real64) :: u_back(3)
+               integer :: i
+               call write_store(out_dir, 'fprimary', 100.0_real64)
+               call write_store(out_dir, 'fref', 200.0_real64)
+               call ppser_initialize(out_dir, 'fprimary', 'r', &
+                                     directory_ref=out_dir, prefix_ref='fref')
+               if (ppser_serializer_ref%ncid == -1) error stop &
+                  'read-ref: explicit ref should open ppser_serializer_ref'
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      1, 2, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_read_field(ppser_serializer_ref, ppser_savepoint, 'u', &
+                                  u_back)
+               do i = 1, 3
+                  if (u_back(i) /= 200.0_real64 + real(i, real64)) error stop &
+                     'read-ref: read returned primary data, not reference data'
+               end do
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: read-ref OK'
+               stop
+            end block
+         else if (scenario == 'read-bad-dtype') then
+            call write_store(out_dir, 'fbdtype', 0.0_real64)
+            call ppser_initialize(out_dir, 'fbdtype', 'r')
+            ! 'float'/4 registers as type_id FLOAT32; the store has FLOAT64.
+            call fs_register_field(ppser_serializer, 'u', 'float', 4, &
+                                   3, 0, 0, 0, 1, 2, 0, 0, 0, 0, 0, 0)
+            call abort_unexpected('read-bad-dtype')
+         else if (scenario == 'read-bad-dims') then
+            call write_store(out_dir, 'fbdims', 0.0_real64)
+            call ppser_initialize(out_dir, 'fbdims', 'r')
+            ! Size 4 instead of the registered size 3.
+            call fs_register_field(ppser_serializer, 'u', 'double', &
+                                   ppser_reallength, 4, 0, 0, 0, &
+                                   1, 2, 0, 0, 0, 0, 0, 0)
+            call abort_unexpected('read-bad-dims')
+         else if (scenario == 'read-bad-halo') then
+            call write_store(out_dir, 'fbhalo', 0.0_real64)
+            call ppser_initialize(out_dir, 'fbhalo', 'r')
+            ! iMinusHalo 9 instead of the registered 1.
+            call fs_register_field(ppser_serializer, 'u', 'double', &
+                                   ppser_reallength, 3, 0, 0, 0, &
+                                   9, 2, 0, 0, 0, 0, 0, 0)
+            call abort_unexpected('read-bad-halo')
+         else if (scenario == 'read-bad-spname') then
+            call write_store(out_dir, 'fbspn', 0.0_real64)
+            call ppser_initialize(out_dir, 'fbspn', 'r')
+            call fs_register_field(ppser_serializer, 'u', 'double', &
+                                   ppser_reallength, 3, 0, 0, 0, &
+                                   1, 2, 0, 0, 0, 0, 0, 0)
+            ! Store's sp_000000 carries name 'step'.
+            call fs_create_savepoint('wrongname', ppser_savepoint)
+            call abort_unexpected('read-bad-spname')
+         else if (scenario == 'read-bad-meta-value') then
+            call write_store(out_dir, 'fbmval', 0.0_real64)
+            call ppser_initialize(out_dir, 'fbmval', 'r')
+            call fs_register_field(ppser_serializer, 'u', 'double', &
+                                   ppser_reallength, 3, 0, 0, 0, &
+                                   1, 2, 0, 0, 0, 0, 0, 0)
+            call fs_create_savepoint('step', ppser_savepoint)
+            ! Store has ntstep == 1.
+            call fs_add_savepoint_metainfo(ppser_savepoint, 'ntstep', 999_int32)
+            call abort_unexpected('read-bad-meta-value')
+         else if (scenario == 'read-bad-meta-typeid') then
+            call write_store(out_dir, 'fbmtid', 0.0_real64)
+            call ppser_initialize(out_dir, 'fbmtid', 'r')
+            call fs_register_field(ppser_serializer, 'u', 'double', &
+                                   ppser_reallength, 3, 0, 0, 0, &
+                                   1, 2, 0, 0, 0, 0, 0, 0)
+            call fs_create_savepoint('step', ppser_savepoint)
+            ! Store stored ntstep as Int32; replay as Float64 → type-id clash.
+            call fs_add_savepoint_metainfo(ppser_savepoint, 'ntstep', 1.0_real64)
+            call abort_unexpected('read-bad-meta-typeid')
+         else if (scenario == 'read-bad-xtype') then
+            ! Hand-build a store whose registry says FLOAT64 but whose
+            ! savepoint variable is FLOAT32, so validate_field_shape passes
+            ! and require_variable_xtype is the check that must reject it.
+            call build_xtype_mismatch_store(trim(out_dir)//'/fbxtype.nc')
+            call ppser_initialize(out_dir, 'fbxtype', 'r')
+            call fs_register_field(ppser_serializer, 'u', 'double', &
+                                   ppser_reallength, 3, 0, 0, 0, &
+                                   0, 0, 0, 0, 0, 0, 0, 0)
+            call fs_create_savepoint('step', ppser_savepoint)
+            block
+               real(real64) :: u_back(3)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', u_back)
+            end block
+            call abort_unexpected('read-bad-xtype')
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &
@@ -467,5 +610,85 @@ contains
       open (newunit=unit, file=path, status='old', iostat=ios)
       if (ios == 0) close (unit, status='delete')
    end subroutine delete_if_exists
+
+   !> Write a small two-savepoint store used by the read-mode scenarios.
+   !> Field `u` (1-D, size 3, iMinusHalo=1 / iPlusHalo=2) is written into
+   !> savepoint 'step' (values base+1..3) and savepoint 'step2'
+   !> (values base+4..6), each with a savepoint metainfo pair. The
+   !> distinct `base` lets the read-ref scenario tell the primary and
+   !> reference stores apart.
+   subroutine write_store(out_dir, prefix, base)
+      character(len=*), intent(in) :: out_dir, prefix
+      real(real64), intent(in) :: base
+      real(real64) :: u1(3), u2(3)
+      integer :: i
+      do i = 1, 3
+         u1(i) = base + real(i, real64)
+         u2(i) = base + real(i + 3, real64)
+      end do
+      call ppser_initialize(out_dir, prefix, 'w')
+      call fs_add_serializer_metainfo(ppser_serializer, 'author', 'fortran-test')
+      call fs_register_field(ppser_serializer, 'u', 'double', ppser_reallength, &
+                             3, 0, 0, 0, 1, 2, 0, 0, 0, 0, 0, 0)
+      call fs_create_savepoint('step', ppser_savepoint)
+      call fs_add_savepoint_metainfo(ppser_savepoint, 'ntstep', 1_int32)
+      call fs_add_savepoint_metainfo(ppser_savepoint, 't', 0.5_real64)
+      call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u1)
+      call fs_create_savepoint('step2', ppser_savepoint)
+      call fs_add_savepoint_metainfo(ppser_savepoint, 'ntstep', 2_int32)
+      call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u2)
+      call ppser_finalize()
+   end subroutine write_store
+
+   !> Build, with raw netCDF calls, a schema-valid store whose `/_fields/u`
+   !> registry records type_id FLOAT64 and dims [3] but whose
+   !> savepoints/sp_000000/u variable is NF90_FLOAT. This is the one
+   !> registry/variable inconsistency that validate_field_shape (which
+   !> only checks the registry) cannot catch, so it isolates the
+   !> read-side require_variable_xtype rejection.
+   subroutine build_xtype_mismatch_store(path)
+      use netcdf
+      character(len=*), intent(in) :: path
+      integer :: ncid, fgid, vid, spsid, spid, dimid, uvid, ncerr
+      integer(int32) :: schema, tid_f64, idx0, dimsvec(1)
+      real(real32) :: vals(3)
+
+      schema = 1_int32        ! PRESERF_SCHEMA_VERSION
+      tid_f64 = 5_int32       ! TID_FLOAT64
+      idx0 = 0_int32
+      dimsvec = [3_int32]
+      vals = [1.0_real32, 2.0_real32, 3.0_real32]
+
+      ncerr = nf90_create(path, NF90_NETCDF4, ncid)
+      if (ncerr /= nf90_noerr) error stop 'build_xtype: nf90_create failed'
+      ncerr = nf90_put_att(ncid, NF90_GLOBAL, '_preserf_schema_version', schema)
+      ! Registry carrier variable with type_id + dims attributes.
+      ncerr = nf90_def_grp(ncid, '_fields', fgid)
+      ncerr = nf90_def_var(fgid, 'u', NF90_INT, vid)
+      ncerr = nf90_put_att(fgid, vid, 'type_id', tid_f64)
+      ncerr = nf90_put_att(fgid, vid, 'dims', dimsvec)
+      ! Savepoint group with a FLOAT32 data variable (the inconsistency).
+      ncerr = nf90_def_grp(ncid, 'savepoints', spsid)
+      ncerr = nf90_def_grp(spsid, 'sp_000000', spid)
+      ncerr = nf90_put_att(spid, NF90_GLOBAL, '_preserf_savepoint_index', idx0)
+      ncerr = nf90_put_att(spid, NF90_GLOBAL, 'name', 'step')
+      ncerr = nf90_def_dim(spid, 'u_dim0', 3, dimid)
+      ncerr = nf90_def_var(spid, 'u', NF90_FLOAT, [dimid], uvid)
+      ncerr = nf90_put_var(spid, uvid, vals)
+      ncerr = nf90_close(ncid)
+      if (ncerr /= nf90_noerr) error stop 'build_xtype: nf90_close failed'
+   end subroutine build_xtype_mismatch_store
+
+   !> Print a non-matching marker and exit 0 when a read-mode validation
+   !> directive was expected to abort but returned instead. The negative
+   !> ctest scenarios use PASS_REGULAR_EXPRESSION on the specific abort
+   !> message, so a clean exit with this (non-matching) line fails the
+   !> test — exactly what we want if validation silently accepts.
+   subroutine abort_unexpected(name)
+      character(len=*), intent(in) :: name
+      write (*, '(a,a,a)') 'preserf-test_minimal: scenario ', trim(name), &
+         ' did not abort as expected'
+      stop
+   end subroutine abort_unexpected
 
 end program test_minimal

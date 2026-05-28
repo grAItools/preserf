@@ -14,6 +14,21 @@ embedded in each spec's Problem section.
 
 ### Added
 
+- Read-mode create-or-resolve-and-validate (Slice A-1): `fs_register_field`,
+  `fs_create_savepoint`, and the scalar `fs_add_savepoint_metainfo` /
+  `fs_add_serializer_metainfo` overloads now resolve and validate the
+  existing store entry when `ppser_get_mode()` is read (1) or read-perturb
+  (2) instead of unconditionally creating netCDF objects, so a
+  pp_ser-generated read run against a read-only store no longer aborts at
+  the first create call. Each directive aborts with a specific message on a
+  mismatch (field type_id / dims / per-direction halo; savepoint `name`;
+  metainfo value or `__preserf_type_id`). `fs_read_field` re-resolves the
+  savepoint group under its own serializer, so an explicit
+  `directory_ref` / `prefix_ref` store reads from the reference file rather
+  than the primary. New `tests-fortran/unit/m_preserf` ctest scenarios
+  cover the read round-trip (including the `sp_000000` → `sp_000001`
+  index advance), the explicit-reference read, and negative cases for each
+  validation (including read-side `require_variable_xtype` rejection).
 - `ppser_initialize` accepts the Serialbox-compatible keywords pp_ser
   passes through from `!$SER INIT`: `singlefile`, `mpi_rank`,
   `rprecision`, `rperturb`, `realtype`, `archive`, `unique_id`.

@@ -64,3 +64,118 @@ set_tests_properties(preserf_fortran_init_keywords PROPERTIES
     PASS_REGULAR_EXPRESSION "preserf-fortran: init-keywords OK"
     TIMEOUT 60
 )
+
+# -----------------------------------------------------------------------------
+# Slice A-1: read-mode create-or-resolve-and-validate.
+#
+# Each scenario is driven through the same binary via its scenario
+# argument. Positive scenarios assert their "... OK" marker; negative
+# scenarios assert the specific abort message via PASS_REGULAR_EXPRESSION
+# (which, when set, determines pass/fail from the output regardless of the
+# non-zero exit code that `error stop` produces). A scenario that fails to
+# abort prints a non-matching line and exits 0, so the regex fails to
+# match and the test fails — catching a validation that silently accepts.
+# -----------------------------------------------------------------------------
+
+# Positive: read-mode round-trip (also covers sp_000000 → sp_000001).
+add_test(
+    NAME preserf_fortran_read_roundtrip
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" read-roundtrip
+)
+set_tests_properties(preserf_fortran_read_roundtrip PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: read-roundtrip OK"
+    TIMEOUT 60
+)
+
+# Positive: explicit reference-store read resolves the savepoint under the
+# reference serializer (Phase 2).
+add_test(
+    NAME preserf_fortran_read_ref
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" read-ref
+)
+set_tests_properties(preserf_fortran_read_ref PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: read-ref OK"
+    TIMEOUT 60
+)
+
+# Negative scenarios: each must abort with its specific message.
+add_test(
+    NAME preserf_fortran_read_bad_dtype
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" read-bad-dtype
+)
+set_tests_properties(preserf_fortran_read_bad_dtype PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "type_id mismatch"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME preserf_fortran_read_bad_dims
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" read-bad-dims
+)
+set_tests_properties(preserf_fortran_read_bad_dims PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "dims mismatch"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME preserf_fortran_read_bad_halo
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" read-bad-halo
+)
+set_tests_properties(preserf_fortran_read_bad_halo PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "halo .iminushalo. mismatch"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME preserf_fortran_read_bad_spname
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" read-bad-spname
+)
+set_tests_properties(preserf_fortran_read_bad_spname PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "savepoint name mismatch"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME preserf_fortran_read_bad_meta_value
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" read-bad-meta-value
+)
+set_tests_properties(preserf_fortran_read_bad_meta_value PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "value mismatch between run and store"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME preserf_fortran_read_bad_meta_typeid
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" read-bad-meta-typeid
+)
+set_tests_properties(preserf_fortran_read_bad_meta_typeid PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "type-id mismatch"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME preserf_fortran_read_bad_xtype
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" read-bad-xtype
+)
+set_tests_properties(preserf_fortran_read_bad_xtype PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "Registry / variable mismatch"
+    TIMEOUT 60
+)
