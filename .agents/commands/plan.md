@@ -7,29 +7,16 @@ You are expanding a feature spec into an implementation plan.
 
 1. Identify the target spec directory.
    - If `$ARGUMENTS` is provided, use `specs/$ARGUMENTS/`.
-   - Otherwise, use the most recently modified directory under `specs/`.
-2. Read `spec.md` in full. If anything in the **Success criteria** is unclear,
-   stop and ask before continuing.
-3. Write `plan.md` with the following structure:
+   - Otherwise, use the most recently modified directory under
+     `specs/`.
+2. Confirm `spec.md` exists and has been reviewed. If it's missing or
+   empty, stop and tell the user to run `/spec` first.
+3. Delegate the planning to the **architect** subagent
+   (`.agents/subagents/architect.md`). It owns the phased-plan format,
+   the architecture-decisions block, the "each phase has tests"
+   contract, and the "stop and ask before coding" boundary.
 
-   ```markdown
-   # Plan
-
-   ## Phase 1 — <name>
-
-   **Scope.** <One paragraph.>
-   **Steps.**
-
-   1. <Concrete step>
-   2. <Concrete step>
-
-   **Tests.** <Which test(s) prove this phase works.>
-   **Exit criteria.** <How we know we can move on.>
-
-   ## Phase 2 — <name>
-
-   ...
-   ```
-
-4. Update `tasks.md` to mirror the plan as a checkbox list.
-5. **Do not start implementing yet.** Pause for review.
+The architect subagent will write `plan.md` and mirror it into
+`tasks.md`, then stop for user review. Once the user confirms the
+plan, the next step is `/build` (Developer role). Do not start
+implementing yet.

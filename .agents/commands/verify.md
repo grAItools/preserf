@@ -1,16 +1,24 @@
 ---
-description: "Run the project\u0027s verification gate (pixi run verify) and summarise the result"
+description: "Critically review the current diff against spec/plan and run the verification gate (pixi run verify), producing a GO / NEEDS-WORK verdict"
 ---
 
-Run `pixi run verify`.
+You are running the review phase for the current feature.
 
-- If it exits 0: summarise what changed since the last verify (use `git diff
-  --stat` and `git log -1`) and stop.
-- If it exits non-zero: parse the output, group failures by file, and propose
-  the smallest fix that would make the next run pass. Cite each error as
-  `path/to/file.ext:LINE`. Do not start applying the fix until the user
-  confirms which one to apply (unless it is trivially a syntax error you
-  introduced).
+Delegate the work to the **reviewer** subagent
+(`.agents/subagents/reviewer.md`). It will:
 
-Never silently skip, disable, or `@ignore` a failing test. If a test must be
-skipped, draft an ADR under `docs/adr/` and ask for confirmation.
+- Read `spec.md`, `plan.md`, `tasks.md`, and the current diff.
+- Run `pixi run verify`.
+- Check spec conformance, plan conformance, and implementation
+  quality.
+- Produce a `GO` or `NEEDS-WORK` verdict with a citation-rich defect
+  list (`path/to/file.ext:LINE`) when work remains.
+
+Hand the reviewer's verdict back to the user verbatim. If
+`NEEDS-WORK`, the next step is `/build` (Developer role) to address
+the defects. If `GO`, summarise what changed since the last verify
+(use `git diff --stat` and `git log -1`) and stop.
+
+Never silently skip, disable, or `@ignore` a failing test. If a test
+must be skipped, draft an ADR under `docs/adr/` and ask for
+confirmation.

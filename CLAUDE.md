@@ -8,9 +8,13 @@
 - **Skills** are under `.claude/skills/` (symlink to `.agents/skills/`).
   Invoke by capability, e.g. "use the verify skill".
 - **Subagents** are under `.claude/agents/` (symlink to `.agents/subagents/`).
-  Be explicit: "use the explorer subagent to find where X is wired up".
+  Role agents pair 1:1 with the slash commands below
+  (`product-owner`, `architect`, `developer`, `reviewer`); `explorer`
+  is a read-only exploration helper. Be explicit when delegating:
+  "use the explorer subagent to find where X is wired up".
 - **Slash commands** are under `.claude/commands/` (symlink to `.agents/commands/`):
-  `/spec`, `/plan`, `/verify`.
+  `/spec` (PO), `/plan` (Architect), `/build` (Developer),
+  `/verify` (Reviewer).
 - **Hooks** in `.claude/settings.json` enforce: auto-format on Write/Edit,
   block destructive bash, run `pixi run verify` on Stop. They are
   deterministic and run outside your reasoning chain — don't try to work
