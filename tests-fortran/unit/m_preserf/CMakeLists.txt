@@ -89,6 +89,19 @@ set_tests_properties(preserf_fortran_read_roundtrip PROPERTIES
     TIMEOUT 60
 )
 
+# Slice A-2: read-perturb applies bounded multiplicative noise; scale 0 is
+# the identity.
+add_test(
+    NAME preserf_fortran_perturb_roundtrip
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" perturb-roundtrip
+)
+set_tests_properties(preserf_fortran_perturb_roundtrip PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: perturb-roundtrip OK"
+    TIMEOUT 60
+)
+
 # Positive: explicit reference-store read resolves the savepoint under the
 # reference serializer (Phase 2).
 add_test(

@@ -593,17 +593,15 @@ contains
    ! ------------------------------------------------------------------------
    ! DATA — read with perturbation magnitude (CASE(2) form)
    !
-   ! pp_ser's read-perturb branch emits
+   ! pp_ser's read-perturb branch (mode=2) emits
    !   call fs_read_field(ppser_serializer_ref, ppser_savepoint,
    !                      '<field>', <expr>, ppser_zrperturb)
-   ! so the generic MUST resolve the 5-argument form at compile time
-   ! (otherwise generated source containing read-perturb DATA blocks
-   ! fails to compile). The actual perturbation algorithm is not yet
-   ! implemented, so calling these overloads at runtime aborts with a
-   ! clear "not yet implemented" message rather than silently
-   ! returning unperturbed data (which would be wire-incompatible with
-   ! Serialbox's mode=2 semantics). See src/preserf-fortran/README.md
-   ! for the follow-up tracking this.
+   ! so the 5th `perturb` arg carries the scale `ppser_zrperturb`. Each
+   ! overload reads the unperturbed field via its 4-arg sibling, then
+   ! applies symmetric multiplicative noise
+   !   data = data * (1 + perturb*(2*r - 1)),  r ~ U[0,1)
+   ! (the original COSMO `serialize` semantics; upstream serialbox2
+   ! leaves the perturb arg unused).
    ! ------------------------------------------------------------------------
    subroutine fs_read_field_r8_1d_perturb(s, sp, fieldname, data, perturb)
       type(t_serializer), intent(in) :: s
@@ -612,10 +610,8 @@ contains
       real(real64), intent(inout) :: data(:)
       real(real64), intent(in) :: perturb
       if (serialisation_enabled == 0) return
-      call require_open(s, 'fs_read_field')
-      call require_savepoint(sp, 'fs_read_field')
-      call read_perturb_not_implemented(fieldname, s, sp, perturb, &
-                                        size(data, kind=int64))
+      call fs_read_field_r8_1d(s, sp, fieldname, data)
+      call apply_perturb_1d(data, perturb)
    end subroutine
 
    subroutine fs_read_field_r8_2d_perturb(s, sp, fieldname, data, perturb)
@@ -625,10 +621,8 @@ contains
       real(real64), intent(inout) :: data(:, :)
       real(real64), intent(in) :: perturb
       if (serialisation_enabled == 0) return
-      call require_open(s, 'fs_read_field')
-      call require_savepoint(sp, 'fs_read_field')
-      call read_perturb_not_implemented(fieldname, s, sp, perturb, &
-                                        size(data, kind=int64))
+      call fs_read_field_r8_2d(s, sp, fieldname, data)
+      call apply_perturb_2d(data, perturb)
    end subroutine
 
    subroutine fs_read_field_r8_3d_perturb(s, sp, fieldname, data, perturb)
@@ -638,33 +632,36 @@ contains
       real(real64), intent(inout) :: data(:, :, :)
       real(real64), intent(in) :: perturb
       if (serialisation_enabled == 0) return
-      call require_open(s, 'fs_read_field')
-      call require_savepoint(sp, 'fs_read_field')
-      call read_perturb_not_implemented(fieldname, s, sp, perturb, &
-                                        size(data, kind=int64))
+      call fs_read_field_r8_3d(s, sp, fieldname, data)
+      call apply_perturb_3d(data, perturb)
    end subroutine
 
-   subroutine read_perturb_not_implemented(fieldname, s, sp, perturb, n)
-      character(len=*), intent(in) :: fieldname
-      type(t_serializer), intent(in) :: s
-      type(t_savepoint), intent(in) :: sp
-      real(real64), intent(in) :: perturb
-      integer(int64), intent(in) :: n
-      integer :: discard_int
-      real(real64) :: discard_real
-      ! Reference the dummy args so the compiler doesn't complain
-      ! about them — they are part of the API surface even though
-      ! the body just aborts.
-      discard_int = s%ncid + sp%grpid + int(n)
-      discard_real = perturb
-      write (*, '(a,a,a)') &
-         'preserf: read-perturb (mode 2) for field "', trim(fieldname), &
-         '" is not yet implemented in v0.1; the 5-arg fs_read_field '// &
-         'overload exists only so pp_ser-emitted source compiles. '// &
-         'Set ppser_set_mode(1) for a plain read, or pin the helper '// &
-         'to a follow-up PR that implements perturbation.'
-      error stop 1
-   end subroutine read_perturb_not_implemented
+   subroutine apply_perturb_1d(data, scale)
+      real(real64), intent(inout) :: data(:)
+      real(real64), intent(in) :: scale
+      real(real64), allocatable :: r(:)
+      allocate (r, mold=data)
+      call random_number(r)
+      data = data*(1.0_real64 + scale*(2.0_real64*r - 1.0_real64))
+   end subroutine
+
+   subroutine apply_perturb_2d(data, scale)
+      real(real64), intent(inout) :: data(:, :)
+      real(real64), intent(in) :: scale
+      real(real64), allocatable :: r(:, :)
+      allocate (r, mold=data)
+      call random_number(r)
+      data = data*(1.0_real64 + scale*(2.0_real64*r - 1.0_real64))
+   end subroutine
+
+   subroutine apply_perturb_3d(data, scale)
+      real(real64), intent(inout) :: data(:, :, :)
+      real(real64), intent(in) :: scale
+      real(real64), allocatable :: r(:, :, :)
+      allocate (r, mold=data)
+      call random_number(r)
+      data = data*(1.0_real64 + scale*(2.0_real64*r - 1.0_real64))
+   end subroutine
 
    ! ========================================================================
    ! Internal helpers

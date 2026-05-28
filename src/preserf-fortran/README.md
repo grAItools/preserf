@@ -51,8 +51,9 @@ the `!$SER INIT(mode='w')` / `REGISTER` / `SAVEPOINT` / `DATA` /
 - `fs_read_field` is overloaded for `real(real64)` in 1D / 2D / 3D in
   both the 4-argument form and the 5-argument read-perturb form
   (`fs_read_field(s, sp, name, data, perturb)`). The 5-arg overloads
-  exist so pp_ser-emitted CASE(2) branches compile, but they
-  `error stop` at runtime — see "Known limitations" §1 below.
+  read the stored field, then apply symmetric multiplicative noise
+  `data*(1 + perturb*(2*r - 1))` (`r ~ U[0,1)` via `RANDOM_NUMBER`),
+  matching pp_ser's CASE(2) read-perturb semantics.
 - `fs_enable_serialization` / `fs_disable_serialization` gate every
   fs_* I/O entry point at runtime; `fs_serialization_status()` exposes
   the flag for tests.
@@ -79,11 +80,6 @@ implementation. These are tracked as follow-up PRs:
    on a read-only dataset). The follow-up PR will switch them to a
    "create-or-resolve-and-validate" shape; until then, only the
    write-mode end-to-end flow is exercised.
-
-   Read-perturb mode (CASE(2)) is similarly partial: the 5-arg
-   `fs_read_field(..., perturb)` overloads exist so generated source
-   compiles, but they `error stop` at runtime since the perturbation
-   algorithm itself is not yet implemented.
 
    Additionally, the read overloads validate the registry on the
    `s` serializer (via `s%fields_grpid`) but pull the data variable

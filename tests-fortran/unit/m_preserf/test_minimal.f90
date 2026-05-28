@@ -258,6 +258,50 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: read-roundtrip OK'
                stop
             end block
+         else if (scenario == 'perturb-roundtrip') then
+            ! Slice A-2: the 5-arg fs_read_field applies symmetric
+            ! multiplicative noise data*(1 + scale*(2*r-1)). A non-zero
+            ! scale must keep every element within [orig*(1-scale),
+            ! orig*(1+scale)] and shift the field overall; a zero scale
+            ! must leave the data bit-identical.
+            block
+               real(real64) :: u_back(3), orig(3), dev
+               integer :: i
+               call write_store(out_dir, 'fpert', 100.0_real64)
+               do i = 1, 3
+                  orig(i) = 100.0_real64 + real(i, real64)
+               end do
+               call ppser_initialize(out_dir, 'fpert', 'r')
+               call fs_add_serializer_metainfo(ppser_serializer, 'author', &
+                                               'fortran-test')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      1, 2, 0, 0, 0, 0, 0, 0)
+               ! Non-zero scale: bounded perturbation, non-zero deviation.
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', &
+                                  u_back, 0.1_real64)
+               dev = 0.0_real64
+               do i = 1, 3
+                  if (u_back(i) < orig(i)*0.9_real64 .or. &
+                      u_back(i) > orig(i)*1.1_real64) error stop &
+                     'perturb-roundtrip: value out of [-10%,+10%] bounds'
+                  dev = dev + abs(u_back(i) - orig(i))
+               end do
+               if (dev <= 0.0_real64) error stop &
+                  'perturb-roundtrip: scale 0.1 left data unchanged'
+               ! Zero scale: identity (data read back unperturbed).
+               call fs_create_savepoint('step2', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', &
+                                  u_back, 0.0_real64)
+               do i = 1, 3
+                  if (u_back(i) /= 100.0_real64 + real(i + 3, real64)) error stop &
+                     'perturb-roundtrip: scale 0.0 should be identity'
+               end do
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: perturb-roundtrip OK'
+               stop
+            end block
          else if (scenario == 'read-ref') then
             ! Slice A-1 Phase 2: with an explicit directory_ref / prefix_ref
             ! the savepoint is resolved against the PRIMARY serializer (as
