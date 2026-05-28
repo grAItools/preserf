@@ -54,7 +54,13 @@ write-mode test still passes.
 **Exit criteria.** All three behaviour-changing keywords produce
 observable effects in `tests-fortran/`.
 
-## Phase 3 — Metadata-only keywords
+## Phase 3 — Metadata-only keywords ✅ done
+
+Implemented: `preserf_write_init_attrs` in `utils_preserf.f90` records
+`_preserf_singlefile` / `_preserf_archive` / `_preserf_unique_id` on the
+writable store; `tests/_support/storage.py` reads them onto
+`SerialboxDump`; documented in `storage_mapping.md` §3.1. Round-trip
+asserted by `tests/integration_tests/test_preprocessor_e2e.py`.
 
 **Scope.** `singlefile`, `archive`, `unique_id` round-trip via root
 attributes.
@@ -75,7 +81,14 @@ attributes.
 **Exit criteria.** All three values surface in the store and survive
 round-trip.
 
-## Phase 4 — End-to-end fixture
+## Phase 4 — End-to-end fixture ✅ done
+
+Implemented: `tests-fortran/e2e/e2e_fixture.f90.in` (preprocessor input)
+
+- `tests-fortran/e2e/CMakeLists.txt` (CMake runs the `preserf` CLI, then
+  compiles the generated `.F90` with `-DSERIALIZE` against the helper) +
+  `tests/integration_tests/test_preprocessor_e2e.py` (runs the binary,
+  reads the store back). Registered as the `preserf_fortran_e2e` ctest.
 
 **Scope.** A representative `!$SER`-annotated Fortran source that
 exercises every part of the preprocessor → helper → store pipeline.

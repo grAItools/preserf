@@ -233,6 +233,16 @@ class SerialboxDump:
     # Raw data: field -> id -> numpy array
     field_data: dict[str, dict[int, np.ndarray]] = field(default_factory=dict)
 
+    # Metadata-only `!$SER INIT` keywords pp_ser passes through, recorded
+    # by the Fortran helper in the `_preserf_*` root attribute namespace
+    # (Slice D Phase 3). `archive` here is the INIT `archive=` keyword and
+    # is distinct from `archive_name` above, which comes from the Serialbox
+    # ArchiveMetaData JSON path. Defaults match the Fortran PPSER_DEFAULT_*
+    # constants so older stores lacking the attrs decode to the same values.
+    singlefile: bool = False
+    archive: str = "Binary"
+    unique_id: int = 0
+
     # ---- I/O ----
 
     @classmethod

@@ -21,6 +21,7 @@ module m_preserf
    use utils_preserf, only: t_serializer, t_savepoint, &
                             ppser_serializer, &
                             preserf_check_nf_with_msg, &
+                            preserf_logical_to_byte, &
                             PRESERF_SAVEPOINT_INDEX_LIMIT, &
                             serialisation_enabled
    implicit none
@@ -265,7 +266,7 @@ contains
       integer(int8) :: stored
       if (serialisation_enabled == 0) return
       call require_savepoint(sp, 'fs_add_savepoint_metainfo')
-      stored = merge(1_int8, 0_int8, value)
+      stored = preserf_logical_to_byte(value)
       call put_typed_scalar_attr(sp%grpid, key, NF90_BYTE, &
                                  i8_val=stored, tid=TID_BOOLEAN, &
                                  extra_reserved='name')
@@ -336,7 +337,7 @@ contains
       integer(int8) :: stored
       if (serialisation_enabled == 0) return
       call require_open(s, 'fs_add_serializer_metainfo')
-      stored = merge(1_int8, 0_int8, value)
+      stored = preserf_logical_to_byte(value)
       call put_typed_scalar_attr(s%ncid, key, NF90_BYTE, &
                                  i8_val=stored, tid=TID_BOOLEAN)
    end subroutine

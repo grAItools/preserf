@@ -184,12 +184,13 @@ program test_minimal
                   'init-keywords: mpi_rank store must be suffixed, not bare'
 
                ! --- metadata-only keywords: signature compatibility ---
-               ! singlefile / archive / unique_id are accepted purely so
-               ! pp_ser-emitted INIT calls compile; their values are
-               ! ignored until Slice D Phase 3. Pass all three (with the
-               ! behaviour-changing ones too) so a type/name mismatch in
-               ! the widened interface fails to compile here rather than
-               ! in downstream generated code.
+               ! singlefile / archive / unique_id are recorded as
+               ! `_preserf_*` root attributes (Slice D Phase 3); the
+               ! cross-language round-trip of their values is asserted in
+               ! tests/integration_tests/test_preprocessor_e2e.py. Pass all
+               ! three (with the behaviour-changing ones too) so a
+               ! type/name mismatch in the widened interface fails to
+               ! compile here rather than in downstream generated code.
                call ppser_initialize(out_dir, 'fmeta', 'w', &
                                      singlefile=.true., archive='netcdf', &
                                      unique_id=42, mpi_rank=0, &

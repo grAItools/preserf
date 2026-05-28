@@ -218,6 +218,12 @@ def write_dump(dump: SerialboxDump, directory: Path, *, backend: str) -> str:
         root.setncattr("_preserf_serialbox_prefix", str(dump.prefix))
         root.setncattr("_preserf_savepoint_count", np.int32(len(dump.savepoints)))
         root.setncattr("_preserf_writer", f"preserf {preserf.__version__}")
+        # Metadata-only `!$SER INIT` keywords (Slice D Phase 3); kept
+        # symmetric with read_dump so a dump round-trips these values.
+        # singlefile follows the Boolean NF90_BYTE 0/1 convention.
+        root.setncattr("_preserf_singlefile", np.int8(1 if dump.singlefile else 0))
+        root.setncattr("_preserf_archive", str(dump.archive))
+        root.setncattr("_preserf_unique_id", np.int32(int(dump.unique_id)))
         _write_metainfo_attrs(root, dump.global_meta_info)
 
         fields_grp = root.createGroup("_fields")
@@ -324,6 +330,18 @@ def read_dump(url: str) -> SerialboxDump:
         prefix = str(root.getncattr("_preserf_serialbox_prefix"))
         dump = SerialboxDump(prefix=prefix)
         dump.global_meta_info = _read_metainfo_attrs(root)
+
+        # Metadata-only `!$SER INIT` keywords round-tripped via the
+        # `_preserf_*` housekeeping namespace (Slice D Phase 3). Read as
+        # optional so stores written before these attrs existed keep the
+        # SerialboxDump defaults.
+        root_attrs = set(root.ncattrs())
+        if "_preserf_singlefile" in root_attrs:
+            dump.singlefile = bool(int(root.getncattr("_preserf_singlefile")))
+        if "_preserf_archive" in root_attrs:
+            dump.archive = str(root.getncattr("_preserf_archive"))
+        if "_preserf_unique_id" in root_attrs:
+            dump.unique_id = int(root.getncattr("_preserf_unique_id"))
 
         if "_fields" not in root.groups:
             raise ValueError(

@@ -1,0 +1,58 @@
+!> End-to-end preprocessor fixture (Slice D Phase 4).
+!>
+!> This file is preprocessor *input*: it carries raw `!$SER` directives
+!> and is fed through the `preserf` CLI at build time. The generated
+!> Fortran is then compiled against the helper library and run, and the
+!> resulting store is read back by tests/integration_tests/test_preprocessor_e2e.py.
+!> It is the only test that exercises the full
+!> preprocessor -> helper -> store pipeline.
+!>
+!> Stays within the v0.1 helper surface: a single `real(real64)` field
+!> registered through the `IJ` shortcut, write mode only. TRACER /
+!> DATA_KBUFF / OPTION and field metainfo are deliberately omitted —
+!> they route to `fs_*` symbols m_serialize does not yet export
+!> (Slice C territory).
+program preserf_e2e
+   use, intrinsic :: iso_fortran_env, only: real64
+   implicit none
+
+   ! Names the `IJ` register shortcut expands into (storage_mapping.md §4
+   ! halo convention). nboundlines = 0 keeps the field halo-free.
+   integer, parameter :: ie = 3, je = 4, nboundlines = 0
+   character(len=:), allocatable :: outdir
+   integer :: arg_len, arg_stat
+   real(real64) :: temperature(ie, je)
+   integer :: i, j
+
+   ! Query the argument length first, then allocate exactly that size, so
+   ! a deep tmp path cannot truncate into a fixed buffer and abort with a
+   ! misleading "missing argument" error (mirrors test_minimal.f90).
+   call get_command_argument(1, length=arg_len, status=arg_stat)
+   if (arg_stat /= 0) then
+      write (*, '(a)') 'preserf-e2e: missing output directory argument'
+      error stop 1
+   end if
+   allocate (character(len=arg_len) :: outdir)
+   call get_command_argument(1, value=outdir, status=arg_stat)
+   if (arg_stat /= 0) then
+      write (*, '(a)') 'preserf-e2e: failed to read output directory argument'
+      error stop 1
+   end if
+
+   ! Distinct, decodable cell values (10*i + j) so the Python reader can
+   ! verify the data survived the round-trip regardless of axis order.
+   do j = 1, je
+      do i = 1, ie
+         temperature(i, j) = real(10*i + j, real64)
+      end do
+   end do
+
+   !$SER INIT directory=outdir prefix="e2e" mode="w" singlefile=.true. unique_id=42 archive="Binary"
+   !$SER METAINFO author="e2e-fixture"
+   !$SER REGISTER temperature real IJ
+   !$SER SAVEPOINT sp1 step=1
+   !$SER DATA temperature=temperature
+   !$SER CLEANUP
+
+   write (*, '(a)') 'preserf-fortran: e2e OK'
+end program preserf_e2e

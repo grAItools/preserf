@@ -12,7 +12,7 @@
 !> Backed by the schema documented in
 !> `docs/references/storage_mapping.md`.
 module utils_preserf
-   use, intrinsic :: iso_fortran_env, only: int32, real64
+   use, intrinsic :: iso_fortran_env, only: int8, int32, real64
    use netcdf
    implicit none
    private
@@ -80,6 +80,16 @@ module utils_preserf
    character(len=16), public, save :: ppser_realtype = PPSER_DEFAULT_REALTYPE
    real(real64), public, save :: ppser_zrperturb = PPSER_DEFAULT_RPERTURB
 
+   ! Serialbox defaults for the metadata-only `!$SER INIT` keywords.
+   ! These do not change runtime behaviour on the preserf side; they
+   ! are recorded verbatim in `_preserf_*` root attributes so a store
+   ! round-trips the values pp_ser passed through (Slice D Phase 3).
+   ! The effective value written is the keyword when supplied, else the
+   ! default below, so the reader always finds a complete set.
+   logical, parameter, public :: PPSER_DEFAULT_SINGLEFILE = .false.
+   character(len=*), parameter, public :: PPSER_DEFAULT_ARCHIVE = 'Binary'
+   integer, parameter, public :: PPSER_DEFAULT_UNIQUE_ID = 0
+
    ! Mode: 0 = write, 1 = read, 2 = read-perturb.
    integer, save :: ppser_mode_state = 0
 
@@ -105,6 +115,7 @@ module utils_preserf
    public :: ppser_get_mode, ppser_set_mode
    public :: preserf_check_nf, preserf_check_nf_with_msg
    public :: preserf_writer_version
+   public :: preserf_logical_to_byte
 
 contains
 
@@ -133,6 +144,16 @@ contains
       character(len=:), allocatable :: s
       s = 'preserf '//PRESERF_VERSION
    end function preserf_writer_version
+
+   !> Encode a logical as the NF90_BYTE 0/1 sentinel used for every
+   !> boolean netCDF attribute in preserf (storage_mapping.md §1). Shared
+   !> by the housekeeping writer here and the boolean metainfo overloads
+   !> in m_preserf so the convention has a single source of truth.
+   pure function preserf_logical_to_byte(value) result(b)
+      logical, intent(in) :: value
+      integer(int8) :: b
+      b = merge(1_int8, 0_int8, value)
+   end function preserf_logical_to_byte
 
    !> Initialise the global serializer (and optionally a read-reference
    !> serializer) by opening a **NetCDF4** dataset under `directory`
@@ -228,14 +249,6 @@ contains
       end if
       if (present(rperturb)) ppser_zrperturb = rperturb
 
-      ! singlefile / archive / unique_id are metadata-only on the
-      ! preserf side; recording them in root attributes is Slice D
-      ! Phase 3 (deferred). Accept them here for signature
-      ! compatibility with pp_ser-emitted INIT calls; the present()
-      ! probes keep -Wall/-Wextra from flagging them as unused dummies.
-      if (present(singlefile) .or. present(archive) .or. &
-          present(unique_id)) continue
-
       ! Open the read-only reference store FIRST when an explicit
       ! `directory_ref`/`prefix_ref` pair is supplied. In write or
       ! append mode the main `nf90_create` truncates the target file
@@ -249,8 +262,15 @@ contains
                                       rank=mpi_rank)
       end if
 
+      ! Thread the metadata-only keywords into the open so they are
+      ! recorded in `_preserf_*` root attributes at store-creation time,
+      ! alongside the other housekeeping attrs (single-sourced in
+      ! preserf_write_root_housekeeping). They are written only on the
+      ! 'w' path; read-mode opens ignore them, so the read-only reference
+      ! store below is left untouched.
       call preserf_open_serializer(ppser_serializer, directory, prefix, mode, &
-                                   rank=mpi_rank)
+                                   rank=mpi_rank, singlefile=singlefile, &
+                                   archive=archive, unique_id=unique_id)
 
       if (.not. (present(directory_ref) .and. present(prefix_ref))) then
          if (mode == 'r' .or. mode == 'R') then
@@ -332,12 +352,18 @@ contains
    ! Internal helpers
    ! -------------------------------------------------------------------------
 
-   subroutine preserf_open_serializer(s, directory, prefix, mode, rank)
+   subroutine preserf_open_serializer(s, directory, prefix, mode, rank, &
+                                      singlefile, archive, unique_id)
       type(t_serializer), intent(inout) :: s
       character(len=*), intent(in) :: directory
       character(len=*), intent(in) :: prefix
       character(len=*), intent(in) :: mode
       integer, intent(in), optional :: rank
+      ! Metadata-only `!$SER INIT` keywords, recorded as root attributes
+      ! on the 'w' path only (ignored when opening read-only).
+      logical, intent(in), optional :: singlefile
+      character(len=*), intent(in), optional :: archive
+      integer, intent(in), optional :: unique_id
 
       character(len=:), allocatable :: path
       character(len=32) :: rank_suffix
@@ -361,7 +387,8 @@ contains
          ncerr = nf90_create(path, NF90_NETCDF4, s%ncid)
          call preserf_check_nf_with_msg(ncerr, 'nf90_create '//path)
          s%writable = .true.
-         call preserf_write_root_housekeeping(s, prefix)
+         call preserf_write_root_housekeeping(s, prefix, singlefile, &
+                                              archive, unique_id)
          call preserf_create_skeleton_groups(s)
 
       case ('r', 'R')
@@ -440,11 +467,29 @@ contains
       end if
    end subroutine preserf_close_serializer
 
-   subroutine preserf_write_root_housekeeping(s, prefix)
+   !> Write every `_preserf_*` root attribute for a freshly created store
+   !> from one place. The first four are intrinsic housekeeping; the
+   !> optional `singlefile` / `archive` / `unique_id` are the metadata-only
+   !> `!$SER INIT` keywords pp_ser passes through — recorded purely so a
+   !> store round-trips them (they do not affect preserf's runtime
+   !> behaviour). Each metadata attr is written with its effective value:
+   !> the supplied keyword, or the `PPSER_DEFAULT_*` Serialbox default when
+   !> absent, so the reader always finds a complete set. `singlefile`
+   !> follows the Boolean storage convention (NF90_BYTE, 0/1) used for
+   !> boolean metainfo in m_preserf.
+   subroutine preserf_write_root_housekeeping(s, prefix, singlefile, &
+                                              archive, unique_id)
       type(t_serializer), intent(inout) :: s
       character(len=*), intent(in) :: prefix
+      logical, intent(in), optional :: singlefile
+      character(len=*), intent(in), optional :: archive
+      integer, intent(in), optional :: unique_id
+
       integer :: ncerr
-      integer(int32) :: zero, schema_version
+      integer(int32) :: zero, schema_version, uid
+      integer(int8) :: singlefile_flag
+      logical :: singlefile_eff
+      character(len=:), allocatable :: archive_eff
 
       zero = 0_int32
       schema_version = PRESERF_SCHEMA_VERSION
@@ -464,6 +509,24 @@ contains
       ncerr = nf90_put_att(s%ncid, NF90_GLOBAL, &
                            '_preserf_writer', preserf_writer_version())
       call preserf_check_nf_with_msg(ncerr, 'put_att _preserf_writer')
+
+      ! Metadata-only INIT keywords (effective value = keyword or default).
+      singlefile_eff = PPSER_DEFAULT_SINGLEFILE
+      if (present(singlefile)) singlefile_eff = singlefile
+      singlefile_flag = preserf_logical_to_byte(singlefile_eff)
+      ncerr = nf90_put_att(s%ncid, NF90_GLOBAL, &
+                           '_preserf_singlefile', singlefile_flag)
+      call preserf_check_nf_with_msg(ncerr, 'put_att _preserf_singlefile')
+
+      archive_eff = PPSER_DEFAULT_ARCHIVE
+      if (present(archive)) archive_eff = trim(archive)
+      ncerr = nf90_put_att(s%ncid, NF90_GLOBAL, '_preserf_archive', archive_eff)
+      call preserf_check_nf_with_msg(ncerr, 'put_att _preserf_archive')
+
+      uid = int(PPSER_DEFAULT_UNIQUE_ID, int32)
+      if (present(unique_id)) uid = int(unique_id, int32)
+      ncerr = nf90_put_att(s%ncid, NF90_GLOBAL, '_preserf_unique_id', uid)
+      call preserf_check_nf_with_msg(ncerr, 'put_att _preserf_unique_id')
    end subroutine preserf_write_root_housekeeping
 
    subroutine preserf_create_skeleton_groups(s)
