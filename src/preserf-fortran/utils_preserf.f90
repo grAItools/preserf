@@ -423,13 +423,32 @@ contains
       ! tests/_support/storage.py so writer and reader agree. The mode
       ! query is what makes netcdf-c dispatch to the NCZarr backend, so
       ! the nf90_create / nf90_open flags below stay NF90_NETCDF4 /
-      ! NF90_NOWRITE for both backends. The file:// URI needs an absolute
-      ! `directory`; both the ctest test-output dir and pytest tmp_path
-      ! are absolute.
+      ! NF90_NOWRITE for both backends.
       select case (eff_backend)
       case ('netcdf4')
          path = trim(directory)//'/'//base//'.nc'
       case ('nczarr-v2')
+         ! NCZarr's file:// URL needs an absolute directory: 'file://'
+         ! prepended to an absolute '/dir' yields the well-formed
+         ! file:///dir, but a relative directory would be parsed as
+         ! file://<authority>/... and silently target the wrong store.
+         ! The Python reference path sidesteps this with Path.resolve();
+         ! the Fortran helper has no portable realpath, so require an
+         ! absolute directory and abort with a clear message otherwise.
+         ! Nested ifs (not a single `.or.`) so directory(1:1) is never
+         ! evaluated on a zero-length string — Fortran does not guarantee
+         ! short-circuit evaluation of `.or.`.
+         if (len(directory) == 0) then
+            write (*, '(a)') &
+               'preserf: nczarr-v2 backend requires a non-empty, '// &
+               'absolute directory'
+            error stop 1
+         else if (directory(1:1) /= '/') then
+            write (*, '(a,a,a)') &
+               "preserf: nczarr-v2 backend requires an absolute directory "// &
+               "(got: '", trim(directory), "')"
+            error stop 1
+         end if
          path = 'file://'//trim(directory)//'/'//base//'.zarr#mode=nczarr,zarr2'
       case default
          ! ppser_initialize validates the backend up front, so this is a

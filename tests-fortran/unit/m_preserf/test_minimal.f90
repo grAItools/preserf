@@ -256,6 +256,24 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: backend-nczarr OK'
                stop
             end block
+         else if (scenario == 'backend-bad') then
+            ! Slice E: an unrecognised backend must abort at the
+            ! ppser_initialize boundary, before any store is opened, with
+            ! a clear message rather than a deep netCDF URL error.
+            call ppser_initialize(out_dir, 'fbad', 'w', backend='zarr3')
+            ! Unreachable: the backend allowlist must abort first.
+            error stop &
+               'preserf-test_minimal: unknown backend was accepted'
+         else if (scenario == 'backend-nczarr-relpath') then
+            ! Slice E: NCZarr's file:// URL needs an absolute directory.
+            ! A relative directory must abort with a clear message rather
+            ! than build a malformed file://<authority>/... URL that would
+            ! silently target the wrong store.
+            call ppser_initialize('relative_dir_not_absolute', 'frel', 'w', &
+                                  backend='nczarr-v2')
+            ! Unreachable: the absolute-directory guard must abort first.
+            error stop &
+               'preserf-test_minimal: relative nczarr directory was accepted'
          else if (scenario == 'read-roundtrip') then
             ! Slice A-1 Phase 1 + Phase 3: write a store, finalize, then
             ! re-open read-only and replay the same REGISTER / SAVEPOINT /

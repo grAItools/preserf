@@ -79,6 +79,33 @@ set_tests_properties(preserf_fortran_backend_nczarr PROPERTIES
     TIMEOUT 60
 )
 
+# Slice E negative: an unknown backend aborts at the ppser_initialize
+# boundary (allowlist of 'netcdf4' / 'nczarr-v2').
+add_test(
+    NAME preserf_fortran_backend_bad
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-bad
+)
+set_tests_properties(preserf_fortran_backend_bad PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "unknown backend"
+    TIMEOUT 60
+)
+
+# Slice E negative: the nczarr-v2 backend needs an absolute directory for
+# its file:// URL; a relative one must abort rather than build a malformed
+# file://<authority>/... target.
+add_test(
+    NAME preserf_fortran_backend_nczarr_relpath
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-nczarr-relpath
+)
+set_tests_properties(preserf_fortran_backend_nczarr_relpath PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "requires an absolute directory"
+    TIMEOUT 60
+)
+
 # -----------------------------------------------------------------------------
 # Slice A-1: read-mode create-or-resolve-and-validate.
 #

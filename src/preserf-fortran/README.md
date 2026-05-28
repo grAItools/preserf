@@ -6,8 +6,9 @@ against, following the group-per-savepoint layout documented in
 **NetCDF4 stores** (`.nc` files, the default) or **NCZarr V2 stores**
 (`.zarr` directory stores), selected by the `backend` keyword on
 `ppser_initialize` (Slice E); the same schema serves both (ADR 0002).
-Zarr V3 stays forward-compatible but deferred until netcdf-c's NCZarr V3
-PR lands.
+The `nczarr-v2` backend requires an absolute `directory` (its `file://`
+URL has no portable relative form). Zarr V3 stays forward-compatible but
+deferred until netcdf-c's NCZarr V3 PR lands.
 
 [mapping]: ../../docs/references/storage_mapping.md
 
