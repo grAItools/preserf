@@ -6,6 +6,26 @@ description: |
   for feature W". Returns a focused, citation-rich summary — never edits
   files, never runs state-changing commands.
 tools: Read, Grep, Glob, Bash
+permission:
+  read: allow
+  write: deny
+  edit: deny
+  bash:
+    "rg *": allow
+    "grep *": allow
+    "ls *": allow
+    "find *": allow
+    "cat *": allow
+    "head *": allow
+    "tail *": allow
+    "wc *": allow
+    "git status": allow
+    "git log*": allow
+    "git diff*": allow
+    "git blame*": allow
+    "git show*": allow
+    "*": deny
+mode: subagent
 model: inherit
 ---
 

@@ -39,6 +39,33 @@ that's what blocks "done" until the tree is clean.
 - **No back-compat shims for unreleased code.** Until v1.0 ships, prefer
   changing the code over keeping a shim around.
 
+## Commit messages
+
+This project uses **[Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/)**.
+
+Format: `<type>(<scope>): <description>` — the `(scope)` segment
+(parentheses included) is optional, so a commit without one is just
+`<type>: <description>`. Description in imperative mood, no trailing
+period, first line ≤72 chars.
+
+Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`,
+`build`, `ci`, `perf`, `style`, `revert`. Mark breaking changes with `!`
+after the type/scope (e.g. `feat(api)!: drop v1 endpoints`) or a
+`BREAKING CHANGE:` footer.
+
+Examples:
+
+```
+feat(serializer): add Zarr backend for !$SER directives
+fix: guard int32 cast of dim sizes in m_preserf
+chore!: drop Python 3.11 support
+docs(adr): record Serialbox→NetCDF4/Zarr storage mapping
+```
+
+PRs are **squash-merged**, so only the squash commit lands in history.
+Put the Conventional Commits header in the **PR title**; individual
+branch commits during work can be freeform working notes.
+
 ## Anti-pattern (with the fix)
 
 A real preserf example, from

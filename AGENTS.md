@@ -1,8 +1,6 @@
 # preserf — Agent Instructions
 
-> README for agents. Read by Codex, OpenCode, Cursor, Amp, Factory, Gemini CLI,
-> GitHub Copilot, and (via the `@AGENTS.md` import in `CLAUDE.md`) Claude Code.
-> Closest AGENTS.md to the file being edited wins.
+> README for AI coding agents. Closest AGENTS.md to the file being edited wins.
 
 `preserf` is a preprocessor for Fortran data serialization directives
 implemented in Python. It expands `!$SER` directives in Fortran
@@ -19,7 +17,9 @@ The source code is split into two main parts:
 - Language: **python**
 - Package / build manager: **pixi**
 - License: MIT
-- Tool versions live in `pixi.toml` / `pixi.lock` (single source of truth)
+- Tool versions live in `pixi.toml` / `pixi.lock` (single source of truth);
+  install steps and new-machine setup: see
+  [`docs/tool-bootstrap.md`](docs/tool-bootstrap.md).
 
 ## Commands (prefer these over guessing)
 
@@ -42,17 +42,13 @@ this file.
 - Vendored upstream source kept for reference: [`vendor/`](vendor/)
 - Per-PR release history: [`CHANGELOG.md`](CHANGELOG.md)
 
-For Claude Code users:
-
-- Skills: `.claude/skills/` (symlinked from `.agents/skills/`)
-- Subagents: `.claude/agents/` (symlinked from `.agents/subagents/`)
-- Slash commands: `.claude/commands/` (symlinked from `.agents/commands/`) — `/spec`, `/plan`, `/verify`
-
 ## Do
 
 - Run `pixi run verify` before claiming a task is done.
-- For a net-new feature, create `specs/<YYYY-MM>-<slug>/` and write `spec.md`
-  and `plan.md` **before** writing code. See `.agents/commands/spec.md`.
+- For a net-new feature, follow the four-phase loop:
+  `/spec` (Product Owner) → `/plan` (Architect) → `/build` (Developer)
+  → `/verify` (Reviewer). Each phase stops for review before the next
+  begins. See `.agents/commands/` and `.agents/subagents/`.
 - For a new architectural choice (dependency, framework, persistence, auth),
   add an ADR in `docs/adr/`. ADRs are append-only; supersede with a new file.
 - When investigating a large codebase, prefer the `explorer` subagent (read-only)
@@ -64,7 +60,7 @@ For Claude Code users:
 - Don't run destructive Git: `push --force`, `reset --hard origin/*`,
   history rewrites on shared branches.
 - Don't put secrets, hostnames, or per-developer paths in this file —
-  they belong in `CLAUDE.local.md` (gitignored).
+  they belong in a git-ignored file (e.g `AGENTS.local.md` or `CLAUDE.local.md`).
 - Don't auto-generate or expand this file beyond ~200 lines. The instruction
   budget is finite; adding rules degrades adherence to _all_ rules.
 
@@ -72,7 +68,10 @@ For Claude Code users:
 
 - Code style: see `docs/style.md`. One worked example > a page of prose.
 - Tests are the spec. If you change behaviour, change a test first.
-- Commit messages: imperative mood, first line ≤72 chars, no trailing period.
+- Commit messages: **Conventional Commits 1.0.0** — apply the format to the **PR title** (squash-merge).
+  See [`docs/style.md`](docs/style.md#commit-messages) for the format,
+  type list, breaking-change syntax, examples, and full merge-strategy
+  guidance.
 - Branch names: `<initials>/<slug>` for personal branches; bare slug for
   shared feature branches.
 

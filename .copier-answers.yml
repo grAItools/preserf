@@ -1,6 +1,7 @@
 # Changes here will be overwritten by Copier; NEVER EDIT MANUALLY.
-_commit: v0.1.0-5-gea70ca1
+_commit: v0.2.0-3-g42e06b6
 _src_path: gh:grAItools/harness-copier-template
+commit_convention: conventional
 copilot: true
 cursor: false
 fmt_command: pixi run fmt
@@ -9,12 +10,12 @@ include_claude_hooks: true
 include_example_adr: true
 include_example_skill: true
 include_example_spec: false
-include_example_subagent: true
 license: MIT
 lint_command: pixi run lint
 mcp: false
 mode: brownfield
 package_manager: pixi
+pr_merge_strategy: squash
 primary_language: python
 project_description: A preprocessor for Fortran data serialization directives
 project_name: preserf

@@ -37,6 +37,11 @@ embedded in each spec's Problem section.
   Makefile/scripts removed ([#13](https://github.com/grAItools/preserf/pull/13)).
 - Agent harness scaffolded via the
   `grAItools/harness-copier-template` ([#8](https://github.com/grAItools/preserf/pull/8), [#9](https://github.com/grAItools/preserf/pull/9)).
+- Agent harness synced to template `ea70ca1` → `42e06b6`: adds the
+  role-based subagents (`product-owner`, `architect`, `developer`,
+  `reviewer`), the `/build` command, and `docs/tool-bootstrap.md`;
+  adopts Conventional Commits (`commit_convention`) with squash-merge
+  PR titles, documented in [`docs/style.md`](docs/style.md#commit-messages).
 
 ### Fixed
 
