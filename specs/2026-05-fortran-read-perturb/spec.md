@@ -42,7 +42,7 @@ lands.
   in `[orig*(1-|scale|), orig*(1+|scale|)]` with non-zero overall
   deviation, plus a scale-0 identity re-read per rank.
 
-A cross-language test asserting *exact* perturbed values is
+A cross-language test asserting _exact_ perturbed values is
 deliberately out of scope: perturbation is applied only in Fortran
 memory, so the on-disk store stays unperturbed and a Python reader
 cannot observe it without a deterministic, cross-language-reproducible
