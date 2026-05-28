@@ -279,3 +279,32 @@ def test_fortran_bad_reference_path_keeps_target(
     assert target.read_bytes() == sentinel, (
         "a bad directory_ref truncated or overwrote the writable target"
     )
+
+
+def test_fortran_realtype_too_long_aborts(tmp_path: Path, fortran_binary: Path) -> None:
+    """An over-long ``realtype`` aborts instead of silently truncating.
+
+    ``ppser_realtype`` is fixed-length; ``ppser_initialize`` rejects a
+    ``realtype`` keyword that would not fit rather than truncating it
+    (which would mis-register every real field). The Fortran
+    ``realtype-too-long`` scenario in ``test_minimal.f90`` triggers the
+    guard.
+    """
+    out_dir = tmp_path / "fortran_out"
+    out_dir.mkdir()
+
+    result = subprocess.run(
+        [str(fortran_binary), str(out_dir), "realtype-too-long"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode != 0, (
+        "binary should have aborted on an over-long realtype\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "realtype string exceeds" in (result.stdout + result.stderr), (
+        "abort should name the realtype length guard\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )

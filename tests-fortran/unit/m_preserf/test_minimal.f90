@@ -200,6 +200,17 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: init-keywords OK'
                stop
             end block
+         else if (scenario == 'realtype-too-long') then
+            ! A realtype string longer than ppser_realtype's fixed
+            ! length must abort rather than silently truncate (which
+            ! would mis-register every real field). Python's
+            ! test_fortran_realtype_too_long_aborts drives this scenario
+            ! and asserts the non-zero exit + guard message.
+            call ppser_initialize(out_dir, 'frt', 'w', &
+                                  realtype='this_type_name_is_far_too_long')
+            ! Unreachable: the length guard must abort before returning.
+            error stop &
+               'preserf-test_minimal: over-long realtype was accepted'
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &

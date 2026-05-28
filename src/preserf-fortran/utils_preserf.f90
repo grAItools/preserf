@@ -213,7 +213,19 @@ contains
       ppser_realtype = PPSER_DEFAULT_REALTYPE
       ppser_zrperturb = PPSER_DEFAULT_RPERTURB
       if (present(rprecision)) ppser_reallength = rprecision
-      if (present(realtype)) ppser_realtype = realtype
+      if (present(realtype)) then
+         ! `realtype` comes from a user-authored `!$SER INIT` directive,
+         ! so reject an over-long value loudly rather than silently
+         ! truncating it into the fixed-length `ppser_realtype` (which
+         ! would then mis-register every real field).
+         if (len_trim(realtype) > len(ppser_realtype)) then
+            write (*, '(a,i0,a)') &
+               'preserf: realtype string exceeds ', len(ppser_realtype), &
+               ' characters'
+            error stop 1
+         end if
+         ppser_realtype = realtype
+      end if
       if (present(rperturb)) ppser_zrperturb = rperturb
 
       ! singlefile / archive / unique_id are metadata-only on the
