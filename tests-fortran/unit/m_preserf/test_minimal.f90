@@ -163,6 +163,14 @@ program test_minimal
 
                ! --- mpi_rank suffixes the store name: one file per rank,
                ! and never the bare prefix (storage_mapping.md §9) ---
+               ! Clear any fmr* stores first. The ctest fixture creates
+               ! test-output but never cleans it, so a store left by a
+               ! prior run could otherwise satisfy the positive existence
+               ! checks (without this run writing it) or trip the
+               ! bare-prefix negative check below — both false results.
+               call delete_if_exists(trim(out_dir)//'/fmr.nc')
+               call delete_if_exists(trim(out_dir)//'/fmr_rank0.nc')
+               call delete_if_exists(trim(out_dir)//'/fmr_rank1.nc')
                call ppser_initialize(out_dir, 'fmr', 'w', mpi_rank=0)
                call ppser_finalize()
                call ppser_initialize(out_dir, 'fmr', 'w', mpi_rank=1)
@@ -418,5 +426,20 @@ program test_minimal
    end if
 
    write (*, '(a)') 'preserf-fortran: hello-world OK'
+
+contains
+
+   !> Delete a file if it exists. The init-keywords scenario uses this
+   !> to clear stores left behind by a prior run before asserting on
+   !> store names, since the ctest output dir is reused, not cleaned.
+   subroutine delete_if_exists(path)
+      character(len=*), intent(in) :: path
+      logical :: exists
+      integer :: unit, ios
+      inquire (file=path, exist=exists)
+      if (.not. exists) return
+      open (newunit=unit, file=path, status='old', iostat=ios)
+      if (ios == 0) close (unit, status='delete')
+   end subroutine delete_if_exists
 
 end program test_minimal
