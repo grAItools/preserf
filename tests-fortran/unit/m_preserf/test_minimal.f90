@@ -183,6 +183,20 @@ program test_minimal
                if (exist_plain) error stop &
                   'init-keywords: mpi_rank store must be suffixed, not bare'
 
+               ! --- metadata-only keywords: signature compatibility ---
+               ! singlefile / archive / unique_id are accepted purely so
+               ! pp_ser-emitted INIT calls compile; their values are
+               ! ignored until Slice D Phase 3. Pass all three (with the
+               ! behaviour-changing ones too) so a type/name mismatch in
+               ! the widened interface fails to compile here rather than
+               ! in downstream generated code.
+               call ppser_initialize(out_dir, 'fmeta', 'w', &
+                                     singlefile=.true., archive='netcdf', &
+                                     unique_id=42, mpi_rank=0, &
+                                     rprecision=8, rperturb=0.0_real64, &
+                                     realtype='double')
+               call ppser_finalize()
+
                write (*, '(a)') 'preserf-fortran: init-keywords OK'
                stop
             end block
