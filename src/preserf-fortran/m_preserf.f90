@@ -20,6 +20,7 @@ module m_preserf
    use netcdf
    use utils_preserf, only: t_serializer, t_savepoint, &
                             ppser_serializer, &
+                            ppser_get_mode, &
                             preserf_check_nf_with_msg, &
                             preserf_logical_to_byte, &
                             PRESERF_SAVEPOINT_INDEX_LIMIT, &
@@ -149,6 +150,21 @@ contains
       dims = active_dims_c_order(iSize, jSize, kSize, lSize)
       zero = 0_int32
 
+      ! pp_ser emits REGISTER outside the SELECT CASE (ppser_get_mode())
+      ! that gates DATA blocks, so this directive runs in read mode too.
+      ! In read mode the store already exists and is opened read-only:
+      ! resolve the registry entry and validate it instead of creating
+      ! (a create would abort on the read-only handle). Modes 1 (read)
+      ! and 2 (read-perturb) both take the resolve-and-validate path.
+      if (ppser_get_mode() /= 0) then
+         call validate_registered_field(s, fieldname, type_id, dims, &
+                                        iMinusHalo, iPlusHalo, &
+                                        jMinusHalo, jPlusHalo, &
+                                        kMinusHalo, kPlusHalo, &
+                                        lMinusHalo, lPlusHalo)
+         return
+      end if
+
       ! Create the dummy attribute-carrier scalar variable.
       ncerr = nf90_def_var(s%fields_grpid, trim(fieldname), NF90_INT, varid)
       call preserf_check_nf_with_msg(ncerr, &
@@ -229,6 +245,16 @@ contains
          write (*, '(a)') 'preserf: fs_create_savepoint called before ppser_initialize'
          error stop 1
       end if
+
+      ! pp_ser emits SAVEPOINT outside the DATA-mode SELECT CASE, so this
+      ! runs in read mode too. In read mode resolve the existing
+      ! sp_NNNNNN group at the current index rather than creating one
+      ! (a def_grp would abort on the read-only handle).
+      if (ppser_get_mode() /= 0) then
+         call resolve_savepoint_on(ser, name, savepoint)
+         return
+      end if
+
       if (ser%next_sp_index >= PRESERF_SAVEPOINT_INDEX_LIMIT) then
          write (*, '(a,i0)') 'preserf: savepoint index exceeds cap of ', &
             PRESERF_SAVEPOINT_INDEX_LIMIT
@@ -255,6 +281,55 @@ contains
 
       ser%next_sp_index = ser%next_sp_index + 1
    end subroutine create_savepoint_on
+
+   !> Read-mode counterpart to create_savepoint_on: resolve the existing
+   !> sp_NNNNNN group at the serializer's current index and validate its
+   !> `name` attribute (storage_mapping.md §5) against the runtime
+   !> SAVEPOINT argument. Advances next_sp_index exactly like the create
+   !> path, so successive SAVEPOINT directives resolve sp_000000,
+   !> sp_000001, … in the order they were written.
+   subroutine resolve_savepoint_on(ser, name, savepoint)
+      type(t_serializer), intent(inout) :: ser
+      character(len=*), intent(in) :: name
+      type(t_savepoint), intent(inout) :: savepoint
+      character(len=9) :: group_name
+      integer :: ncerr, grpid, name_len
+      character(len=:), allocatable :: stored_name
+
+      if (ser%next_sp_index >= PRESERF_SAVEPOINT_INDEX_LIMIT) then
+         write (*, '(a,i0)') 'preserf: savepoint index exceeds cap of ', &
+            PRESERF_SAVEPOINT_INDEX_LIMIT
+         error stop 1
+      end if
+
+      write (group_name, '("sp_",i6.6)') ser%next_sp_index
+      ncerr = nf90_inq_ncid(ser%savepoints_grpid, group_name, grpid)
+      if (ncerr /= NF90_NOERR) then
+         write (*, '(a,a,a,a,a)') &
+            'preserf: read-mode savepoint "', trim(name), &
+            '" could not be resolved: group ', group_name, &
+            ' is not present in the store'
+         error stop 1
+      end if
+
+      ncerr = nf90_inquire_attribute(grpid, NF90_GLOBAL, 'name', len=name_len)
+      call preserf_check_nf_with_msg(ncerr, 'inquire_attribute savepoint name')
+      allocate (character(len=name_len) :: stored_name)
+      ncerr = nf90_get_att(grpid, NF90_GLOBAL, 'name', stored_name)
+      call preserf_check_nf_with_msg(ncerr, 'get_att savepoint name')
+      if (stored_name /= name) then
+         write (*, '(a,a,a,a,a,a,a)') &
+            'preserf: read-mode savepoint name mismatch at ', group_name, &
+            ': store has "', trim(stored_name), '", run expects "', &
+            trim(name), '"'
+         error stop 1
+      end if
+
+      savepoint%grpid = grpid
+      savepoint%idx = ser%next_sp_index
+      savepoint%owner_ncid = ser%ncid
+      ser%next_sp_index = ser%next_sp_index + 1
+   end subroutine resolve_savepoint_on
 
    ! ========================================================================
    ! METAINFO — scalar overloads (savepoint)
@@ -466,15 +541,16 @@ contains
       type(t_savepoint), intent(in) :: sp
       character(len=*), intent(in) :: fieldname
       real(real64), intent(inout) :: data(:)
-      integer :: ncerr, varid
+      integer :: ncerr, varid, read_grpid
       if (serialisation_enabled == 0) return
       call require_open(s, 'fs_read_field')
       call require_savepoint(sp, 'fs_read_field')
       call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'read')
-      ncerr = nf90_inq_varid(sp%grpid, trim(fieldname), varid)
+      read_grpid = resolve_savepoint_grpid(s, sp)
+      ncerr = nf90_inq_varid(read_grpid, trim(fieldname), varid)
       call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
-      call require_variable_xtype(s, sp%grpid, varid, fieldname, NF90_DOUBLE)
-      ncerr = nf90_get_var(sp%grpid, varid, data)
+      call require_variable_xtype(s, read_grpid, varid, fieldname, NF90_DOUBLE)
+      ncerr = nf90_get_var(read_grpid, varid, data)
       call preserf_check_nf_with_msg(ncerr, 'get_var '//trim(fieldname)//' (1d)')
    end subroutine
 
@@ -483,15 +559,16 @@ contains
       type(t_savepoint), intent(in) :: sp
       character(len=*), intent(in) :: fieldname
       real(real64), intent(inout) :: data(:, :)
-      integer :: ncerr, varid
+      integer :: ncerr, varid, read_grpid
       if (serialisation_enabled == 0) return
       call require_open(s, 'fs_read_field')
       call require_savepoint(sp, 'fs_read_field')
       call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'read')
-      ncerr = nf90_inq_varid(sp%grpid, trim(fieldname), varid)
+      read_grpid = resolve_savepoint_grpid(s, sp)
+      ncerr = nf90_inq_varid(read_grpid, trim(fieldname), varid)
       call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
-      call require_variable_xtype(s, sp%grpid, varid, fieldname, NF90_DOUBLE)
-      ncerr = nf90_get_var(sp%grpid, varid, data)
+      call require_variable_xtype(s, read_grpid, varid, fieldname, NF90_DOUBLE)
+      ncerr = nf90_get_var(read_grpid, varid, data)
       call preserf_check_nf_with_msg(ncerr, 'get_var '//trim(fieldname)//' (2d)')
    end subroutine
 
@@ -500,15 +577,16 @@ contains
       type(t_savepoint), intent(in) :: sp
       character(len=*), intent(in) :: fieldname
       real(real64), intent(inout) :: data(:, :, :)
-      integer :: ncerr, varid
+      integer :: ncerr, varid, read_grpid
       if (serialisation_enabled == 0) return
       call require_open(s, 'fs_read_field')
       call require_savepoint(sp, 'fs_read_field')
       call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'read')
-      ncerr = nf90_inq_varid(sp%grpid, trim(fieldname), varid)
+      read_grpid = resolve_savepoint_grpid(s, sp)
+      ncerr = nf90_inq_varid(read_grpid, trim(fieldname), varid)
       call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
-      call require_variable_xtype(s, sp%grpid, varid, fieldname, NF90_DOUBLE)
-      ncerr = nf90_get_var(sp%grpid, varid, data)
+      call require_variable_xtype(s, read_grpid, varid, fieldname, NF90_DOUBLE)
+      ncerr = nf90_get_var(read_grpid, varid, data)
       call preserf_check_nf_with_msg(ncerr, 'get_var '//trim(fieldname)//' (3d)')
    end subroutine
 
@@ -855,6 +933,18 @@ contains
       ! groups; field-registry uses a different code path).
       call reject_reserved_metainfo_key(key, extra_reserved)
 
+      ! pp_ser emits METAINFO / SAVEPOINT key=value pairs outside the
+      ! DATA-mode SELECT CASE, so they run in read mode too. In read
+      ! mode validate the stored attribute (value + __preserf_type_id)
+      ! instead of writing it (a put_att would abort on the read-only
+      ! handle).
+      if (ppser_get_mode() /= 0) then
+         call check_typed_scalar_attr(grpid, key, nc_type, tid, &
+                                      i8_val, i32_val, i64_val, &
+                                      r32_val, r64_val, s_val)
+         return
+      end if
+
       select case (nc_type)
       case (NF90_BYTE)
          if (.not. present(i8_val)) call missing_value_arg(key, 'i8_val')
@@ -945,6 +1035,210 @@ contains
          end if
       end if
    end subroutine reject_reserved_metainfo_key
+
+   !> Read-mode counterpart to the write logic in put_typed_scalar_attr:
+   !> verify that the stored attribute's value AND its
+   !> `<key>__preserf_type_id` shadow tag match the runtime metainfo
+   !> arguments, aborting on any mismatch (or if the attribute is absent
+   !> in the store). The value comparison is bit-exact: the writer stored
+   !> the same literal the generated read run re-supplies, so a round-trip
+   !> of an unmodified store always matches.
+   subroutine check_typed_scalar_attr(grpid, key, nc_type, tid, &
+                                      i8_val, i32_val, i64_val, &
+                                      r32_val, r64_val, s_val)
+      integer, intent(in) :: grpid
+      character(len=*), intent(in) :: key
+      integer, intent(in) :: nc_type
+      integer(int32), intent(in) :: tid
+      integer(int8), intent(in), optional :: i8_val
+      integer(int32), intent(in), optional :: i32_val
+      integer(int64), intent(in), optional :: i64_val
+      real(real32), intent(in), optional :: r32_val
+      real(real64), intent(in), optional :: r64_val
+      character(len=*), intent(in), optional :: s_val
+
+      integer :: ncerr, slen
+      integer(int32) :: stored_tid
+      character(len=:), allocatable :: shadow, stored_s
+      integer(int8) :: s_i8
+      integer(int32) :: s_i32
+      integer(int64) :: s_i64
+      real(real32) :: s_r32
+      real(real64) :: s_r64
+
+      shadow = trim(key)//'__preserf_type_id'
+      ncerr = nf90_get_att(grpid, NF90_GLOBAL, shadow, stored_tid)
+      if (ncerr == NF90_ENOTATT) call metainfo_absent(key)
+      call preserf_check_nf_with_msg(ncerr, 'get_att '//shadow)
+      if (stored_tid /= tid) then
+         write (*, '(a,a,a,i0,a,i0)') &
+            'preserf: read-mode metainfo "', trim(key), &
+            '" type-id mismatch: store has ', stored_tid, &
+            ', run expects ', tid
+         error stop 1
+      end if
+
+      select case (nc_type)
+      case (NF90_BYTE)
+         if (.not. present(i8_val)) call missing_value_arg(key, 'i8_val')
+         ncerr = nf90_get_att(grpid, NF90_GLOBAL, key, s_i8)
+         call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
+         if (s_i8 /= i8_val) call metainfo_value_mismatch(key)
+      case (NF90_INT)
+         if (.not. present(i32_val)) call missing_value_arg(key, 'i32_val')
+         ncerr = nf90_get_att(grpid, NF90_GLOBAL, key, s_i32)
+         call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
+         if (s_i32 /= i32_val) call metainfo_value_mismatch(key)
+      case (NF90_INT64)
+         if (.not. present(i64_val)) call missing_value_arg(key, 'i64_val')
+         ncerr = nf90_get_att(grpid, NF90_GLOBAL, key, s_i64)
+         call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
+         if (s_i64 /= i64_val) call metainfo_value_mismatch(key)
+      case (NF90_FLOAT)
+         if (.not. present(r32_val)) call missing_value_arg(key, 'r32_val')
+         ncerr = nf90_get_att(grpid, NF90_GLOBAL, key, s_r32)
+         call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
+         if (s_r32 /= r32_val) call metainfo_value_mismatch(key)
+      case (NF90_DOUBLE)
+         if (.not. present(r64_val)) call missing_value_arg(key, 'r64_val')
+         ncerr = nf90_get_att(grpid, NF90_GLOBAL, key, s_r64)
+         call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
+         if (s_r64 /= r64_val) call metainfo_value_mismatch(key)
+      case (NF90_STRING)
+         if (.not. present(s_val)) call missing_value_arg(key, 's_val')
+         ncerr = nf90_inquire_attribute(grpid, NF90_GLOBAL, key, len=slen)
+         call preserf_check_nf_with_msg(ncerr, 'inquire_attribute '//key)
+         allocate (character(len=slen) :: stored_s)
+         ncerr = nf90_get_att(grpid, NF90_GLOBAL, key, stored_s)
+         call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
+         if (stored_s /= s_val) call metainfo_value_mismatch(key)
+      case default
+         write (*, '(a,i0)') 'preserf: unsupported nc_type ', nc_type
+         error stop 1
+      end select
+   end subroutine check_typed_scalar_attr
+
+   subroutine metainfo_absent(key)
+      character(len=*), intent(in) :: key
+      write (*, '(a,a,a)') &
+         'preserf: read-mode metainfo "', trim(key), &
+         '" is not present in the store'
+      error stop 1
+   end subroutine metainfo_absent
+
+   subroutine metainfo_value_mismatch(key)
+      character(len=*), intent(in) :: key
+      write (*, '(a,a,a)') &
+         'preserf: read-mode metainfo "', trim(key), &
+         '" value mismatch between run and store'
+      error stop 1
+   end subroutine metainfo_value_mismatch
+
+   !> Read-mode counterpart to the create path in fs_register_field:
+   !> resolve the existing /_fields/<fieldname> registry entry and abort
+   !> if any registered property (type_id, C-order dims, or a
+   !> per-direction halo) disagrees with the runtime REGISTER arguments.
+   subroutine validate_registered_field(s, fieldname, type_id, dims, &
+                                        iMinusHalo, iPlusHalo, &
+                                        jMinusHalo, jPlusHalo, &
+                                        kMinusHalo, kPlusHalo, &
+                                        lMinusHalo, lPlusHalo)
+      type(t_serializer), intent(in) :: s
+      character(len=*), intent(in) :: fieldname
+      integer(int32), intent(in) :: type_id
+      integer(int32), intent(in) :: dims(:)
+      integer, intent(in) :: iMinusHalo, iPlusHalo
+      integer, intent(in) :: jMinusHalo, jPlusHalo
+      integer, intent(in) :: kMinusHalo, kPlusHalo
+      integer, intent(in) :: lMinusHalo, lPlusHalo
+      integer :: ncerr, varid, attr_len, axis
+      integer(int32) :: stored_tid
+      integer(int32), allocatable :: stored_dims(:)
+
+      ncerr = nf90_inq_varid(s%fields_grpid, trim(fieldname), varid)
+      if (ncerr == NF90_ENOTVAR) then
+         write (*, '(a,a,a)') &
+            'preserf: read-mode field "', trim(fieldname), &
+            '" is not present in the store registry'
+         error stop 1
+      end if
+      call preserf_check_nf_with_msg(ncerr, &
+                                     'inq_varid /_fields/'//trim(fieldname))
+
+      ncerr = nf90_get_att(s%fields_grpid, varid, 'type_id', stored_tid)
+      call preserf_check_nf_with_msg(ncerr, 'get_att type_id')
+      if (stored_tid /= type_id) then
+         write (*, '(a,a,a,i0,a,i0)') &
+            'preserf: read-mode field "', trim(fieldname), &
+            '" type_id mismatch: store has ', stored_tid, &
+            ', run expects ', type_id
+         error stop 1
+      end if
+
+      ncerr = nf90_inquire_attribute(s%fields_grpid, varid, 'dims', len=attr_len)
+      call preserf_check_nf_with_msg(ncerr, 'inquire_attribute dims')
+      allocate (stored_dims(attr_len))
+      ncerr = nf90_get_att(s%fields_grpid, varid, 'dims', stored_dims)
+      call preserf_check_nf_with_msg(ncerr, 'get_att dims')
+      if (attr_len /= size(dims)) then
+         write (*, '(a,a,a,i0,a,i0)') &
+            'preserf: read-mode field "', trim(fieldname), &
+            '" dims mismatch: store rank ', attr_len, &
+            ', run rank ', size(dims)
+         error stop 1
+      end if
+      do axis = 1, attr_len
+         if (stored_dims(axis) /= dims(axis)) then
+            write (*, '(a,a,a)') &
+               'preserf: read-mode field "', trim(fieldname), &
+               '" dims mismatch with registered shape.'
+            write (*, '(a,*(i0,1x))') '  store (C-order): ', stored_dims
+            write (*, '(a,*(i0,1x))') '  run   (C-order): ', dims
+            error stop 1
+         end if
+      end do
+
+      ! Halos: the writer emits only non-zero halos (put_halo_attr skips
+      ! zeros), so an absent attribute means a 0 extent.
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+                              'iminushalo', iMinusHalo)
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+                              'iplushalo', iPlusHalo)
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+                              'jminushalo', jMinusHalo)
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+                              'jplushalo', jPlusHalo)
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+                              'kminushalo', kMinusHalo)
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+                              'kplushalo', kPlusHalo)
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+                              'lminushalo', lMinusHalo)
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+                              'lplushalo', lPlusHalo)
+   end subroutine validate_registered_field
+
+   subroutine validate_halo_attr(grpid, varid, fieldname, name, expected)
+      integer, intent(in) :: grpid, varid
+      character(len=*), intent(in) :: fieldname, name
+      integer, intent(in) :: expected
+      integer :: ncerr
+      integer(int32) :: stored
+
+      ncerr = nf90_get_att(grpid, varid, name, stored)
+      if (ncerr == NF90_ENOTATT) then
+         stored = 0_int32
+      else
+         call preserf_check_nf_with_msg(ncerr, 'get_att '//name)
+      end if
+      if (int(stored) /= expected) then
+         write (*, '(a,a,a,a,a,i0,a,i0)') &
+            'preserf: read-mode field "', trim(fieldname), '" halo "', &
+            trim(name), '" mismatch: store has ', int(stored), &
+            ', run expects ', expected
+         error stop 1
+      end if
+   end subroutine validate_halo_attr
 
    !> Validate that the runtime Fortran shape of a read or write matches
    !> the field's registered dims under `/_fields/<fieldname>` (which are
@@ -1131,6 +1425,31 @@ contains
          error stop 1
       end if
    end subroutine require_savepoint_owner
+
+   !> Resolve the netCDF group id to read a savepoint's field from under
+   !> serializer `s`. pp_ser emits read DATA blocks as
+   !> `fs_read_field(ppser_serializer_ref, ppser_savepoint, ...)` while
+   !> SAVEPOINT resolves `ppser_savepoint` against `ppser_serializer`.
+   !> With an explicit reference store the savepoint's grpid belongs to
+   !> the primary open, so re-resolve sp_NNNNNN under `s` from the
+   !> savepoint index — otherwise the read would validate against the
+   !> reference's registry but pull data from the primary file. When the
+   !> savepoint already belongs to `s`, use its grpid directly.
+   function resolve_savepoint_grpid(s, sp) result(grpid)
+      type(t_serializer), intent(in) :: s
+      type(t_savepoint), intent(in) :: sp
+      integer :: grpid, ncerr
+      character(len=9) :: group_name
+
+      if (sp%owner_ncid == s%ncid) then
+         grpid = sp%grpid
+         return
+      end if
+      write (group_name, '("sp_",i6.6)') sp%idx
+      ncerr = nf90_inq_ncid(s%savepoints_grpid, group_name, grpid)
+      call preserf_check_nf_with_msg(ncerr, &
+                                     'inq_ncid '//group_name//' (reference store)')
+   end function resolve_savepoint_grpid
 
    !> Confirm the on-disk netCDF variable matches what the Fortran
    !> read overload + the `/_fields/<name>` registry entry expect:

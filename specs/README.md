@@ -21,7 +21,7 @@ and [#15](https://github.com/grAItools/preserf/pull/15); Slice B′
 
 | Slice | Title                                                                        | Status        | Tracking PR(s) |
 | ----- | ---------------------------------------------------------------------------- | ------------- | -------------- |
-| A-1   | [Read-mode resolve-and-validate](2026-05-fortran-read-mode/)                 | planned       | —              |
+| A-1   | [Read-mode resolve-and-validate](2026-05-fortran-read-mode/)                 | shipped       | —              |
 | A-2   | [Read-perturb implementation](2026-05-fortran-read-perturb/)                 | planned       | —              |
 | B     | [Full type-coverage matrix (numeric)](2026-05-fortran-type-coverage-matrix/) | planned       | —              |
 | B′    | String data fields                                                           | deferred      | —              |
