@@ -12,7 +12,7 @@
 !> Backed by the schema documented in
 !> `docs/references/storage_mapping.md`.
 module utils_preserf
-   use, intrinsic :: iso_fortran_env, only: int32, real64
+   use, intrinsic :: iso_fortran_env, only: int8, int32, real64
    use netcdf
    implicit none
    private
@@ -79,6 +79,16 @@ module utils_preserf
    integer, public, save :: ppser_reallength = PPSER_DEFAULT_REALLENGTH
    character(len=16), public, save :: ppser_realtype = PPSER_DEFAULT_REALTYPE
    real(real64), public, save :: ppser_zrperturb = PPSER_DEFAULT_RPERTURB
+
+   ! Serialbox defaults for the metadata-only `!$SER INIT` keywords.
+   ! These do not change runtime behaviour on the preserf side; they
+   ! are recorded verbatim in `_preserf_*` root attributes so a store
+   ! round-trips the values pp_ser passed through (Slice D Phase 3).
+   ! The effective value written is the keyword when supplied, else the
+   ! default below, so the reader always finds a complete set.
+   logical, parameter, public :: PPSER_DEFAULT_SINGLEFILE = .false.
+   character(len=*), parameter, public :: PPSER_DEFAULT_ARCHIVE = 'Binary'
+   integer, parameter, public :: PPSER_DEFAULT_UNIQUE_ID = 0
 
    ! Mode: 0 = write, 1 = read, 2 = read-perturb.
    integer, save :: ppser_mode_state = 0
@@ -228,14 +238,6 @@ contains
       end if
       if (present(rperturb)) ppser_zrperturb = rperturb
 
-      ! singlefile / archive / unique_id are metadata-only on the
-      ! preserf side; recording them in root attributes is Slice D
-      ! Phase 3 (deferred). Accept them here for signature
-      ! compatibility with pp_ser-emitted INIT calls; the present()
-      ! probes keep -Wall/-Wextra from flagging them as unused dummies.
-      if (present(singlefile) .or. present(archive) .or. &
-          present(unique_id)) continue
-
       ! Open the read-only reference store FIRST when an explicit
       ! `directory_ref`/`prefix_ref` pair is supplied. In write or
       ! append mode the main `nf90_create` truncates the target file
@@ -251,6 +253,15 @@ contains
 
       call preserf_open_serializer(ppser_serializer, directory, prefix, mode, &
                                    rank=mpi_rank)
+
+      ! Record the metadata-only keywords in `_preserf_*` root attributes
+      ! on the writable store only. The read-only reference store is never
+      ! written to, and the attrs are already present from when its own
+      ! producer created it.
+      if (ppser_serializer%writable) then
+         call preserf_write_init_attrs(ppser_serializer, singlefile, &
+                                       archive, unique_id)
+      end if
 
       if (.not. (present(directory_ref) .and. present(prefix_ref))) then
          if (mode == 'r' .or. mode == 'R') then
@@ -465,6 +476,47 @@ contains
                            '_preserf_writer', preserf_writer_version())
       call preserf_check_nf_with_msg(ncerr, 'put_att _preserf_writer')
    end subroutine preserf_write_root_housekeeping
+
+   !> Record the metadata-only `!$SER INIT` keywords (`singlefile`,
+   !> `archive`, `unique_id`) as `_preserf_*` root attributes. These do
+   !> not affect preserf's runtime behaviour; they are persisted purely
+   !> so a store round-trips the values pp_ser passed through. Each attr
+   !> is written with its effective value — the supplied keyword when
+   !> present, else the Serialbox default — so the reader always finds a
+   !> complete set. `singlefile` follows the Boolean storage convention
+   !> (NF90_BYTE, 0/1) used for boolean metainfo in m_preserf.
+   subroutine preserf_write_init_attrs(s, singlefile, archive, unique_id)
+      type(t_serializer), intent(in) :: s
+      logical, intent(in), optional :: singlefile
+      character(len=*), intent(in), optional :: archive
+      integer, intent(in), optional :: unique_id
+
+      integer :: ncerr
+      integer(int8) :: singlefile_flag
+      integer(int32) :: uid
+      logical :: singlefile_eff
+
+      singlefile_eff = PPSER_DEFAULT_SINGLEFILE
+      if (present(singlefile)) singlefile_eff = singlefile
+      singlefile_flag = merge(1_int8, 0_int8, singlefile_eff)
+      ncerr = nf90_put_att(s%ncid, NF90_GLOBAL, &
+                           '_preserf_singlefile', singlefile_flag)
+      call preserf_check_nf_with_msg(ncerr, 'put_att _preserf_singlefile')
+
+      if (present(archive)) then
+         ncerr = nf90_put_att(s%ncid, NF90_GLOBAL, '_preserf_archive', &
+                              trim(archive))
+      else
+         ncerr = nf90_put_att(s%ncid, NF90_GLOBAL, '_preserf_archive', &
+                              PPSER_DEFAULT_ARCHIVE)
+      end if
+      call preserf_check_nf_with_msg(ncerr, 'put_att _preserf_archive')
+
+      uid = int(PPSER_DEFAULT_UNIQUE_ID, int32)
+      if (present(unique_id)) uid = int(unique_id, int32)
+      ncerr = nf90_put_att(s%ncid, NF90_GLOBAL, '_preserf_unique_id', uid)
+      call preserf_check_nf_with_msg(ncerr, 'put_att _preserf_unique_id')
+   end subroutine preserf_write_init_attrs
 
    subroutine preserf_create_skeleton_groups(s)
       type(t_serializer), intent(inout) :: s

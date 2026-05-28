@@ -14,5 +14,7 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../src/preserf-fortran
 # Recurse into the per-module test subtrees. Each subdir is responsible
 # for `add_executable()` + `add_test()` + any CTest fixtures it needs.
 add_subdirectory(unit/m_preserf)
+# End-to-end: preprocessor -> generated source -> helper -> store.
+add_subdirectory(e2e)
 # Future: add_subdirectory(unit/utils_preserf)
 #         add_subdirectory(common)

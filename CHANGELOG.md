@@ -20,13 +20,21 @@ embedded in each spec's Problem section.
   `mpi_rank` suffixes the on-disk store name with `_rank<n>`
   (one store per rank); `realtype`/`rprecision` override
   `ppser_realtype`/`ppser_reallength`; `rperturb` threads to
-  `ppser_zrperturb` (consumed by read-perturb, Slice A-2). Covers
-  Slice D Phases 1-2; recording the metadata-only keywords in root
-  attributes (Phase 3) and the end-to-end fixture (Phase 4) remain
-  open.
+  `ppser_zrperturb` (consumed by read-perturb, Slice A-2). The
+  metadata-only `singlefile`/`archive`/`unique_id` keywords are recorded
+  on the writable store as the `_preserf_singlefile` / `_preserf_archive`
+  / `_preserf_unique_id` root attributes for round-trip fidelity
+  (`docs/references/storage_mapping.md` §3.1); `tests/_support/storage.py`
+  reads them back onto `SerialboxDump`. Completes Slice D Phase 3.
+- End-to-end pipeline test (Slice D Phase 4): `tests-fortran/e2e/`
+  carries a `!$SER`-annotated fixture that CMake expands through the
+  `preserf` CLI, compiles against the helper, and runs;
+  `tests/integration_tests/test_preprocessor_e2e.py` reads the resulting
+  store back and asserts the field, savepoint, metainfo, data, and the
+  Phase 3 init attrs all round-trip. Runs natively under
+  `pixi run test-fortran` and is gated by `PRESERF_REQUIRE_FORTRAN=1`.
 - `src/preserf/preprocessor.py`: typed, two-pass reimplementation of
-  `pp_ser.py` expanding every `!$SER` directive — covers Slice D core
-  (`ppser_initialize` widening + end-to-end test still open) ([#6](https://github.com/grAItools/preserf/pull/6)).
+  `pp_ser.py` expanding every `!$SER` directive ([#6](https://github.com/grAItools/preserf/pull/6)).
 - `src/preserf/cli.py`: `preserf` CLI with single-file, output-dir, and
   recursive modes ([#6](https://github.com/grAItools/preserf/pull/6)).
 - `src/preserf/errors.py`: `DirectiveError` carries file/line context

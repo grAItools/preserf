@@ -16,22 +16,23 @@ import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# The Fortran test executable is built via ``pixi run build-fortran``, which
-# now invokes ``cmake -S tests-fortran -B build/preserf-fortran``. The
-# tests-fortran tree registers the executable under ``unit/m_preserf/``
-# (see tests-fortran/unit/m_preserf/CMakeLists.txt), so the binary lands at
-# ``build/preserf-fortran/unit/m_preserf/preserf_fortran_test_minimal``.
-_BUILD_TEST_DIR = _REPO_ROOT / "build/preserf-fortran/unit/m_preserf"
+# The Fortran test executables are built via ``pixi run build-fortran``,
+# which invokes ``cmake -S tests-fortran -B build/preserf-fortran``. Each
+# test subdir registers its executable under its own path in the build
+# tree (see the per-subdir CMakeLists.txt files), e.g. the minimal binary
+# lands at ``build/preserf-fortran/unit/m_preserf/...`` and the end-to-end
+# binary at ``build/preserf-fortran/e2e/...``.
+_BUILD_ROOT = _REPO_ROOT / "build/preserf-fortran"
 
 # Single-config generators (Ninja, Unix Makefiles) drop the binary in
-# `_BUILD_TEST_DIR` directly; multi-config generators (Visual Studio,
-# Xcode) drop it under a per-config subdir. We probe both shapes so the
-# fixture works regardless of which generator built the tree.
+# the subdir directly; multi-config generators (Visual Studio, Xcode)
+# drop it under a per-config subdir. We probe both shapes so the fixture
+# works regardless of which generator built the tree.
 _CONFIG_SUBDIRS = ("", "Debug", "Release", "RelWithDebInfo", "MinSizeRel")
 
 
-def _locate_binary() -> Path | None:
-    """Find the built preserf_fortran_test_minimal binary.
+def _locate_binary(subdir: str, name: str) -> Path | None:
+    """Find a built Fortran test binary under ``build/preserf-fortran``.
 
     Probes the single-config CMake output path AND the multi-config
     generator subdirectories listed in ``_CONFIG_SUBDIRS``. Requires the
@@ -39,29 +40,29 @@ def _locate_binary() -> Path | None:
     but lacks +x) skips gracefully instead of crashing the test with
     PermissionError.
     """
-    names = ("preserf_fortran_test_minimal", "preserf_fortran_test_minimal.exe")
+    base_dir = _BUILD_ROOT / subdir
+    names = (name, f"{name}.exe")
     for config in _CONFIG_SUBDIRS:
-        base = _BUILD_TEST_DIR / config if config else _BUILD_TEST_DIR
-        for name in names:
-            candidate = base / name
+        base = base_dir / config if config else base_dir
+        for candidate_name in names:
+            candidate = base / candidate_name
             if candidate.is_file() and os.access(candidate, os.X_OK):
                 return candidate
     return None
 
 
-@pytest.fixture
-def fortran_binary() -> Path:
-    binary = _locate_binary()
+def _require_binary(subdir: str, name: str) -> Path:
+    binary = _locate_binary(subdir, name)
     if binary is None:
-        # Render the probed subdirs as e.g. "<root>, <root>/Debug, ..."
-        # so the diagnostic exactly matches what `_locate_binary` looked
-        # for — no drift between probe list and skip message.
+        base_dir = _BUILD_ROOT / subdir
+        # Render the probed subdirs so the diagnostic exactly matches what
+        # `_locate_binary` looked for — no drift between probe list and
+        # skip message.
         probed = ", ".join(
-            str(_BUILD_TEST_DIR / c) if c else str(_BUILD_TEST_DIR)
-            for c in _CONFIG_SUBDIRS
+            str(base_dir / c) if c else str(base_dir) for c in _CONFIG_SUBDIRS
         )
         message = (
-            f"Fortran test binary not found (probed: {probed}); "
+            f"Fortran test binary '{name}' not found (probed: {probed}); "
             "run `pixi run build-fortran` to build it."
         )
         # CI sets PRESERF_REQUIRE_FORTRAN=1 to turn a missing binary into a
@@ -71,3 +72,13 @@ def fortran_binary() -> Path:
             pytest.fail(message)
         pytest.skip(message)
     return binary
+
+
+@pytest.fixture
+def fortran_binary() -> Path:
+    return _require_binary("unit/m_preserf", "preserf_fortran_test_minimal")
+
+
+@pytest.fixture
+def fortran_e2e_binary() -> Path:
+    return _require_binary("e2e", "preserf_fortran_test_e2e")

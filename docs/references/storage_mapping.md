@@ -108,12 +108,21 @@ Two kinds of root attributes are written:
 
 ### 3.1 preserf housekeeping (reserved namespace `_preserf_*`)
 
-| Attribute name              | Type        | Value                                             |
-| --------------------------- | ----------- | ------------------------------------------------- |
-| `_preserf_schema_version`   | `NF90_INT`  | `1` (this document's schema version)              |
-| `_preserf_serialbox_prefix` | `NF90_CHAR` | the `prefix` argument from `ppser_initialize`     |
-| `_preserf_savepoint_count`  | `NF90_INT`  | number of savepoint subgroups under `/savepoints` |
-| `_preserf_writer`           | `NF90_CHAR` | `"preserf <version>"`                             |
+| Attribute name              | Type        | Value                                               |
+| --------------------------- | ----------- | --------------------------------------------------- |
+| `_preserf_schema_version`   | `NF90_INT`  | `1` (this document's schema version)                |
+| `_preserf_serialbox_prefix` | `NF90_CHAR` | the `prefix` argument from `ppser_initialize`       |
+| `_preserf_savepoint_count`  | `NF90_INT`  | number of savepoint subgroups under `/savepoints`   |
+| `_preserf_writer`           | `NF90_CHAR` | `"preserf <version>"`                               |
+| `_preserf_singlefile`       | `NF90_BYTE` | `!$SER INIT singlefile=` keyword (0/1); default `0` |
+| `_preserf_archive`          | `NF90_CHAR` | `!$SER INIT archive=` keyword; default `"Binary"`   |
+| `_preserf_unique_id`        | `NF90_INT`  | `!$SER INIT unique_id=` keyword; default `0`        |
+
+The last three are metadata-only on the preserf side: pp_ser passes
+them through verbatim from `!$SER INIT`, so they are recorded for
+round-trip fidelity but do not change preserf's runtime behaviour. Each
+is written with its effective value — the supplied keyword, or the
+Serialbox default when omitted — so readers always find a complete set.
 
 Both reference writers (Python `netCDF4` and Fortran `netcdf-fortran`)
 produce `NC_CHAR` for scalar string attributes (§1). For maximum
