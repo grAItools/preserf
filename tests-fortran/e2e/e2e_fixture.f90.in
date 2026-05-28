@@ -19,14 +19,23 @@ program preserf_e2e
    ! Names the `IJ` register shortcut expands into (storage_mapping.md §4
    ! halo convention). nboundlines = 0 keeps the field halo-free.
    integer, parameter :: ie = 3, je = 4, nboundlines = 0
-   character(len=512) :: outdir
-   integer :: arg_stat
+   character(len=:), allocatable :: outdir
+   integer :: arg_len, arg_stat
    real(real64) :: temperature(ie, je)
    integer :: i, j
 
-   call get_command_argument(1, value=outdir, status=arg_stat)
+   ! Query the argument length first, then allocate exactly that size, so
+   ! a deep tmp path cannot truncate into a fixed buffer and abort with a
+   ! misleading "missing argument" error (mirrors test_minimal.f90).
+   call get_command_argument(1, length=arg_len, status=arg_stat)
    if (arg_stat /= 0) then
       write (*, '(a)') 'preserf-e2e: missing output directory argument'
+      error stop 1
+   end if
+   allocate (character(len=arg_len) :: outdir)
+   call get_command_argument(1, value=outdir, status=arg_stat)
+   if (arg_stat /= 0) then
+      write (*, '(a)') 'preserf-e2e: failed to read output directory argument'
       error stop 1
    end if
 
