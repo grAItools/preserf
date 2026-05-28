@@ -212,6 +212,50 @@ program test_minimal
             ! Unreachable: the length guard must abort before returning.
             error stop &
                'preserf-test_minimal: over-long realtype was accepted'
+         else if (scenario == 'backend-nczarr') then
+            ! Slice E: ppser_initialize(..., backend='nczarr-v2') makes
+            ! the helper emit an NCZarr V2 `.zarr` directory store (via a
+            ! file://...#mode=nczarr,zarr2 URL) instead of a `.nc` file,
+            ! using the same group-per-savepoint schema. Write one real64
+            ! field, finalize, then re-open the same store read-only (also
+            ! backend='nczarr-v2') and read it back to prove the URL
+            ! round-trips end to end through the Fortran helper. The
+            ! Python wire-compat test additionally decodes the `.zarr`
+            ! store via tests/_support/storage.py.
+            block
+               real(real64) :: uz(3), uz_back(3)
+               integer :: i
+               do i = 1, 3
+                  uz(i) = 500.0_real64 + real(i, real64)
+               end do
+               call ppser_initialize(out_dir, 'fzarr', 'w', backend='nczarr-v2')
+               call fs_add_serializer_metainfo(ppser_serializer, 'author', &
+                                               'fortran-test')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_add_savepoint_metainfo(ppser_savepoint, 'ntstep', 1_int32)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', uz)
+               call ppser_finalize()
+               ! Re-open the NCZarr store read-only and read the field back.
+               call ppser_initialize(out_dir, 'fzarr', 'r', backend='nczarr-v2')
+               if (ppser_get_mode() /= 1) error stop &
+                  'backend-nczarr: read open should set mode 1'
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_add_savepoint_metainfo(ppser_savepoint, 'ntstep', 1_int32)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', uz_back)
+               do i = 1, 3
+                  if (uz_back(i) /= 500.0_real64 + real(i, real64)) error stop &
+                     'backend-nczarr: data round-trip mismatch'
+               end do
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: backend-nczarr OK'
+               stop
+            end block
          else if (scenario == 'read-roundtrip') then
             ! Slice A-1 Phase 1 + Phase 3: write a store, finalize, then
             ! re-open read-only and replay the same REGISTER / SAVEPOINT /

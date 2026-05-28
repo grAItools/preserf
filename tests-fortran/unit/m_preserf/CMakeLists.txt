@@ -65,6 +65,20 @@ set_tests_properties(preserf_fortran_init_keywords PROPERTIES
     TIMEOUT 60
 )
 
+# Slice E: NCZarr V2 backend selector. backend='nczarr-v2' writes a
+# `.zarr` directory store via netcdf-c's NCZarr backend; the scenario
+# round-trips one real64 field through it.
+add_test(
+    NAME preserf_fortran_backend_nczarr
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-nczarr
+)
+set_tests_properties(preserf_fortran_backend_nczarr PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: backend-nczarr OK"
+    TIMEOUT 60
+)
+
 # -----------------------------------------------------------------------------
 # Slice A-1: read-mode create-or-resolve-and-validate.
 #

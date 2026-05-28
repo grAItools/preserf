@@ -14,6 +14,22 @@ embedded in each spec's Problem section.
 
 ### Added
 
+- Backend selector + NCZarr URL targets (Slice E): `ppser_initialize` now
+  accepts a `backend` keyword selecting `'netcdf4'` (default, the v0.1
+  `.nc` file behaviour) or `'nczarr-v2'`. `preserf_open_serializer`
+  constructs the on-disk target per backend — a plain `<dir>/<prefix>.nc`
+  path for NetCDF4, or a `file://<dir>/<prefix>.zarr#mode=nczarr,zarr2`
+  URL onto a `.zarr` directory store for NCZarr V2 — matching
+  `open_url_for` in `tests/_support/storage.py` so a Fortran-written store
+  and the Python reader agree on the URL. The same group-per-savepoint
+  schema serves both (ADR 0002); the `#mode=` query drives netcdf-c's
+  backend dispatch, so the `nf90_create` / `nf90_open` flags are unchanged.
+  An unknown `backend` aborts at the `ppser_initialize` boundary. A new
+  `backend-nczarr` `tests-fortran/unit/m_preserf` ctest scenario
+  round-trips a `real64` field through an NCZarr V2 store, and a new
+  `test_fortran_wire_compat.py` case decodes a Fortran-written `.zarr`
+  store through the Python reference reader. Zarr V3 remains deferred until
+  netcdf-c's NCZarr V3 PR lands.
 - Read-perturb implementation (Slice A-2): the 5-arg
   `fs_read_field(..., perturb)` overloads (`real64` 1D/2D/3D) now read the
   stored field and apply symmetric multiplicative noise

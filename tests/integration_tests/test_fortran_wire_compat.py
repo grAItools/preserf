@@ -29,7 +29,7 @@ import numpy as np
 import pytest
 
 from tests._support.serialbox import TypeID
-from tests._support.storage import read_dump
+from tests._support.storage import open_url_for, read_dump
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -239,6 +239,68 @@ def test_fortran_writes_python_reads(tmp_path: Path, fortran_binary: Path) -> No
     assert w_py[0, 2] == 31  # Fortran w(3,1)
     assert w_py[3, 0] == 14  # Fortran w(1,4)
     assert w_py[3, 2] == 34  # Fortran w(3,4)
+
+
+def test_fortran_writes_nczarr_v2_python_reads(
+    tmp_path: Path, fortran_binary: Path
+) -> None:
+    """The Fortran helper can emit an NCZarr V2 store the Python reader decodes.
+
+    Slice E: with ``backend='nczarr-v2'`` the helper writes a ``.zarr``
+    directory store (via a ``file://...#mode=nczarr,zarr2`` URL onto
+    netcdf-c's NCZarr backend) using the same group-per-savepoint schema
+    as NetCDF4. This proves a Fortran-written NCZarr V2 store decodes
+    through the same Python reference reader, using the identical URL form
+    (:func:`open_url_for`) so writer and reader stay in lockstep. The
+    ``backend-nczarr`` scenario in ``test_minimal.f90`` writes the store.
+    """
+    out_dir = tmp_path / "fortran_out"
+    out_dir.mkdir()
+
+    result = subprocess.run(
+        [str(fortran_binary), str(out_dir), "backend-nczarr"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, (
+        f"Fortran binary exited {result.returncode}.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "preserf-fortran: backend-nczarr OK" in result.stdout
+
+    # NCZarr V2 produces a `.zarr` directory store, not a `.nc` file.
+    store_dir = out_dir / "fzarr.zarr"
+    assert store_dir.is_dir(), (
+        "backend='nczarr-v2' should produce a .zarr directory store, but "
+        f"{store_dir} is not a directory"
+    )
+
+    # Decode through the Python reference reader using the same URL form
+    # the Fortran writer used; open_url_for keeps the two in lockstep.
+    url, _fmt = open_url_for(out_dir, "fzarr", "nczarr-v2")
+    dump = read_dump(url)
+
+    assert dump.prefix == "fzarr"
+    assert dump.global_meta_info["author"].type_id == TypeID.String
+    assert dump.global_meta_info["author"].value == "fortran-test"
+
+    assert set(dump.field_map.keys()) == {"u"}
+    assert dump.field_map["u"].type_id == TypeID.Float64
+    assert dump.field_map["u"].dims == [3]
+
+    assert len(dump.savepoints) == 1
+    sp = dump.savepoints[0]
+    assert sp.name == "step"
+    assert sp.meta_info["ntstep"].type_id == TypeID.Int32
+    assert sp.meta_info["ntstep"].value == 1
+
+    u_py = dump.field_data["u"][0]
+    assert u_py.dtype == np.float64
+    np.testing.assert_array_equal(
+        u_py, np.array([501.0, 502.0, 503.0], dtype=np.float64)
+    )
 
 
 def test_fortran_bad_reference_path_keeps_target(

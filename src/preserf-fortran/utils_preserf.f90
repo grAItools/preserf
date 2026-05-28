@@ -5,9 +5,11 @@
 !> `ppser_realtype`, `ppser_zrperturb`, plus the mode getter/setter).
 !>
 !> The actual netCDF operations live in m_preserf; this module only
-!> handles dataset open/close and mode state. v0.1 targets plain
-!> NetCDF4 stores only — NCZarr URL targets are out of scope (see
-!> src/preserf-fortran/README.md "Known limitations" §NCZarr).
+!> handles dataset open/close and mode state. The `backend` keyword on
+!> `ppser_initialize` selects between NetCDF4 (`.nc` files, the default)
+!> and NCZarr V2 (`.zarr` directory stores via a `file://...#mode=`
+!> URL); the same group-per-savepoint schema serves both (ADR 0002).
+!> Zarr V3 stays deferred until netcdf-c's NCZarr V3 PR lands.
 !>
 !> Backed by the schema documented in
 !> `docs/references/storage_mapping.md`.
@@ -89,6 +91,14 @@ module utils_preserf
    logical, parameter, public :: PPSER_DEFAULT_SINGLEFILE = .false.
    character(len=*), parameter, public :: PPSER_DEFAULT_ARCHIVE = 'Binary'
    integer, parameter, public :: PPSER_DEFAULT_UNIQUE_ID = 0
+
+   ! Storage backend selector (Slice E). 'netcdf4' writes a `.nc` file
+   ! (the v0.1 behaviour, kept as the default for backward compatibility);
+   ! 'nczarr-v2' writes a `.zarr` directory store via netcdf-c's NCZarr
+   ! backend. The label matches the selector used by the Python reference
+   ! path in tests/_support/storage.py so a Fortran-written store and the
+   ! Python reader agree on the on-disk URL.
+   character(len=*), parameter, public :: PPSER_DEFAULT_BACKEND = 'netcdf4'
 
    ! Mode: 0 = write, 1 = read, 2 = read-perturb.
    integer, save :: ppser_mode_state = 0
@@ -193,7 +203,8 @@ contains
    subroutine ppser_initialize(directory, prefix, mode, &
                                directory_ref, prefix_ref, &
                                singlefile, mpi_rank, rprecision, &
-                               rperturb, realtype, archive, unique_id)
+                               rperturb, realtype, archive, unique_id, &
+                               backend)
       character(len=*), intent(in) :: directory
       character(len=*), intent(in) :: prefix
       character(len=*), intent(in) :: mode
@@ -209,6 +220,10 @@ contains
       character(len=*), intent(in), optional :: realtype
       character(len=*), intent(in), optional :: archive
       integer, intent(in), optional :: unique_id
+      ! Storage backend selector (Slice E): 'netcdf4' (default) or
+      ! 'nczarr-v2'. Threaded through to preserf_open_serializer, which
+      ! turns it into the right on-disk URL / extension.
+      character(len=*), intent(in), optional :: backend
 
       ! Validate optional-argument coherence BEFORE creating/truncating
       ! the main store, so a partial-arg mistake doesn't trash an
@@ -217,6 +232,17 @@ contains
          write (*, '(a)') 'preserf: ppser_initialize requires either both '// &
             'directory_ref and prefix_ref, or neither'
          error stop 1
+      end if
+
+      ! Reject an unknown backend at the user-facing boundary, before any
+      ! store is opened, so a typo'd `!$SER INIT` backend keyword aborts
+      ! with a clear message rather than a deep netCDF URL error.
+      if (present(backend)) then
+         if (backend /= 'netcdf4' .and. backend /= 'nczarr-v2') then
+            write (*, '(a,a)') 'preserf: unknown backend: ', backend
+            write (*, '(a)') "preserf: backend must be 'netcdf4' or 'nczarr-v2'"
+            error stop 1
+         end if
       end if
 
       ! Behaviour-changing keywords: update the module state that
@@ -259,7 +285,7 @@ contains
       if (present(directory_ref) .and. present(prefix_ref)) then
          call preserf_open_serializer(ppser_serializer_ref, &
                                       directory_ref, prefix_ref, 'r', &
-                                      rank=mpi_rank)
+                                      rank=mpi_rank, backend=backend)
       end if
 
       ! Thread the metadata-only keywords into the open so they are
@@ -270,7 +296,8 @@ contains
       ! store below is left untouched.
       call preserf_open_serializer(ppser_serializer, directory, prefix, mode, &
                                    rank=mpi_rank, singlefile=singlefile, &
-                                   archive=archive, unique_id=unique_id)
+                                   archive=archive, unique_id=unique_id, &
+                                   backend=backend)
 
       if (.not. (present(directory_ref) .and. present(prefix_ref))) then
          if (mode == 'r' .or. mode == 'R') then
@@ -283,7 +310,7 @@ contains
             ! read-only opens).
             call preserf_open_serializer(ppser_serializer_ref, &
                                          directory, prefix, 'r', &
-                                         rank=mpi_rank)
+                                         rank=mpi_rank, backend=backend)
          end if
       end if
 
@@ -353,7 +380,8 @@ contains
    ! -------------------------------------------------------------------------
 
    subroutine preserf_open_serializer(s, directory, prefix, mode, rank, &
-                                      singlefile, archive, unique_id)
+                                      singlefile, archive, unique_id, &
+                                      backend)
       type(t_serializer), intent(inout) :: s
       character(len=*), intent(in) :: directory
       character(len=*), intent(in) :: prefix
@@ -364,23 +392,51 @@ contains
       logical, intent(in), optional :: singlefile
       character(len=*), intent(in), optional :: archive
       integer, intent(in), optional :: unique_id
+      ! Storage backend (Slice E); defaults to PPSER_DEFAULT_BACKEND.
+      character(len=*), intent(in), optional :: backend
 
-      character(len=:), allocatable :: path
+      character(len=:), allocatable :: path, base, eff_backend
       character(len=32) :: rank_suffix
       integer :: ncerr, version
+
+      eff_backend = PPSER_DEFAULT_BACKEND
+      if (present(backend)) eff_backend = backend
 
       ! `mpi_rank` maps to a `_rank<n>` suffix on the on-disk store
       ! name (storage_mapping.md §9) so parallel runs write one store
       ! per rank instead of clobbering a shared file. The suffix is
       ! applied here, the single point where the path is built, and
-      ! only to the file name — the logical `prefix` recorded in the
+      ! only to the store name — the logical `prefix` recorded in the
       ! `_preserf_serialbox_prefix` root attribute stays unsuffixed.
+      ! `base` is the suffixed store name shared by both backends; the
+      ! backend only decides the extension / URL wrapper below.
       if (present(rank)) then
          write (rank_suffix, '(a,i0)') '_rank', rank
-         path = trim(directory)//'/'//trim(prefix)//trim(rank_suffix)//'.nc'
+         base = trim(prefix)//trim(rank_suffix)
       else
-         path = trim(directory)//'/'//trim(prefix)//'.nc'
+         base = trim(prefix)
       end if
+
+      ! Build the on-disk target per backend. NetCDF4 is a plain `.nc`
+      ! file path; NCZarr V2 is a `file://...#mode=nczarr,zarr2` URL onto
+      ! a `.zarr` directory store, matching open_url_for() in
+      ! tests/_support/storage.py so writer and reader agree. The mode
+      ! query is what makes netcdf-c dispatch to the NCZarr backend, so
+      ! the nf90_create / nf90_open flags below stay NF90_NETCDF4 /
+      ! NF90_NOWRITE for both backends. The file:// URI needs an absolute
+      ! `directory`; both the ctest test-output dir and pytest tmp_path
+      ! are absolute.
+      select case (eff_backend)
+      case ('netcdf4')
+         path = trim(directory)//'/'//base//'.nc'
+      case ('nczarr-v2')
+         path = 'file://'//trim(directory)//'/'//base//'.zarr#mode=nczarr,zarr2'
+      case default
+         ! ppser_initialize validates the backend up front, so this is a
+         ! defensive guard for any other internal caller.
+         write (*, '(a,a)') 'preserf: unknown backend: ', eff_backend
+         error stop 1
+      end select
 
       select case (mode)
       case ('w', 'W')

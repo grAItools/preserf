@@ -28,7 +28,7 @@ and [#15](https://github.com/grAItools/preserf/pull/15); Slice B′
 | C-0   | ADR: tracer descriptor storage (lands as `docs/adr/0003-tracer-storage.md`)  | planned       | —              |
 | C     | [Tracers, k-buffer, OPTION](2026-05-fortran-tracers-kbuff-option/)           | planned       | —              |
 | D     | [pp_ser.py port — open work](2026-05-preprocessor-port-open-work/)           | partial       | #6 (core)      |
-| E     | [Backend selector + NCZarr URL targets](2026-05-fortran-backend-selector/)   | planned       | —              |
+| E     | [Backend selector + NCZarr URL targets](2026-05-fortran-backend-selector/)   | shipped       | —              |
 | F     | CI for the Fortran build                                                     | shipped       | #14, #15       |
 | G     | [Append mode](2026-05-fortran-append-mode/)                                  | deferred-v1.0 | —              |
 
