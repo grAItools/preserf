@@ -1,10 +1,5 @@
 # Tool bootstrap
 
-> How to install and activate the project's core tools so the commands
-> in [`AGENTS.md`](../AGENTS.md) actually work. This file is for
-> **agents and new contributors** on a fresh machine. Keep it short
-> and copy-pasteable.
-
 ## Required tools
 
 `preserf` uses **pixi** as the single entry point. There is no separate
