@@ -260,43 +260,104 @@ program test_minimal
             end block
          else if (scenario == 'perturb-roundtrip') then
             ! Slice A-2: the 5-arg fs_read_field applies symmetric
-            ! multiplicative noise data*(1 + scale*(2*r-1)). A non-zero
-            ! scale must keep every element within [orig*(1-scale),
-            ! orig*(1+scale)] and shift the field overall; a zero scale
-            ! must leave the data bit-identical.
+            ! multiplicative noise data*(1 + scale*(2*r-1)) for every
+            ! rank (1D / 2D / 3D). A non-zero scale must keep each element
+            ! within [orig*(1-scale), orig*(1+scale)] and shift the field
+            ! overall; a zero scale must leave the data bit-identical.
             block
-               real(real64) :: u_back(3), orig(3), dev
-               integer :: i
-               call write_store(out_dir, 'fpert', 100.0_real64)
+               real(real64) :: u1(3), u1b(3)
+               real(real64) :: u2(2, 2), u2b(2, 2)
+               real(real64) :: u3(2, 2, 2), u3b(2, 2, 2)
+               real(real64) :: dev
+               integer :: i, j, k
+               ! Distinct, strictly-positive fixtures so the relative
+               ! bounds are unambiguous for every element.
                do i = 1, 3
-                  orig(i) = 100.0_real64 + real(i, real64)
+                  u1(i) = 100.0_real64 + real(i, real64)
                end do
-               call ppser_initialize(out_dir, 'fpert', 'r')
-               call fs_add_serializer_metainfo(ppser_serializer, 'author', &
-                                               'fortran-test')
-               call fs_register_field(ppser_serializer, 'u', 'double', &
+               do j = 1, 2
+                  do i = 1, 2
+                     u2(i, j) = 200.0_real64 + real(10*i + j, real64)
+                  end do
+               end do
+               do k = 1, 2
+                  do j = 1, 2
+                     do i = 1, 2
+                        u3(i, j, k) = 300.0_real64 + real(100*i + 10*j + k, real64)
+                     end do
+                  end do
+               end do
+               ! Write a store carrying one field of each rank.
+               call ppser_initialize(out_dir, 'fpert', 'w')
+               call fs_register_field(ppser_serializer, 'u1', 'double', &
                                       ppser_reallength, 3, 0, 0, 0, &
-                                      1, 2, 0, 0, 0, 0, 0, 0)
-               ! Non-zero scale: bounded perturbation, non-zero deviation.
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'u2', 'double', &
+                                      ppser_reallength, 2, 2, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'u3', 'double', &
+                                      ppser_reallength, 2, 2, 2, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
                call fs_create_savepoint('step', ppser_savepoint)
-               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', &
-                                  u_back, 0.1_real64)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u1', u1)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u2', u2)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u3', u3)
+               call ppser_finalize()
+               ! Re-open read-only and perturb-read every rank (scale 0.1).
+               call ppser_initialize(out_dir, 'fpert', 'r')
+               call fs_register_field(ppser_serializer, 'u1', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'u2', 'double', &
+                                      ppser_reallength, 2, 2, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'u3', 'double', &
+                                      ppser_reallength, 2, 2, 2, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u1', u1b, 0.1_real64)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u2', u2b, 0.1_real64)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u3', u3b, 0.1_real64)
                dev = 0.0_real64
                do i = 1, 3
-                  if (u_back(i) < orig(i)*0.9_real64 .or. &
-                      u_back(i) > orig(i)*1.1_real64) error stop &
-                     'perturb-roundtrip: value out of [-10%,+10%] bounds'
-                  dev = dev + abs(u_back(i) - orig(i))
+                  if (u1b(i) < u1(i)*0.9_real64 .or. u1b(i) > u1(i)*1.1_real64) &
+                     error stop 'perturb-roundtrip: 1d value out of bounds'
+                  dev = dev + abs(u1b(i) - u1(i))
+               end do
+               do j = 1, 2
+                  do i = 1, 2
+                     if (u2b(i, j) < u2(i, j)*0.9_real64 .or. &
+                         u2b(i, j) > u2(i, j)*1.1_real64) &
+                        error stop 'perturb-roundtrip: 2d value out of bounds'
+                     dev = dev + abs(u2b(i, j) - u2(i, j))
+                  end do
+               end do
+               do k = 1, 2
+                  do j = 1, 2
+                     do i = 1, 2
+                        if (u3b(i, j, k) < u3(i, j, k)*0.9_real64 .or. &
+                            u3b(i, j, k) > u3(i, j, k)*1.1_real64) &
+                           error stop 'perturb-roundtrip: 3d value out of bounds'
+                        dev = dev + abs(u3b(i, j, k) - u3(i, j, k))
+                     end do
+                  end do
                end do
                if (dev <= 0.0_real64) error stop &
                   'perturb-roundtrip: scale 0.1 left data unchanged'
-               ! Zero scale: identity (data read back unperturbed).
-               call fs_create_savepoint('step2', ppser_savepoint)
-               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', &
-                                  u_back, 0.0_real64)
+               ! Zero scale: identity across ranks (re-read same savepoint).
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u1', u1b, 0.0_real64)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u3', u3b, 0.0_real64)
                do i = 1, 3
-                  if (u_back(i) /= 100.0_real64 + real(i + 3, real64)) error stop &
-                     'perturb-roundtrip: scale 0.0 should be identity'
+                  if (u1b(i) /= u1(i)) error stop &
+                     'perturb-roundtrip: scale 0.0 should be identity (1d)'
+               end do
+               do k = 1, 2
+                  do j = 1, 2
+                     do i = 1, 2
+                        if (u3b(i, j, k) /= u3(i, j, k)) error stop &
+                           'perturb-roundtrip: scale 0.0 should be identity (3d)'
+                     end do
+                  end do
                end do
                call ppser_finalize()
                write (*, '(a)') 'preserf-fortran: perturb-roundtrip OK'

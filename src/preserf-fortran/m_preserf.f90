@@ -636,31 +636,50 @@ contains
       call apply_perturb_3d(data, perturb)
    end subroutine
 
+   ! In-place multiplicative noise — no full-size scratch array, so peak
+   ! memory is the field itself. A zero scale is the identity, so we skip
+   ! the RNG draws entirely.
    subroutine apply_perturb_1d(data, scale)
       real(real64), intent(inout) :: data(:)
       real(real64), intent(in) :: scale
-      real(real64), allocatable :: r(:)
-      allocate (r, mold=data)
-      call random_number(r)
-      data = data*(1.0_real64 + scale*(2.0_real64*r - 1.0_real64))
+      real(real64) :: rv
+      integer :: i
+      if (scale == 0.0_real64) return
+      do i = 1, size(data)
+         call random_number(rv)
+         data(i) = data(i)*(1.0_real64 + scale*(2.0_real64*rv - 1.0_real64))
+      end do
    end subroutine
 
    subroutine apply_perturb_2d(data, scale)
       real(real64), intent(inout) :: data(:, :)
       real(real64), intent(in) :: scale
-      real(real64), allocatable :: r(:, :)
-      allocate (r, mold=data)
-      call random_number(r)
-      data = data*(1.0_real64 + scale*(2.0_real64*r - 1.0_real64))
+      real(real64) :: rv
+      integer :: i, j
+      if (scale == 0.0_real64) return
+      do j = 1, size(data, 2)
+         do i = 1, size(data, 1)
+            call random_number(rv)
+            data(i, j) = data(i, j)*(1.0_real64 + scale*(2.0_real64*rv - 1.0_real64))
+         end do
+      end do
    end subroutine
 
    subroutine apply_perturb_3d(data, scale)
       real(real64), intent(inout) :: data(:, :, :)
       real(real64), intent(in) :: scale
-      real(real64), allocatable :: r(:, :, :)
-      allocate (r, mold=data)
-      call random_number(r)
-      data = data*(1.0_real64 + scale*(2.0_real64*r - 1.0_real64))
+      real(real64) :: rv
+      integer :: i, j, k
+      if (scale == 0.0_real64) return
+      do k = 1, size(data, 3)
+         do j = 1, size(data, 2)
+            do i = 1, size(data, 1)
+               call random_number(rv)
+               data(i, j, k) = data(i, j, k)* &
+                               (1.0_real64 + scale*(2.0_real64*rv - 1.0_real64))
+            end do
+         end do
+      end do
    end subroutine
 
    ! ========================================================================

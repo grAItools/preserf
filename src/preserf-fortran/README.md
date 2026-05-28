@@ -53,7 +53,10 @@ the `!$SER INIT(mode='w')` / `REGISTER` / `SAVEPOINT` / `DATA` /
   (`fs_read_field(s, sp, name, data, perturb)`). The 5-arg overloads
   read the stored field, then apply symmetric multiplicative noise
   `data*(1 + perturb*(2*r - 1))` (`r ~ U[0,1)` via `RANDOM_NUMBER`),
-  matching pp_ser's CASE(2) read-perturb semantics.
+  matching pp_ser's CASE(2) read-perturb semantics. The generator is
+  left unseeded, so the noise differs from run to run (tests assert
+  bounds, not exact values); call `random_seed` before reading if you
+  need a reproducible sequence.
 - `fs_enable_serialization` / `fs_disable_serialization` gate every
   fs_* I/O entry point at runtime; `fs_serialization_status()` exposes
   the flag for tests.
