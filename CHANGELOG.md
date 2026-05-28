@@ -14,6 +14,16 @@ embedded in each spec's Problem section.
 
 ### Added
 
+- `ppser_initialize` accepts the Serialbox-compatible keywords pp_ser
+  passes through from `!$SER INIT`: `singlefile`, `mpi_rank`,
+  `rprecision`, `rperturb`, `realtype`, `archive`, `unique_id`.
+  `mpi_rank` suffixes the on-disk store name with `_rank<n>`
+  (one store per rank); `realtype`/`rprecision` override
+  `ppser_realtype`/`ppser_reallength`; `rperturb` threads to
+  `ppser_zrperturb` (consumed by read-perturb, Slice A-2). Covers
+  Slice D Phases 1-2; recording the metadata-only keywords in root
+  attributes (Phase 3) and the end-to-end fixture (Phase 4) remain
+  open.
 - `src/preserf/preprocessor.py`: typed, two-pass reimplementation of
   `pp_ser.py` expanding every `!$SER` directive — covers Slice D core
   (`ppser_initialize` widening + end-to-end test still open) ([#6](https://github.com/grAItools/preserf/pull/6)).

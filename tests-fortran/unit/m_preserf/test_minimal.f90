@@ -102,6 +102,67 @@ program test_minimal
             ! Unreachable: a missing reference store must abort.
             error stop &
                'preserf-test_minimal: bad directory_ref was accepted'
+         else if (scenario == 'init-keywords') then
+            ! Exercise the behaviour-changing keywords widened onto
+            ! ppser_initialize in Slice D: realtype / rprecision (real
+            ! field type metadata), rperturb (read-perturb scale), and
+            ! mpi_rank (per-rank store suffix). Metadata-only keywords
+            ! (singlefile / archive / unique_id) are Slice D Phase 3.
+            block
+               use netcdf
+               ! Mirrors the (private) TID_FLOAT32 in m_preserf; the
+               ! float32 TypeID per storage_mapping.md.
+               integer, parameter :: TID_FLOAT32 = 4
+               integer :: ncerr, varid
+               integer(int32) :: type_id_back
+               logical :: exist0, exist1, exist_plain
+
+               ! --- realtype / rprecision override ppser_realtype /
+               ! ppser_reallength so a real field registers as float32 ---
+               call ppser_initialize(out_dir, 'fkw', 'w', &
+                                     realtype='float', rprecision=4)
+               if (trim(ppser_realtype) /= 'float') error stop &
+                  'init-keywords: realtype did not update ppser_realtype'
+               if (ppser_reallength /= 4) error stop &
+                  'init-keywords: rprecision did not update ppser_reallength'
+               call fs_register_field(ppser_serializer, 'f32', &
+                                      ppser_realtype, ppser_reallength, &
+                                      3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               ncerr = nf90_inq_varid(ppser_serializer%fields_grpid, &
+                                      'f32', varid)
+               if (ncerr /= nf90_noerr) error stop &
+                  'init-keywords: inq_varid f32 failed'
+               ncerr = nf90_get_att(ppser_serializer%fields_grpid, varid, &
+                                    'type_id', type_id_back)
+               if (ncerr /= nf90_noerr) error stop &
+                  'init-keywords: get_att type_id failed'
+               if (type_id_back /= TID_FLOAT32) error stop &
+                  'init-keywords: realtype=float did not register float32'
+               call ppser_finalize()
+
+               ! --- rperturb threads to ppser_zrperturb (Slice A-2) ---
+               call ppser_initialize(out_dir, 'fkw', 'w', rperturb=1.5_real64)
+               if (ppser_zrperturb /= 1.5_real64) error stop &
+                  'init-keywords: rperturb did not update ppser_zrperturb'
+               call ppser_finalize()
+
+               ! --- mpi_rank suffixes the store name: one file per rank,
+               ! and never the bare prefix (storage_mapping.md §9) ---
+               call ppser_initialize(out_dir, 'fmr', 'w', mpi_rank=0)
+               call ppser_finalize()
+               call ppser_initialize(out_dir, 'fmr', 'w', mpi_rank=1)
+               call ppser_finalize()
+               inquire (file=trim(out_dir)//'/fmr_rank0.nc', exist=exist0)
+               inquire (file=trim(out_dir)//'/fmr_rank1.nc', exist=exist1)
+               inquire (file=trim(out_dir)//'/fmr.nc', exist=exist_plain)
+               if (.not. (exist0 .and. exist1)) error stop &
+                  'init-keywords: mpi_rank did not produce one store per rank'
+               if (exist_plain) error stop &
+                  'init-keywords: mpi_rank store must be suffixed, not bare'
+
+               write (*, '(a)') 'preserf-fortran: init-keywords OK'
+               stop
+            end block
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &

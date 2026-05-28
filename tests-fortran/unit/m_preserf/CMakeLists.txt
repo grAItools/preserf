@@ -50,3 +50,17 @@ set_tests_properties(preserf_fortran_minimal PROPERTIES
     # netCDF/HDF5 deadlock cannot block ctest indefinitely either.
     TIMEOUT 60
 )
+
+# Slice D: the widened ppser_initialize keywords (realtype / rprecision /
+# rperturb / mpi_rank). Driven through the same binary via the
+# 'init-keywords' scenario argument.
+add_test(
+    NAME preserf_fortran_init_keywords
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" init-keywords
+)
+set_tests_properties(preserf_fortran_init_keywords PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: init-keywords OK"
+    TIMEOUT 60
+)
