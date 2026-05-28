@@ -649,7 +649,7 @@ contains
    subroutine build_xtype_mismatch_store(path)
       use netcdf
       character(len=*), intent(in) :: path
-      integer :: ncid, fgid, vid, spsid, spid, dimid, uvid, ncerr
+      integer :: ncid, fgid, vid, spsid, spid, dimid, uvid
       integer(int32) :: schema, tid_f64, idx0, dimsvec(1)
       real(real32) :: vals(3)
 
@@ -659,25 +659,46 @@ contains
       dimsvec = [3_int32]
       vals = [1.0_real32, 2.0_real32, 3.0_real32]
 
-      ncerr = nf90_create(path, NF90_NETCDF4, ncid)
-      if (ncerr /= nf90_noerr) error stop 'build_xtype: nf90_create failed'
-      ncerr = nf90_put_att(ncid, NF90_GLOBAL, '_preserf_schema_version', schema)
+      call nc_must(nf90_create(path, NF90_NETCDF4, ncid), 'nf90_create')
+      call nc_must(nf90_put_att(ncid, NF90_GLOBAL, '_preserf_schema_version', &
+                                schema), 'put_att _preserf_schema_version')
       ! Registry carrier variable with type_id + dims attributes.
-      ncerr = nf90_def_grp(ncid, '_fields', fgid)
-      ncerr = nf90_def_var(fgid, 'u', NF90_INT, vid)
-      ncerr = nf90_put_att(fgid, vid, 'type_id', tid_f64)
-      ncerr = nf90_put_att(fgid, vid, 'dims', dimsvec)
+      call nc_must(nf90_def_grp(ncid, '_fields', fgid), 'def_grp _fields')
+      call nc_must(nf90_def_var(fgid, 'u', NF90_INT, vid), 'def_var /_fields/u')
+      call nc_must(nf90_put_att(fgid, vid, 'type_id', tid_f64), 'put_att type_id')
+      call nc_must(nf90_put_att(fgid, vid, 'dims', dimsvec), 'put_att dims')
       ! Savepoint group with a FLOAT32 data variable (the inconsistency).
-      ncerr = nf90_def_grp(ncid, 'savepoints', spsid)
-      ncerr = nf90_def_grp(spsid, 'sp_000000', spid)
-      ncerr = nf90_put_att(spid, NF90_GLOBAL, '_preserf_savepoint_index', idx0)
-      ncerr = nf90_put_att(spid, NF90_GLOBAL, 'name', 'step')
-      ncerr = nf90_def_dim(spid, 'u_dim0', 3, dimid)
-      ncerr = nf90_def_var(spid, 'u', NF90_FLOAT, [dimid], uvid)
-      ncerr = nf90_put_var(spid, uvid, vals)
-      ncerr = nf90_close(ncid)
-      if (ncerr /= nf90_noerr) error stop 'build_xtype: nf90_close failed'
+      call nc_must(nf90_def_grp(ncid, 'savepoints', spsid), 'def_grp savepoints')
+      call nc_must(nf90_def_grp(spsid, 'sp_000000', spid), 'def_grp sp_000000')
+      call nc_must(nf90_put_att(spid, NF90_GLOBAL, '_preserf_savepoint_index', &
+                                idx0), 'put_att _preserf_savepoint_index')
+      call nc_must(nf90_put_att(spid, NF90_GLOBAL, 'name', 'step'), 'put_att name')
+      call nc_must(nf90_def_dim(spid, 'u_dim0', 3, dimid), 'def_dim u_dim0')
+      call nc_must(nf90_def_var(spid, 'u', NF90_FLOAT, [dimid], uvid), &
+                   'def_var sp_000000/u (float32)')
+      ! NETCDF4/HDF5 lets data and define operations interleave, so the
+      ! put_var below would succeed without this — but commit the
+      ! definitions explicitly so the test does not depend on that
+      ! behaviour (PR #22 review note).
+      call nc_must(nf90_enddef(ncid), 'enddef')
+      call nc_must(nf90_put_var(spid, uvid, vals), 'put_var sp_000000/u')
+      call nc_must(nf90_close(ncid), 'nf90_close')
    end subroutine build_xtype_mismatch_store
+
+   !> Abort the test build if a raw netCDF call in
+   !> build_xtype_mismatch_store failed. Unchecked errors there could
+   !> leave a malformed store that makes the read-bad-xtype negative
+   !> test pass for the wrong reason (PR #22 review note).
+   subroutine nc_must(ncerr, what)
+      use netcdf, only: nf90_noerr, nf90_strerror
+      integer, intent(in) :: ncerr
+      character(len=*), intent(in) :: what
+      if (ncerr /= nf90_noerr) then
+         write (*, '(a,a,a,a)') 'build_xtype_mismatch_store: ', trim(what), &
+            ' failed: ', trim(nf90_strerror(ncerr))
+         error stop 1
+      end if
+   end subroutine nc_must
 
    !> Print a non-matching marker and exit 0 when a read-mode validation
    !> directive was expected to abort but returned instead. The negative
