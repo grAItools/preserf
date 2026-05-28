@@ -96,15 +96,18 @@ implementation. These are tracked as follow-up PRs:
    the cases the create-or-resolve-and-validate refactor needs to
    address (savepoints would carry per-serializer grpids, or the
    read path would re-resolve the savepoint under `s` first).
-2. **`ppser_initialize` keyword surface is narrow.** v0.1 takes
-   `directory`, `prefix`, `mode` (plus optional `directory_ref`,
-   `prefix_ref`). Serialbox's `ppser_initialize` accepts additional
-   keyword args (`singlefile`, `mpi_rank`, `rprecision`, `rperturb`,
-   `realtype`, `archive`, `unique_id`) which pp_ser passes through
-   verbatim from `!$SER INIT` directives. Generated source that uses
-   any of those keyword arguments will not yet compile against
-   preserf. The follow-up PR that ports `pp_ser.py` will widen the
-   helper's signature to match Serialbox's.
+2. **`ppser_initialize` accepts every Serialbox keyword but does not
+   yet persist all of them.** The signature takes every keyword
+   pp_ser passes through from `!$SER INIT` (`singlefile`, `mpi_rank`,
+   `rprecision`, `rperturb`, `realtype`, `archive`, `unique_id`) on
+   top of `directory`, `prefix`, `mode`, `directory_ref`, and
+   `prefix_ref`, so generated source compiles. The behaviour-changing
+   keywords are wired: `mpi_rank` suffixes the store name
+   (`_rank<n>`), `realtype` / `rprecision` set the real-field type
+   metadata, and `rperturb` threads to `ppser_zrperturb` (consumed by
+   read-perturb). The metadata-only keywords `singlefile`, `archive`,
+   and `unique_id` are accepted but not yet recorded in root
+   attributes — that round-trip is a follow-up (Slice D Phase 3).
 3. **Append mode (`'a'`) is rejected** rather than half-implemented.
    It needs `nf90_inq_grps` index resumption that the netcdf-fortran
    4.5.x wrapper makes awkward.
