@@ -115,6 +115,7 @@ module utils_preserf
    public :: ppser_get_mode, ppser_set_mode
    public :: preserf_check_nf, preserf_check_nf_with_msg
    public :: preserf_writer_version
+   public :: preserf_logical_to_byte
 
 contains
 
@@ -143,6 +144,16 @@ contains
       character(len=:), allocatable :: s
       s = 'preserf '//PRESERF_VERSION
    end function preserf_writer_version
+
+   !> Encode a logical as the NF90_BYTE 0/1 sentinel used for every
+   !> boolean netCDF attribute in preserf (storage_mapping.md §1). Shared
+   !> by the housekeeping writer here and the boolean metainfo overloads
+   !> in m_preserf so the convention has a single source of truth.
+   pure function preserf_logical_to_byte(value) result(b)
+      logical, intent(in) :: value
+      integer(int8) :: b
+      b = merge(1_int8, 0_int8, value)
+   end function preserf_logical_to_byte
 
    !> Initialise the global serializer (and optionally a read-reference
    !> serializer) by opening a **NetCDF4** dataset under `directory`
@@ -502,7 +513,7 @@ contains
       ! Metadata-only INIT keywords (effective value = keyword or default).
       singlefile_eff = PPSER_DEFAULT_SINGLEFILE
       if (present(singlefile)) singlefile_eff = singlefile
-      singlefile_flag = merge(1_int8, 0_int8, singlefile_eff)
+      singlefile_flag = preserf_logical_to_byte(singlefile_eff)
       ncerr = nf90_put_att(s%ncid, NF90_GLOBAL, &
                            '_preserf_singlefile', singlefile_flag)
       call preserf_check_nf_with_msg(ncerr, 'put_att _preserf_singlefile')
