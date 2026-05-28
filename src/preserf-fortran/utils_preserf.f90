@@ -62,9 +62,23 @@ module utils_preserf
    ! explicit-interface kind checking would otherwise fail when
    ! generated code passes `ppser_reallength` to `fs_register_field`.
    integer, parameter, public :: ppser_intlength = 4
-   integer, parameter, public :: ppser_reallength = 8
-   character(len=*), parameter, public :: ppser_realtype = 'double'
-   real(real64), public, save :: ppser_zrperturb = 0.0_real64
+
+   ! Real-field type metadata for pp_ser-emitted `fs_register_field`
+   ! calls. These are mutable `save` state (not `parameter`) so the
+   ! `realtype` / `rprecision` keywords on `!$SER INIT` can override
+   ! them via `ppser_initialize`; the `PPSER_DEFAULT_*` parameters
+   ! below are the Serialbox double-precision defaults, used both as
+   ! the initial values here and as the reset target on every fresh
+   ! `ppser_initialize` (so a prior override does not stick across a
+   ! later init that omits the keyword). `ppser_realtype` is
+   ! fixed-length (padded with blanks); `type_id_from_datatype` trims
+   ! before matching, so the padding is harmless.
+   integer, parameter, public :: PPSER_DEFAULT_REALLENGTH = 8
+   character(len=*), parameter, public :: PPSER_DEFAULT_REALTYPE = 'double'
+   real(real64), parameter, public :: PPSER_DEFAULT_RPERTURB = 0.0_real64
+   integer, public, save :: ppser_reallength = PPSER_DEFAULT_REALLENGTH
+   character(len=16), public, save :: ppser_realtype = PPSER_DEFAULT_REALTYPE
+   real(real64), public, save :: ppser_zrperturb = PPSER_DEFAULT_RPERTURB
 
    ! Mode: 0 = write, 1 = read, 2 = read-perturb.
    integer, save :: ppser_mode_state = 0
@@ -156,12 +170,24 @@ contains
    !> path aborts cleanly without truncating an existing target file
    !> in write mode.
    subroutine ppser_initialize(directory, prefix, mode, &
-                               directory_ref, prefix_ref)
+                               directory_ref, prefix_ref, &
+                               singlefile, mpi_rank, rprecision, &
+                               rperturb, realtype, archive, unique_id)
       character(len=*), intent(in) :: directory
       character(len=*), intent(in) :: prefix
       character(len=*), intent(in) :: mode
       character(len=*), intent(in), optional :: directory_ref
       character(len=*), intent(in), optional :: prefix_ref
+      ! Serialbox-compatible keywords pp_ser passes through from
+      ! `!$SER INIT`. Defaults match Serialbox so existing call sites
+      ! are unaffected when a keyword is absent.
+      logical, intent(in), optional :: singlefile
+      integer, intent(in), optional :: mpi_rank
+      integer, intent(in), optional :: rprecision
+      real(real64), intent(in), optional :: rperturb
+      character(len=*), intent(in), optional :: realtype
+      character(len=*), intent(in), optional :: archive
+      integer, intent(in), optional :: unique_id
 
       ! Validate optional-argument coherence BEFORE creating/truncating
       ! the main store, so a partial-arg mistake doesn't trash an
@@ -172,6 +198,44 @@ contains
          error stop 1
       end if
 
+      ! Behaviour-changing keywords: update the module state that
+      ! pp_ser-generated REGISTER / DATA calls consume. `rprecision`
+      ! is the real byte length; `realtype` is the type string passed
+      ! to `fs_register_field`; `rperturb` feeds the read-perturb path
+      ! (Slice A-2) via `ppser_zrperturb`.
+      !
+      ! Reset to the Serialbox defaults FIRST. These three are module
+      ! SAVE state, so without a reset an override from a prior init in
+      ! the same process would stick across a later init that omits the
+      ! keyword — the omitting init must see the documented default, not
+      ! the stale override.
+      ppser_reallength = PPSER_DEFAULT_REALLENGTH
+      ppser_realtype = PPSER_DEFAULT_REALTYPE
+      ppser_zrperturb = PPSER_DEFAULT_RPERTURB
+      if (present(rprecision)) ppser_reallength = rprecision
+      if (present(realtype)) then
+         ! `realtype` comes from a user-authored `!$SER INIT` directive,
+         ! so reject an over-long value loudly rather than silently
+         ! truncating it into the fixed-length `ppser_realtype` (which
+         ! would then mis-register every real field).
+         if (len_trim(realtype) > len(ppser_realtype)) then
+            write (*, '(a,i0,a)') &
+               'preserf: realtype string exceeds ', len(ppser_realtype), &
+               ' characters'
+            error stop 1
+         end if
+         ppser_realtype = realtype
+      end if
+      if (present(rperturb)) ppser_zrperturb = rperturb
+
+      ! singlefile / archive / unique_id are metadata-only on the
+      ! preserf side; recording them in root attributes is Slice D
+      ! Phase 3 (deferred). Accept them here for signature
+      ! compatibility with pp_ser-emitted INIT calls; the present()
+      ! probes keep -Wall/-Wextra from flagging them as unused dummies.
+      if (present(singlefile) .or. present(archive) .or. &
+          present(unique_id)) continue
+
       ! Open the read-only reference store FIRST when an explicit
       ! `directory_ref`/`prefix_ref` pair is supplied. In write or
       ! append mode the main `nf90_create` truncates the target file
@@ -181,10 +245,12 @@ contains
       ! cleanly without touching the writable target.
       if (present(directory_ref) .and. present(prefix_ref)) then
          call preserf_open_serializer(ppser_serializer_ref, &
-                                      directory_ref, prefix_ref, 'r')
+                                      directory_ref, prefix_ref, 'r', &
+                                      rank=mpi_rank)
       end if
 
-      call preserf_open_serializer(ppser_serializer, directory, prefix, mode)
+      call preserf_open_serializer(ppser_serializer, directory, prefix, mode, &
+                                   rank=mpi_rank)
 
       if (.not. (present(directory_ref) .and. present(prefix_ref))) then
          if (mode == 'r' .or. mode == 'R') then
@@ -196,7 +262,8 @@ contains
             ! handle to the same on-disk file (HDF5 allows multiple
             ! read-only opens).
             call preserf_open_serializer(ppser_serializer_ref, &
-                                         directory, prefix, 'r')
+                                         directory, prefix, 'r', &
+                                         rank=mpi_rank)
          end if
       end if
 
@@ -265,16 +332,29 @@ contains
    ! Internal helpers
    ! -------------------------------------------------------------------------
 
-   subroutine preserf_open_serializer(s, directory, prefix, mode)
+   subroutine preserf_open_serializer(s, directory, prefix, mode, rank)
       type(t_serializer), intent(inout) :: s
       character(len=*), intent(in) :: directory
       character(len=*), intent(in) :: prefix
       character(len=*), intent(in) :: mode
+      integer, intent(in), optional :: rank
 
       character(len=:), allocatable :: path
+      character(len=32) :: rank_suffix
       integer :: ncerr, version
 
-      path = trim(directory)//'/'//trim(prefix)//'.nc'
+      ! `mpi_rank` maps to a `_rank<n>` suffix on the on-disk store
+      ! name (storage_mapping.md §9) so parallel runs write one store
+      ! per rank instead of clobbering a shared file. The suffix is
+      ! applied here, the single point where the path is built, and
+      ! only to the file name — the logical `prefix` recorded in the
+      ! `_preserf_serialbox_prefix` root attribute stays unsuffixed.
+      if (present(rank)) then
+         write (rank_suffix, '(a,i0)') '_rank', rank
+         path = trim(directory)//'/'//trim(prefix)//trim(rank_suffix)//'.nc'
+      else
+         path = trim(directory)//'/'//trim(prefix)//'.nc'
+      end if
 
       select case (mode)
       case ('w', 'W')
