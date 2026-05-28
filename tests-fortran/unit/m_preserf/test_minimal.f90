@@ -346,10 +346,17 @@ program test_minimal
                   'perturb-roundtrip: scale 0.1 left data unchanged'
                ! Zero scale: identity across ranks (re-read same savepoint).
                call fs_read_field(ppser_serializer, ppser_savepoint, 'u1', u1b, 0.0_real64)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u2', u2b, 0.0_real64)
                call fs_read_field(ppser_serializer, ppser_savepoint, 'u3', u3b, 0.0_real64)
                do i = 1, 3
                   if (u1b(i) /= u1(i)) error stop &
                      'perturb-roundtrip: scale 0.0 should be identity (1d)'
+               end do
+               do j = 1, 2
+                  do i = 1, 2
+                     if (u2b(i, j) /= u2(i, j)) error stop &
+                        'perturb-roundtrip: scale 0.0 should be identity (2d)'
+                  end do
                end do
                do k = 1, 2
                   do j = 1, 2

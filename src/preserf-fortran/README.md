@@ -56,60 +56,20 @@ the `!$SER INIT(mode='w')` / `REGISTER` / `SAVEPOINT` / `DATA` /
   matching pp_ser's CASE(2) read-perturb semantics. The generator is
   left unseeded, so its initial seed — and thus whether the noise
   repeats across runs — is processor-dependent (some compilers/runtimes
-  are deterministic, others vary); call `random_seed` / `random_init`
-  before reading if you need a specific reproducible or randomized
-  sequence. Tests assert bounds, not exact values.
+  are deterministic, others vary); call `random_seed` before reading if
+  you need control over the sequence (a fixed `put=` seed for
+  reproducibility, or a clock-derived seed for variability). Tests
+  assert bounds, not exact values.
 - `fs_enable_serialization` / `fs_disable_serialization` gate every
   fs_* I/O entry point at runtime; `fs_serialization_status()` exposes
   the flag for tests.
 
 ### Known limitations / mismatches with pp_ser-generated code
 
-The first slice trades a few corners of pp_ser's contract for a small
-implementation. These are tracked as follow-up PRs:
+A corner of pp_ser's contract remains unimplemented, tracked as a
+follow-up:
 
-1. **Read mode is partial.** `ppser_initialize(directory, prefix, 'r')`
-   opens the store read-only (and, in this slice, also opens
-   `ppser_serializer_ref` against the same store so pp_ser's read DATA
-   branches can call `fs_read_field(ppser_serializer_ref, ...)`).
-   `fs_read_field` works against a read-only store, which is enough
-   for `tests/integration_tests/test_fortran_wire_compat.py`. However, pp_ser-generated
-   source also calls `fs_register_field`, `fs_create_savepoint`, and
-   the metainfo helpers (`fs_add_serializer_metainfo` /
-   `fs_add_savepoint_metainfo`) unconditionally — these directives
-   live OUTSIDE the `SELECT CASE (ppser_get_mode())` that wraps DATA
-   blocks. The current implementation of those routines always
-   **creates** the corresponding netCDF object, so pointing a
-   pp_ser-generated read run at an existing read-only store will
-   abort (e.g. `fs_create_savepoint` trying to `nf90_def_grp(sp_000000)`
-   on a read-only dataset). The follow-up PR will switch them to a
-   "create-or-resolve-and-validate" shape; until then, only the
-   write-mode end-to-end flow is exercised.
-
-   Additionally, the read overloads validate the registry on the
-   `s` serializer (via `s%fields_grpid`) but pull the data variable
-   from `sp%grpid`, the savepoint group created by
-   `fs_create_savepoint`. pp_ser-generated read DATA branches call
-   `fs_read_field(ppser_serializer_ref, ppser_savepoint, ...)` where
-   `ppser_savepoint` lives in `ppser_serializer` rather than
-   `ppser_serializer_ref` — so an explicit reference store would
-   validate against one file and read from another. This is one of
-   the cases the create-or-resolve-and-validate refactor needs to
-   address (savepoints would carry per-serializer grpids, or the
-   read path would re-resolve the savepoint under `s` first).
-2. **`ppser_initialize` accepts every Serialbox keyword but does not
-   yet persist all of them.** The signature takes every keyword
-   pp_ser passes through from `!$SER INIT` (`singlefile`, `mpi_rank`,
-   `rprecision`, `rperturb`, `realtype`, `archive`, `unique_id`) on
-   top of `directory`, `prefix`, `mode`, `directory_ref`, and
-   `prefix_ref`, so generated source compiles. The behaviour-changing
-   keywords are wired: `mpi_rank` suffixes the store name
-   (`_rank<n>`), `realtype` / `rprecision` set the real-field type
-   metadata, and `rperturb` threads to `ppser_zrperturb` (consumed by
-   read-perturb). The metadata-only keywords `singlefile`, `archive`,
-   and `unique_id` are accepted but not yet recorded in root
-   attributes — that round-trip is a follow-up (Slice D Phase 3).
-3. **Append mode (`'a'`) is rejected** rather than half-implemented.
+1. **Append mode (`'a'`) is rejected** rather than half-implemented.
    It needs `nf90_inq_grps` index resumption that the netcdf-fortran
    4.5.x wrapper makes awkward.
 
