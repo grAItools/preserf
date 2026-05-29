@@ -65,6 +65,61 @@ set_tests_properties(preserf_fortran_init_keywords PROPERTIES
     TIMEOUT 60
 )
 
+# Slice E: NCZarr V2 backend selector. backend='nczarr-v2' writes a
+# `.zarr` directory store via netcdf-c's NCZarr backend; the scenario
+# round-trips one real64 field through it.
+add_test(
+    NAME preserf_fortran_backend_nczarr
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-nczarr
+)
+set_tests_properties(preserf_fortran_backend_nczarr PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: backend-nczarr OK"
+    TIMEOUT 60
+)
+
+# Slice E negative: an unknown backend aborts at the ppser_initialize
+# boundary (allowlist of 'netcdf4' / 'nczarr-v2').
+add_test(
+    NAME preserf_fortran_backend_bad
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-bad
+)
+set_tests_properties(preserf_fortran_backend_bad PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "unknown backend"
+    TIMEOUT 60
+)
+
+# Slice E negative: the nczarr-v2 backend needs an absolute directory for
+# its file:// URL; a relative one must abort rather than build a malformed
+# file://<authority>/... target.
+add_test(
+    NAME preserf_fortran_backend_nczarr_relpath
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-nczarr-relpath
+)
+set_tests_properties(preserf_fortran_backend_nczarr_relpath PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "requires an absolute directory"
+    TIMEOUT 60
+)
+
+# Slice E negative: the nczarr-v2 URL is raw-concatenated (not URI-encoded
+# like the Python reference path), so a path with a URI-significant
+# character (space / # / ? / %) must abort rather than emit a bad URL.
+add_test(
+    NAME preserf_fortran_backend_nczarr_badchar
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-nczarr-badchar
+)
+set_tests_properties(preserf_fortran_backend_nczarr_badchar PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "needs URI-encoding"
+    TIMEOUT 60
+)
+
 # -----------------------------------------------------------------------------
 # Slice A-1: read-mode create-or-resolve-and-validate.
 #

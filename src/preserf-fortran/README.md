@@ -1,12 +1,14 @@
 # preserf-fortran
 
 Fortran helper modules that pp_ser-generated `!$SER` directive code links
-against. **v0.1 writes NetCDF4 stores** following the group-per-savepoint
-layout documented in [`../../docs/references/storage_mapping.md`][mapping].
-The schema itself is also defined for NCZarr V2 (and is forward-compatible
-with Zarr V3 once netcdf-c's NCZarr V3 PR lands), but emitting an NCZarr
-URL target from the Fortran helper is tracked as a follow-up — see
-"Known limitations" below.
+against, following the group-per-savepoint layout documented in
+[`../../docs/references/storage_mapping.md`][mapping]. The helper writes
+**NetCDF4 stores** (`.nc` files, the default) or **NCZarr V2 stores**
+(`.zarr` directory stores), selected by the `backend` keyword on
+`ppser_initialize` (Slice E); the same schema serves both (ADR 0002).
+The `nczarr-v2` backend requires an absolute `directory` (its `file://`
+URL has no portable relative form). Zarr V3 stays forward-compatible but
+deferred until netcdf-c's NCZarr V3 PR lands.
 
 [mapping]: ../../docs/references/storage_mapping.md
 
@@ -90,14 +92,6 @@ Out of scope for this PR (tracked as follow-ups):
   clobber the main store" needs a separate Fortran test program that's
   expected to `error stop` (a `WILL_FAIL` ctest entry) plus a Python
   assertion that the writable target survived.
-- NCZarr URL targets. The helper currently constructs the open path as
-  `<directory>/<prefix>.nc` and passes `NF90_NETCDF4` to `nf90_create`.
-  Supporting `file://<directory>/<prefix>.zarr#mode=nczarr,zarr2`
-  requires both reworking the path/URL construction in
-  `preserf_open_serializer` and surfacing a backend selector at the
-  `ppser_initialize` boundary, plus a cross-language test that exercises
-  it via `tests/_support/storage.py`. Not the one-line change the original draft
-  suggested.
 
 [axis-order]: ../../docs/references/storage_mapping.md
 
