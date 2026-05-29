@@ -32,7 +32,12 @@ configure_file(
 target_sources(preserf_fortran PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}/generated/preserf_version.f90
     utils_preserf.f90
-    m_preserf.f90
+    # m_preserf.F90 (uppercase) is compiled through the C preprocessor:
+    # the field / read-perturb / array-metainfo overload matrix is
+    # generated from `#include` templates (see
+    # docs/adr/0004-fortran-cpp-templates.md). The `-cpp` flag is added in
+    # the GNU block below.
+    m_preserf.F90
     # Drop-in re-exports of the names Serialbox / pp_ser historically use.
     utils_ppser.f90
     m_serialize.f90
@@ -61,7 +66,11 @@ target_link_libraries(preserf_fortran PUBLIC PkgConfig::NETCDF_FORTRAN)
 # CMake 3.28; this is the working enforcement).
 if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
     target_compile_options(preserf_fortran PRIVATE
-        -Wall -Wextra -fimplicit-none -std=f2008
+        # -cpp preprocesses m_preserf.F90's `#include` overload templates.
+        # -ffree-line-length-none lifts the 132-column free-form limit so a
+        # macro instantiation that expands wide does not get truncated
+        # (same rationale as the e2e target).
+        -Wall -Wextra -fimplicit-none -std=f2008 -cpp -ffree-line-length-none
     )
 endif()
 

@@ -144,6 +144,21 @@ set_tests_properties(preserf_fortran_read_roundtrip PROPERTIES
     TIMEOUT 60
 )
 
+# Slice B: full type-coverage matrix. One round-trip per dtype (logical /
+# int32 / int64 / real32 / real64) at rank 1, plus a 0-D scalar, a 4-D
+# field, and a real32 read-perturb. The full (rank x dtype) on-disk type
+# matrix is asserted by the Python cross-language test.
+add_test(
+    NAME preserf_fortran_type_matrix
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" type-matrix
+)
+set_tests_properties(preserf_fortran_type_matrix PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: type-matrix OK"
+    TIMEOUT 60
+)
+
 # Slice A-2: read-perturb applies bounded multiplicative noise; scale 0 is
 # the identity.
 add_test(

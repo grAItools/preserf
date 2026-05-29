@@ -539,6 +539,113 @@ program test_minimal
                call fs_read_field(ppser_serializer, ppser_savepoint, 'u', u_back)
             end block
             call abort_unexpected('read-bad-xtype')
+         else if (scenario == 'type-matrix') then
+            ! Slice B: smoke-test the new dtype x rank overloads end to
+            ! end. One 1-D write+read round-trip per dtype (logical /
+            ! int32 / int64 / real32 / real64), a 0-D (scalar) round-trip,
+            ! a 4-D round-trip, and a real32 read-perturb. The full
+            ! (rank x dtype) on-disk type matrix is asserted by the Python
+            ! cross-language test; here we prove the Fortran overloads
+            ! resolve, compile, and round-trip their values losslessly.
+            block
+               logical :: lf(3), lfb(3)
+               integer(int32) :: i4f(3), i4fb(3), sc, scb
+               integer(int64) :: i8f(3), i8fb(3)
+               real(real32) :: r4f(3), r4fb(3), r4p(3)
+               real(real64) :: r8f(3), r8fb(3)
+               real(real32) :: a4(2, 2, 2, 2), a4b(2, 2, 2, 2)
+               integer :: i, j, k, l
+               lf = [.true., .false., .true.]
+               do i = 1, 3
+                  i4f(i) = int(10 + i, int32)
+                  i8f(i) = int(1000000000000_int64 + i, int64)
+                  r4f(i) = real(i, real32) + 0.5_real32
+                  r8f(i) = real(i, real64) + 0.25_real64
+               end do
+               sc = 4242_int32
+               do l = 1, 2
+                  do k = 1, 2
+                     do j = 1, 2
+                        do i = 1, 2
+                           a4(i, j, k, l) = real(1000*i + 100*j + 10*k + l, real32)
+                        end do
+                     end do
+                  end do
+               end do
+
+               call ppser_initialize(out_dir, 'ftypes', 'w')
+               call fs_register_field(ppser_serializer, 'lf', 'bool', 1, &
+                                      3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i4f', 'int', 4, &
+                                      3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i8f', 'int64', 8, &
+                                      3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'r4f', 'float', 4, &
+                                      3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'r8f', 'double', 8, &
+                                      3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               ! 0-D scalar: all-zero size tuple.
+               call fs_register_field(ppser_serializer, 'sc', 'int', 4, &
+                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               ! 4-D real32.
+               call fs_register_field(ppser_serializer, 'a4', 'float', 4, &
+                                      2, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'lf', lf)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i4f', i4f)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i8f', i8f)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'r4f', r4f)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'r8f', r8f)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'sc', sc)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'a4', a4)
+               call ppser_finalize()
+
+               call ppser_initialize(out_dir, 'ftypes', 'r')
+               call fs_register_field(ppser_serializer, 'lf', 'bool', 1, &
+                                      3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i4f', 'int', 4, &
+                                      3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i8f', 'int64', 8, &
+                                      3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'r4f', 'float', 4, &
+                                      3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'r8f', 'double', 8, &
+                                      3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'sc', 'int', 4, &
+                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'a4', 'float', 4, &
+                                      2, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'lf', lfb)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'i4f', i4fb)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'i8f', i8fb)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'r4f', r4fb)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'r8f', r8fb)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'sc', scb)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'a4', a4b)
+               if (any(lfb .neqv. lf)) error stop 'type-matrix: logical mismatch'
+               if (any(i4fb /= i4f)) error stop 'type-matrix: int32 mismatch'
+               if (any(i8fb /= i8f)) error stop 'type-matrix: int64 mismatch'
+               if (any(r4fb /= r4f)) error stop 'type-matrix: real32 mismatch'
+               if (any(r8fb /= r8f)) error stop 'type-matrix: real64 mismatch'
+               if (scb /= sc) error stop 'type-matrix: 0-D scalar mismatch'
+               if (any(a4b /= a4)) error stop 'type-matrix: 4-D mismatch'
+               ! real32 read-perturb: scale 0 is the identity, a non-zero
+               ! scale keeps each element within +/- scale and shifts it.
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'r4f', &
+                                  r4p, 0.0_real64)
+               if (any(r4p /= r4f)) error stop &
+                  'type-matrix: real32 perturb scale 0 should be identity'
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'r4f', &
+                                  r4p, 0.1_real64)
+               do i = 1, 3
+                  if (r4p(i) < r4f(i)*0.9_real32 .or. r4p(i) > r4f(i)*1.1_real32) &
+                     error stop 'type-matrix: real32 perturb out of bounds'
+               end do
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: type-matrix OK'
+               stop
+            end block
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &
