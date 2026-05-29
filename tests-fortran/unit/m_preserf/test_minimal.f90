@@ -661,6 +661,97 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: type-matrix OK'
                stop
             end block
+         else if (scenario == 'wire-matrix') then
+            ! Slice B Phase 3: write one field of every (dtype, rank)
+            ! combination plus a 1D-array metainfo of each scalar type,
+            ! so the Python cross-language test can assert the on-disk
+            ! netCDF type for the whole matrix against storage_mapping §1.
+            ! Each rank-r field has extent 2 on every axis; every element
+            ! is filled with a per-dtype constant the Python side knows.
+            block
+               logical :: l0, l1(2), l2(2, 2), l3(2, 2, 2), l4(2, 2, 2, 2)
+               integer(int32) :: i40, i41(2), i42(2, 2), i43(2, 2, 2), i44(2, 2, 2, 2)
+               integer(int64) :: i80, i81(2), i82(2, 2), i83(2, 2, 2), i84(2, 2, 2, 2)
+               real(real32) :: r40, r41(2), r42(2, 2), r43(2, 2, 2), r44(2, 2, 2, 2)
+               real(real64) :: r80, r81(2), r82(2, 2), r83(2, 2, 2), r84(2, 2, 2, 2)
+               l0 = .true.; l1 = .true.; l2 = .true.; l3 = .true.; l4 = .true.
+               i40 = 7_int32; i41 = 7_int32; i42 = 7_int32; i43 = 7_int32; i44 = 7_int32
+               i80 = 77_int64; i81 = 77_int64; i82 = 77_int64
+               i83 = 77_int64; i84 = 77_int64
+               r40 = 1.5_real32; r41 = 1.5_real32; r42 = 1.5_real32
+               r43 = 1.5_real32; r44 = 1.5_real32
+               r80 = 2.5_real64; r81 = 2.5_real64; r82 = 2.5_real64
+               r83 = 2.5_real64; r84 = 2.5_real64
+
+               call ppser_initialize(out_dir, 'fmatrix', 'w')
+               ! Register + write every (dtype, rank). Names are
+               ! "<tag><rank>" so the Python test can build them.
+               call reg_matrix_field('l0', 'bool', 1, 0, 0, 0, 0)
+               call reg_matrix_field('l1', 'bool', 1, 2, 0, 0, 0)
+               call reg_matrix_field('l2', 'bool', 1, 2, 2, 0, 0)
+               call reg_matrix_field('l3', 'bool', 1, 2, 2, 2, 0)
+               call reg_matrix_field('l4', 'bool', 1, 2, 2, 2, 2)
+               call reg_matrix_field('i40', 'int', 4, 0, 0, 0, 0)
+               call reg_matrix_field('i41', 'int', 4, 2, 0, 0, 0)
+               call reg_matrix_field('i42', 'int', 4, 2, 2, 0, 0)
+               call reg_matrix_field('i43', 'int', 4, 2, 2, 2, 0)
+               call reg_matrix_field('i44', 'int', 4, 2, 2, 2, 2)
+               call reg_matrix_field('i80', 'int64', 8, 0, 0, 0, 0)
+               call reg_matrix_field('i81', 'int64', 8, 2, 0, 0, 0)
+               call reg_matrix_field('i82', 'int64', 8, 2, 2, 0, 0)
+               call reg_matrix_field('i83', 'int64', 8, 2, 2, 2, 0)
+               call reg_matrix_field('i84', 'int64', 8, 2, 2, 2, 2)
+               call reg_matrix_field('r40', 'float', 4, 0, 0, 0, 0)
+               call reg_matrix_field('r41', 'float', 4, 2, 0, 0, 0)
+               call reg_matrix_field('r42', 'float', 4, 2, 2, 0, 0)
+               call reg_matrix_field('r43', 'float', 4, 2, 2, 2, 0)
+               call reg_matrix_field('r44', 'float', 4, 2, 2, 2, 2)
+               call reg_matrix_field('r80', 'double', 8, 0, 0, 0, 0)
+               call reg_matrix_field('r81', 'double', 8, 2, 0, 0, 0)
+               call reg_matrix_field('r82', 'double', 8, 2, 2, 0, 0)
+               call reg_matrix_field('r83', 'double', 8, 2, 2, 2, 0)
+               call reg_matrix_field('r84', 'double', 8, 2, 2, 2, 2)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'l0', l0)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'l1', l1)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'l2', l2)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'l3', l3)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'l4', l4)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i40', i40)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i41', i41)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i42', i42)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i43', i43)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i44', i44)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i80', i80)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i81', i81)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i82', i82)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i83', i83)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i84', i84)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'r40', r40)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'r41', r41)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'r42', r42)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'r43', r43)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'r44', r44)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'r80', r80)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'r81', r81)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'r82', r82)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'r83', r83)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'r84', r84)
+               ! 1D-array metainfo of each scalar type on the root group.
+               call fs_add_serializer_metainfo(ppser_serializer, 'a_lg', &
+                                               [.true., .false.])
+               call fs_add_serializer_metainfo(ppser_serializer, 'a_i4', &
+                                               [10_int32, 20_int32, 30_int32])
+               call fs_add_serializer_metainfo(ppser_serializer, 'a_i8', &
+                                               [100_int64, 200_int64])
+               call fs_add_serializer_metainfo(ppser_serializer, 'a_r4', &
+                                               [1.5_real32, 2.5_real32])
+               call fs_add_serializer_metainfo(ppser_serializer, 'a_r8', &
+                                               [3.5_real64, 4.5_real64])
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: wire-matrix OK'
+               stop
+            end block
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &
@@ -916,6 +1007,16 @@ contains
       open (newunit=unit, file=path, status='old', iostat=ios)
       if (ios == 0) close (unit, status='delete')
    end subroutine delete_if_exists
+
+   !> Register a field of the given datatype and (i,j,k,l) sizes with all
+   !> halos zero, against the module-level ppser_serializer. Keeps the
+   !> wire-matrix scenario's 25 registrations terse.
+   subroutine reg_matrix_field(name, dtype, bytes, isz, jsz, ksz, lsz)
+      character(len=*), intent(in) :: name, dtype
+      integer, intent(in) :: bytes, isz, jsz, ksz, lsz
+      call fs_register_field(ppser_serializer, name, dtype, bytes, &
+                             isz, jsz, ksz, lsz, 0, 0, 0, 0, 0, 0, 0, 0)
+   end subroutine reg_matrix_field
 
    !> Write a small two-savepoint store used by the read-mode scenarios.
    !> Field `u` (1-D, size 3, iMinusHalo=1 / iPlusHalo=2) is written into

@@ -159,6 +159,20 @@ set_tests_properties(preserf_fortran_type_matrix PROPERTIES
     TIMEOUT 60
 )
 
+# Slice B Phase 3: write one field of every (dtype, rank) combination plus
+# array metainfo, for the Python cross-language matrix assertions. The
+# native run just confirms the writer completes.
+add_test(
+    NAME preserf_fortran_wire_matrix
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" wire-matrix
+)
+set_tests_properties(preserf_fortran_wire_matrix PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: wire-matrix OK"
+    TIMEOUT 60
+)
+
 # Slice A-2: read-perturb applies bounded multiplicative noise; scale 0 is
 # the identity.
 add_test(
