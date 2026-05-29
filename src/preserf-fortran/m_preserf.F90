@@ -57,6 +57,12 @@ module m_preserf
       module procedure fs_add_savepoint_metainfo_r4
       module procedure fs_add_savepoint_metainfo_r8
       module procedure fs_add_savepoint_metainfo_s
+      ! 1D-array overloads (Serialbox MetainfoValue::Array).
+      module procedure fs_add_savepoint_metainfo_l_1d
+      module procedure fs_add_savepoint_metainfo_i4_1d
+      module procedure fs_add_savepoint_metainfo_i8_1d
+      module procedure fs_add_savepoint_metainfo_r4_1d
+      module procedure fs_add_savepoint_metainfo_r8_1d
    end interface
    public :: fs_add_savepoint_metainfo
 
@@ -67,6 +73,12 @@ module m_preserf
       module procedure fs_add_serializer_metainfo_r4
       module procedure fs_add_serializer_metainfo_r8
       module procedure fs_add_serializer_metainfo_s
+      ! 1D-array overloads (Serialbox MetainfoValue::Array).
+      module procedure fs_add_serializer_metainfo_l_1d
+      module procedure fs_add_serializer_metainfo_i4_1d
+      module procedure fs_add_serializer_metainfo_i8_1d
+      module procedure fs_add_serializer_metainfo_r4_1d
+      module procedure fs_add_serializer_metainfo_r8_1d
    end interface
    public :: fs_add_serializer_metainfo
 
@@ -492,6 +504,129 @@ contains
       call require_open(s, 'fs_add_serializer_metainfo')
       call put_typed_scalar_attr(s%ncid, key, NF90_STRING, &
                                  s_val=value, tid=TID_STRING)
+   end subroutine
+
+   ! ========================================================================
+   ! METAINFO — 1D-array overloads (savepoint)
+   !
+   ! netCDF attributes are natively vector-valued, so an array metainfo
+   ! value lands as a vector attribute of the same on-disk type as its
+   ! scalar sibling; the `<key>__preserf_type_id` shadow records the
+   ! array TypeID (TID_ARRAY .or. base) so readers decode it as an array
+   ! (storage_mapping.md §1, §3.3). Array STRING metainfo (NC_STRING) is
+   ! deferred to Slice B' alongside string data fields — the F90
+   ! nf90_put_att API has no clean vector-of-strings path.
+   ! ========================================================================
+   subroutine fs_add_savepoint_metainfo_l_1d(sp, key, value)
+      type(t_savepoint), intent(in) :: sp
+      character(len=*), intent(in) :: key
+      logical, intent(in) :: value(:)
+      integer(int8), allocatable :: stored(:)
+      if (serialisation_enabled == 0) return
+      call require_savepoint(sp, 'fs_add_savepoint_metainfo')
+      stored = merge(1_int8, 0_int8, value)
+      call put_typed_array_attr(sp%grpid, key, NF90_BYTE, &
+                                i8_val=stored, base_tid=TID_BOOLEAN, &
+                                extra_reserved='name')
+   end subroutine
+
+   subroutine fs_add_savepoint_metainfo_i4_1d(sp, key, value)
+      type(t_savepoint), intent(in) :: sp
+      character(len=*), intent(in) :: key
+      integer(int32), intent(in) :: value(:)
+      if (serialisation_enabled == 0) return
+      call require_savepoint(sp, 'fs_add_savepoint_metainfo')
+      call put_typed_array_attr(sp%grpid, key, NF90_INT, &
+                                i32_val=value, base_tid=TID_INT32, &
+                                extra_reserved='name')
+   end subroutine
+
+   subroutine fs_add_savepoint_metainfo_i8_1d(sp, key, value)
+      type(t_savepoint), intent(in) :: sp
+      character(len=*), intent(in) :: key
+      integer(int64), intent(in) :: value(:)
+      if (serialisation_enabled == 0) return
+      call require_savepoint(sp, 'fs_add_savepoint_metainfo')
+      call put_typed_array_attr(sp%grpid, key, NF90_INT64, &
+                                i64_val=value, base_tid=TID_INT64, &
+                                extra_reserved='name')
+   end subroutine
+
+   subroutine fs_add_savepoint_metainfo_r4_1d(sp, key, value)
+      type(t_savepoint), intent(in) :: sp
+      character(len=*), intent(in) :: key
+      real(real32), intent(in) :: value(:)
+      if (serialisation_enabled == 0) return
+      call require_savepoint(sp, 'fs_add_savepoint_metainfo')
+      call put_typed_array_attr(sp%grpid, key, NF90_FLOAT, &
+                                r32_val=value, base_tid=TID_FLOAT32, &
+                                extra_reserved='name')
+   end subroutine
+
+   subroutine fs_add_savepoint_metainfo_r8_1d(sp, key, value)
+      type(t_savepoint), intent(in) :: sp
+      character(len=*), intent(in) :: key
+      real(real64), intent(in) :: value(:)
+      if (serialisation_enabled == 0) return
+      call require_savepoint(sp, 'fs_add_savepoint_metainfo')
+      call put_typed_array_attr(sp%grpid, key, NF90_DOUBLE, &
+                                r64_val=value, base_tid=TID_FLOAT64, &
+                                extra_reserved='name')
+   end subroutine
+
+   ! ========================================================================
+   ! METAINFO — 1D-array overloads (serializer / root group)
+   ! ========================================================================
+   subroutine fs_add_serializer_metainfo_l_1d(s, key, value)
+      type(t_serializer), intent(in) :: s
+      character(len=*), intent(in) :: key
+      logical, intent(in) :: value(:)
+      integer(int8), allocatable :: stored(:)
+      if (serialisation_enabled == 0) return
+      call require_open(s, 'fs_add_serializer_metainfo')
+      stored = merge(1_int8, 0_int8, value)
+      call put_typed_array_attr(s%ncid, key, NF90_BYTE, &
+                                i8_val=stored, base_tid=TID_BOOLEAN)
+   end subroutine
+
+   subroutine fs_add_serializer_metainfo_i4_1d(s, key, value)
+      type(t_serializer), intent(in) :: s
+      character(len=*), intent(in) :: key
+      integer(int32), intent(in) :: value(:)
+      if (serialisation_enabled == 0) return
+      call require_open(s, 'fs_add_serializer_metainfo')
+      call put_typed_array_attr(s%ncid, key, NF90_INT, &
+                                i32_val=value, base_tid=TID_INT32)
+   end subroutine
+
+   subroutine fs_add_serializer_metainfo_i8_1d(s, key, value)
+      type(t_serializer), intent(in) :: s
+      character(len=*), intent(in) :: key
+      integer(int64), intent(in) :: value(:)
+      if (serialisation_enabled == 0) return
+      call require_open(s, 'fs_add_serializer_metainfo')
+      call put_typed_array_attr(s%ncid, key, NF90_INT64, &
+                                i64_val=value, base_tid=TID_INT64)
+   end subroutine
+
+   subroutine fs_add_serializer_metainfo_r4_1d(s, key, value)
+      type(t_serializer), intent(in) :: s
+      character(len=*), intent(in) :: key
+      real(real32), intent(in) :: value(:)
+      if (serialisation_enabled == 0) return
+      call require_open(s, 'fs_add_serializer_metainfo')
+      call put_typed_array_attr(s%ncid, key, NF90_FLOAT, &
+                                r32_val=value, base_tid=TID_FLOAT32)
+   end subroutine
+
+   subroutine fs_add_serializer_metainfo_r8_1d(s, key, value)
+      type(t_serializer), intent(in) :: s
+      character(len=*), intent(in) :: key
+      real(real64), intent(in) :: value(:)
+      if (serialisation_enabled == 0) return
+      call require_open(s, 'fs_add_serializer_metainfo')
+      call put_typed_array_attr(s%ncid, key, NF90_DOUBLE, &
+                                r64_val=value, base_tid=TID_FLOAT64)
    end subroutine
 
    ! ========================================================================
@@ -1488,6 +1623,151 @@ contains
          error stop 1
       end select
    end subroutine check_typed_scalar_attr
+
+   !> Array counterpart of put_typed_scalar_attr: write a 1D-array metainfo
+   !> value as the vector attribute `<key>` plus its `<key>__preserf_type_id`
+   !> shadow tag carrying the *array* TypeID (TID_ARRAY .or. base_tid). In
+   !> read mode it validates the stored attribute instead of writing it.
+   !> Exactly one of i8_val / i32_val / i64_val / r32_val / r64_val must be
+   !> supplied, matching nc_type (the boolean path pre-converts to int8).
+   subroutine put_typed_array_attr(grpid, key, nc_type, base_tid, &
+                                   i8_val, i32_val, i64_val, &
+                                   r32_val, r64_val, extra_reserved)
+      integer, intent(in) :: grpid
+      character(len=*), intent(in) :: key
+      integer, intent(in) :: nc_type
+      integer(int32), intent(in) :: base_tid
+      integer(int8), intent(in), optional :: i8_val(:)
+      integer(int32), intent(in), optional :: i32_val(:)
+      integer(int64), intent(in), optional :: i64_val(:)
+      real(real32), intent(in), optional :: r32_val(:)
+      real(real64), intent(in), optional :: r64_val(:)
+      character(len=*), intent(in), optional :: extra_reserved
+
+      integer :: ncerr
+      integer(int32) :: array_tid
+      character(len=:), allocatable :: shadow
+
+      if (serialisation_enabled == 0) return
+      call reject_reserved_metainfo_key(key, extra_reserved)
+      ! The array bit distinguishes a length-1 array from a scalar, so a
+      ! reader keys off this shadow tag (not the on-disk shape).
+      array_tid = ior(TID_ARRAY, base_tid)
+
+      if (ppser_get_mode() /= 0) then
+         call check_typed_array_attr(grpid, key, nc_type, array_tid, &
+                                     i8_val, i32_val, i64_val, r32_val, r64_val)
+         return
+      end if
+
+      select case (nc_type)
+      case (NF90_BYTE)
+         if (.not. present(i8_val)) call missing_value_arg(key, 'i8_val')
+         ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, i8_val)
+      case (NF90_INT)
+         if (.not. present(i32_val)) call missing_value_arg(key, 'i32_val')
+         ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, i32_val)
+      case (NF90_INT64)
+         if (.not. present(i64_val)) call missing_value_arg(key, 'i64_val')
+         ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, i64_val)
+      case (NF90_FLOAT)
+         if (.not. present(r32_val)) call missing_value_arg(key, 'r32_val')
+         ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, r32_val)
+      case (NF90_DOUBLE)
+         if (.not. present(r64_val)) call missing_value_arg(key, 'r64_val')
+         ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, r64_val)
+      case default
+         write (*, '(a,i0)') 'preserf: unsupported array nc_type ', nc_type
+         error stop 1
+      end select
+      call preserf_check_nf_with_msg(ncerr, 'put_att '//key)
+
+      shadow = trim(key)//'__preserf_type_id'
+      ncerr = nf90_put_att(grpid, NF90_GLOBAL, shadow, array_tid)
+      call preserf_check_nf_with_msg(ncerr, 'put_att '//shadow)
+   end subroutine put_typed_array_attr
+
+   !> Read-mode counterpart of put_typed_array_attr: verify the stored
+   !> array attribute's element count, values, and `__preserf_type_id`
+   !> shadow tag all match the runtime metainfo argument; abort otherwise.
+   subroutine check_typed_array_attr(grpid, key, nc_type, array_tid, &
+                                     i8_val, i32_val, i64_val, r32_val, r64_val)
+      integer, intent(in) :: grpid
+      character(len=*), intent(in) :: key
+      integer, intent(in) :: nc_type
+      integer(int32), intent(in) :: array_tid
+      integer(int8), intent(in), optional :: i8_val(:)
+      integer(int32), intent(in), optional :: i32_val(:)
+      integer(int64), intent(in), optional :: i64_val(:)
+      real(real32), intent(in), optional :: r32_val(:)
+      real(real64), intent(in), optional :: r64_val(:)
+
+      integer :: ncerr, alen
+      integer(int32) :: stored_tid
+      character(len=:), allocatable :: shadow
+      integer(int8), allocatable :: b_i8(:)
+      integer(int32), allocatable :: b_i32(:)
+      integer(int64), allocatable :: b_i64(:)
+      real(real32), allocatable :: b_r32(:)
+      real(real64), allocatable :: b_r64(:)
+
+      shadow = trim(key)//'__preserf_type_id'
+      ncerr = nf90_get_att(grpid, NF90_GLOBAL, shadow, stored_tid)
+      if (ncerr == NF90_ENOTATT) call metainfo_absent(key)
+      call preserf_check_nf_with_msg(ncerr, 'get_att '//shadow)
+      if (stored_tid /= array_tid) then
+         write (*, '(a,a,a,i0,a,i0)') &
+            'preserf: read-mode metainfo "', trim(key), &
+            '" type-id mismatch: store has ', stored_tid, &
+            ', run expects ', array_tid
+         error stop 1
+      end if
+
+      ncerr = nf90_inquire_attribute(grpid, NF90_GLOBAL, key, len=alen)
+      if (ncerr == NF90_ENOTATT) call metainfo_absent(key)
+      call preserf_check_nf_with_msg(ncerr, 'inquire_attribute '//key)
+
+      select case (nc_type)
+      case (NF90_BYTE)
+         if (.not. present(i8_val)) call missing_value_arg(key, 'i8_val')
+         if (alen /= size(i8_val)) call metainfo_value_mismatch(key)
+         allocate (b_i8(alen))
+         ncerr = nf90_get_att(grpid, NF90_GLOBAL, key, b_i8)
+         call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
+         if (any(b_i8 /= i8_val)) call metainfo_value_mismatch(key)
+      case (NF90_INT)
+         if (.not. present(i32_val)) call missing_value_arg(key, 'i32_val')
+         if (alen /= size(i32_val)) call metainfo_value_mismatch(key)
+         allocate (b_i32(alen))
+         ncerr = nf90_get_att(grpid, NF90_GLOBAL, key, b_i32)
+         call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
+         if (any(b_i32 /= i32_val)) call metainfo_value_mismatch(key)
+      case (NF90_INT64)
+         if (.not. present(i64_val)) call missing_value_arg(key, 'i64_val')
+         if (alen /= size(i64_val)) call metainfo_value_mismatch(key)
+         allocate (b_i64(alen))
+         ncerr = nf90_get_att(grpid, NF90_GLOBAL, key, b_i64)
+         call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
+         if (any(b_i64 /= i64_val)) call metainfo_value_mismatch(key)
+      case (NF90_FLOAT)
+         if (.not. present(r32_val)) call missing_value_arg(key, 'r32_val')
+         if (alen /= size(r32_val)) call metainfo_value_mismatch(key)
+         allocate (b_r32(alen))
+         ncerr = nf90_get_att(grpid, NF90_GLOBAL, key, b_r32)
+         call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
+         if (any(b_r32 /= r32_val)) call metainfo_value_mismatch(key)
+      case (NF90_DOUBLE)
+         if (.not. present(r64_val)) call missing_value_arg(key, 'r64_val')
+         if (alen /= size(r64_val)) call metainfo_value_mismatch(key)
+         allocate (b_r64(alen))
+         ncerr = nf90_get_att(grpid, NF90_GLOBAL, key, b_r64)
+         call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
+         if (any(b_r64 /= r64_val)) call metainfo_value_mismatch(key)
+      case default
+         write (*, '(a,i0)') 'preserf: unsupported array nc_type ', nc_type
+         error stop 1
+      end select
+   end subroutine check_typed_array_attr
 
    subroutine metainfo_absent(key)
       character(len=*), intent(in) :: key

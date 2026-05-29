@@ -598,6 +598,13 @@ program test_minimal
                call fs_write_field(ppser_serializer, ppser_savepoint, 'r8f', r8f)
                call fs_write_field(ppser_serializer, ppser_savepoint, 'sc', sc)
                call fs_write_field(ppser_serializer, ppser_savepoint, 'a4', a4)
+               ! 1D-array metainfo overloads (one per scalar type), on both
+               ! the root serializer and the savepoint.
+               call fs_add_serializer_metainfo(ppser_serializer, 'm_i4', i4f)
+               call fs_add_serializer_metainfo(ppser_serializer, 'm_r8', r8f)
+               call fs_add_serializer_metainfo(ppser_serializer, 'm_lg', lf)
+               call fs_add_savepoint_metainfo(ppser_savepoint, 'm_i8', i8f)
+               call fs_add_savepoint_metainfo(ppser_savepoint, 'm_r4', r4f)
                call ppser_finalize()
 
                call ppser_initialize(out_dir, 'ftypes', 'r')
@@ -630,6 +637,14 @@ program test_minimal
                if (any(r8fb /= r8f)) error stop 'type-matrix: real64 mismatch'
                if (scb /= sc) error stop 'type-matrix: 0-D scalar mismatch'
                if (any(a4b /= a4)) error stop 'type-matrix: 4-D mismatch'
+               ! Read-mode validation of the 1D-array metainfo: replaying
+               ! the same calls checks each stored vector attribute's
+               ! values, length, and array TypeID shadow tag.
+               call fs_add_serializer_metainfo(ppser_serializer, 'm_i4', i4f)
+               call fs_add_serializer_metainfo(ppser_serializer, 'm_r8', r8f)
+               call fs_add_serializer_metainfo(ppser_serializer, 'm_lg', lf)
+               call fs_add_savepoint_metainfo(ppser_savepoint, 'm_i8', i8f)
+               call fs_add_savepoint_metainfo(ppser_savepoint, 'm_r4', r4f)
                ! real32 read-perturb: scale 0 is the identity, a non-zero
                ! scale keeps each element within +/- scale and shifts it.
                call fs_read_field(ppser_serializer, ppser_savepoint, 'r4f', &
