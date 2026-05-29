@@ -703,8 +703,9 @@ program test_minimal
             ! the Python shape/dims assertions actually constrain axis
             ! order (a C-order/Fortran-order transpose regression would
             ! change the shape). Numeric fields are filled with a
-            ! column-major ramp 1..N via reshape, so the Python side can
-            ! verify element order with arr.ravel(order='F') == arange,
+            ! column-major ramp 1..N via reshape; preserf reverses axes on
+            ! disk, so the Python side reads the array back in C-order
+            ! (arr.ravel(order='C') == arange) to reproduce that ramp,
             ! catching an element-order scramble that a uniform fill could
             ! not. Logical fields stay all-.true. (their encode is covered
             ! by the native type-matrix scenario and the a_lg metainfo).
