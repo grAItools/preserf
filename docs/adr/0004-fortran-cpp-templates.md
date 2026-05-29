@@ -43,9 +43,13 @@ architectural change this ADR records.
 
 ## Decision
 
-Generate the field, read-perturb, and array-metainfo overload matrix with
-**CPP `#include` templates**, compiled by enabling the C preprocessor on the
-library target.
+Generate the **field-I/O and read-perturb overload matrix** (the 25 write +
+25 read field overloads, the 10 read-perturb overloads, and the 10
+`apply_perturb` helpers) with **CPP `#include` templates**, compiled by
+enabling the C preprocessor on the library target. The 1D-array metainfo
+overloads and their `put_typed_array_attr` / `check_typed_array_attr` helpers
+are **hand-written** in `m_preserf.F90` — there are only a handful and they do
+not vary over rank, so a template would not pay for itself.
 
 Concretely:
 

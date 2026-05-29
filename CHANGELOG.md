@@ -25,10 +25,11 @@ embedded in each spec's Problem section.
   `logical / int32 / int64 / real32 / real64` (Serialbox
   `MetainfoValue::Array`), stored as native vector attributes whose
   `__preserf_type_id` shadow carries the array TypeID (`TID_ARRAY .or.
-  base`). The 50 field overloads, 10 read-perturb overloads, 10
-  `apply_perturb` helpers, and the array-metainfo write/validate paths are
-  generated from `#include` templates: `m_preserf.f90` becomes
-  `m_preserf.F90`, compiled with `-cpp` (see
+  base`). The 50 field overloads, 10 read-perturb overloads, and 10
+  `apply_perturb` helpers are generated from `#include` templates:
+  `m_preserf.f90` becomes `m_preserf.F90`, compiled with `-cpp` (the
+  array-metainfo overloads and their write/validate helpers are
+  hand-written, since they do not vary over rank) (see
   [ADR 0004](docs/adr/0004-fortran-cpp-templates.md)). A native
   `type-matrix` ctest scenario round-trips each dtype, a 0-D scalar, a 4-D
   field, real32 perturb, and array metainfo; a `wire-matrix` scenario plus
