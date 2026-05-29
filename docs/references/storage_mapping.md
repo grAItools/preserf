@@ -90,6 +90,11 @@ physical halo, not the storage axis.
 │   │   │                              carries field schema as attributes, value 0)
 │   │   └── attributes: type_id, dims, halos, user metainfo (§4)
 │   └── …
+├── /_tracers                         (group; one carrier per registered tracer, §4a)
+│   ├── <tracername>                  (dummy scalar variable per registered tracer;
+│   │   │                              carries field schema + stype/tracer_index)
+│   │   └── attributes: type_id, dims, halos, stype, tracer_index (§4a)
+│   └── …
 └── /savepoints                       (group; ordered savepoint vector)
     ├── /sp_000000                    (one subgroup per savepoint, zero-padded index)
     │   ├── attributes: name, metainfo (§5)
@@ -117,8 +122,16 @@ Two kinds of root attributes are written:
 | `_preserf_singlefile`       | `NF90_BYTE` | `!$SER INIT singlefile=` keyword (0/1); default `0` |
 | `_preserf_archive`          | `NF90_CHAR` | `!$SER INIT archive=` keyword; default `"Binary"`   |
 | `_preserf_unique_id`        | `NF90_INT`  | `!$SER INIT unique_id=` keyword; default `0`        |
+| `_preserf_option_verbosity` | `NF90_INT`  | `!$SER OPTION verbosity=` value; present only if set |
 
-The last three are metadata-only on the preserf side: pp_ser passes
+`_preserf_option_*` attributes record `!$SER OPTION` keys for round-trip
+(§4b). Only `verbosity` is defined today; the namespace is reserved for
+future option keys. Each is written with the value the directive supplied
+(after the `on`/`off` → `1`/`0` mapping) and is absent when the option was
+never set.
+
+`_preserf_singlefile`, `_preserf_archive`, and `_preserf_unique_id` are
+metadata-only on the preserf side: pp_ser passes
 them through verbatim from `!$SER INIT`, so they are recorded for
 round-trip fidelity but do not change preserf's runtime behaviour. Each
 is written with its effective value — the supplied keyword, or the
@@ -240,6 +253,54 @@ The dimension names of actual field-data variables (§6) are **derived** from
 this metadata at write time: `<fieldname>_dim0`, `<fieldname>_dim1`, …,
 unless a more specific naming convention is configured (future work — see
 §9).
+
+---
+
+## 4a. `/_tracers/<tracername>`: registered tracer metadata
+
+Tracers (`!$SER REGISTERTRACERS`, `!$SER TRACER`) are ordinary fields that
+additionally carry a storage type and a 1-based index into an ordered tracer
+set. `fs_RegisterAllTracers` writes one **scalar carrier variable** (rank-0,
+`NF90_INT`, value `0`) per registered tracer under `/_tracers`, exactly as
+`/_fields` carriers (§4). See ADR
+[0003](../adr/0003-tracer-storage.md) for the rationale and for the
+**built-in tracer registry** that supplies tracer data (the directive surface
+itself carries no data array).
+
+Attributes:
+
+| Attribute      | Type              | Req? | Source                                                       |
+| -------------- | ----------------- | ---- | ------------------------------------------------------------ |
+| `type_id`      | `NF90_INT`        | yes  | Serialbox TypeID (1..6) — see §1                            |
+| `dims`         | vector `NF90_INT` | yes  | C-order shape — see §1.1                                     |
+| `*minushalo` / `*plushalo` | `NF90_INT` | no | optional halos, via `put_halo_attr` (zero omitted, §4)   |
+| `stype`        | `NF90_CHAR`       | yes  | one of `tens` / `bd` / `surf` / `sedimvel`, or empty string |
+| `tracer_index` | `NF90_INT`        | yes  | 1-based position in registration order                       |
+
+Tracer **data** written at a savepoint lands as an ordinary savepoint
+variable (§6), named by the tracer name suffixed with the timelevel when a
+`@timelevel` was given, joined by an underscore: `q_v@nnow` → `q_v_nnow`; no
+timelevel → `q_v`. The timelevel is recorded **only** in this variable name,
+not as a descriptor attribute — the same tracer at different timelevels is a
+distinct snapshot, not a distinct tracer. Because tracer data uses the
+field-data layout unchanged, readers need no new data-read path — only
+`/_tracers` descriptor discovery.
+
+---
+
+## 4b. OPTION values (`_preserf_option_*`)
+
+`!$SER OPTION` keys land as reserved root attributes in the `_preserf_option_*`
+namespace (§3.1). v1 defines a single key:
+
+| Attribute                   | Type       | Value                                              |
+| --------------------------- | ---------- | -------------------------------------------------- |
+| `_preserf_option_verbosity` | `NF90_INT` | `fs_Option(verbosity=)`; after `on`/`off` → `1`/`0` |
+
+Only `verbosity` is supported today; the preprocessor rejects other OPTION
+keys (ADR [0003](../adr/0003-tracer-storage.md) §4). The attribute is absent
+when the option was never set; readers MUST tolerate its absence and MUST
+ignore unrecognised `_preserf_option_*` keys.
 
 ---
 
