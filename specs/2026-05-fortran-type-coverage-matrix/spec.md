@@ -32,6 +32,12 @@ overloads of each scalar type for metainfo.
   tractable.
 - Read-mode resolve+validate for the new overloads (Slice A-1
   territory); this slice trusts A-1's validation shape.
+- **Array string metainfo** (`_s_1d`, on-disk `NC_STRING`) is deferred to
+  Slice B′ alongside string data fields: the netcdf-fortran F90
+  `nf90_put_att` API has no clean vector-of-strings path
+  (`storage_mapping.md` §1 note). The five numeric array-metainfo
+  overloads (`logical / int32 / int64 / real32 / real64`) ship in this
+  slice; the scalar `_s` string overload is unaffected.
 
 ## Success criteria
 
