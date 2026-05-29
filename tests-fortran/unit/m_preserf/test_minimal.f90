@@ -274,6 +274,16 @@ program test_minimal
             ! Unreachable: the absolute-directory guard must abort first.
             error stop &
                'preserf-test_minimal: relative nczarr directory was accepted'
+         else if (scenario == 'backend-nczarr-badchar') then
+            ! Slice E: the nczarr-v2 URL is built by raw concatenation, so
+            ! a directory (or prefix) carrying a URI-significant character
+            ! — here a space — must abort rather than emit a malformed
+            ! file:// URL that would target the wrong on-disk store.
+            call ppser_initialize('/preserf abs dir', 'fbad', 'w', &
+                                  backend='nczarr-v2')
+            ! Unreachable: the URI-safe-char guard must abort first.
+            error stop &
+               'preserf-test_minimal: nczarr directory with unsafe char accepted'
          else if (scenario == 'read-roundtrip') then
             ! Slice A-1 Phase 1 + Phase 3: write a store, finalize, then
             ! re-open read-only and replay the same REGISTER / SAVEPOINT /

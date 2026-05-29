@@ -24,16 +24,19 @@ embedded in each spec's Problem section.
   and the Python reader agree on the URL. The same group-per-savepoint
   schema serves both (ADR 0002); the `#mode=` query drives netcdf-c's
   backend dispatch, so the `nf90_create` / `nf90_open` flags are unchanged.
-  An unknown `backend` aborts at the `ppser_initialize` boundary, and the
-  `nczarr-v2` backend requires an absolute `directory` (its `file://` URL
-  has no portable relative form) — a relative directory aborts with a
-  clear message instead of building a malformed `file://<authority>/…`
-  target. A new `backend-nczarr` `tests-fortran/unit/m_preserf` ctest
-  scenario round-trips a `real64` field through an NCZarr V2 store,
-  `backend-bad` / `backend-nczarr-relpath` negative scenarios cover the
-  two aborts, and a new `test_fortran_wire_compat.py` case decodes a
-  Fortran-written `.zarr` store through the Python reference reader. Zarr
-  V3 remains deferred until netcdf-c's NCZarr V3 PR lands.
+  An unknown `backend` aborts at the `ppser_initialize` boundary. The
+  `nczarr-v2` backend builds its store URL by raw concatenation, so it
+  requires an absolute `directory` (its `file://` URL has no portable
+  relative form) and a `directory` / `prefix` free of URI-significant
+  characters (space, `#`, `?`, `%`); a relative directory or an
+  un-encodable path aborts with a clear message instead of building a
+  malformed `file://…` target that would point at the wrong store. A new
+  `backend-nczarr` `tests-fortran/unit/m_preserf` ctest scenario
+  round-trips a `real64` field through an NCZarr V2 store; `backend-bad`,
+  `backend-nczarr-relpath`, and `backend-nczarr-badchar` negative
+  scenarios cover the aborts; and a new `test_fortran_wire_compat.py` case
+  decodes a Fortran-written `.zarr` store through the Python reference
+  reader. Zarr V3 remains deferred until netcdf-c's NCZarr V3 PR lands.
 - Read-perturb implementation (Slice A-2): the 5-arg
   `fs_read_field(..., perturb)` overloads (`real64` 1D/2D/3D) now read the
   stored field and apply symmetric multiplicative noise

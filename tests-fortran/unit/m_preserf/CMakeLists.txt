@@ -106,6 +106,20 @@ set_tests_properties(preserf_fortran_backend_nczarr_relpath PROPERTIES
     TIMEOUT 60
 )
 
+# Slice E negative: the nczarr-v2 URL is raw-concatenated (not URI-encoded
+# like the Python reference path), so a path with a URI-significant
+# character (space / # / ? / %) must abort rather than emit a bad URL.
+add_test(
+    NAME preserf_fortran_backend_nczarr_badchar
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-nczarr-badchar
+)
+set_tests_properties(preserf_fortran_backend_nczarr_badchar PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "needs URI-encoding"
+    TIMEOUT 60
+)
+
 # -----------------------------------------------------------------------------
 # Slice A-1: read-mode create-or-resolve-and-validate.
 #
