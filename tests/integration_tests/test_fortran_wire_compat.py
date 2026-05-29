@@ -28,8 +28,9 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 
-from tests._support.serialbox import TypeID
+from tests._support.serialbox import TypeID, numpy_dtype_for
 from tests._support.storage import open_url_for, read_dump
+from tests.conftest import _require_binary
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -370,3 +371,163 @@ def test_fortran_realtype_too_long_aborts(tmp_path: Path, fortran_binary: Path) 
         "abort should name the realtype length guard\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Slice B: full (rank x dtype) type-coverage matrix.
+#
+# The `wire-matrix` scenario writes one field of every dtype x rank
+# combination (named "<tag><rank>") plus a 1D-array metainfo of each
+# scalar type. Extents are distinct per axis (rank-r uses the (2,3,4,5)
+# prefix) so the on-disk C-order shape/dims constrain axis order; numeric
+# fields are filled with a column-major ramp 1..N, so the on-disk array
+# read back as numpy ravel(order="F") must equal arange(1, N+1) — this
+# catches both an axis-order transpose (wrong shape) and an element-order
+# scramble (wrong ramp). The test asserts, for each (rank, dtype), the raw
+# on-disk netCDF type and registry type_id against the TypeID -> netCDF
+# table in docs/references/storage_mapping.md §1, plus shape and values.
+# ---------------------------------------------------------------------------
+
+# (tag, primitive TypeID)
+_MATRIX_DTYPES = [
+    ("l", TypeID.Boolean),
+    ("i4", TypeID.Int32),
+    ("i8", TypeID.Int64),
+    ("r4", TypeID.Float32),
+    ("r8", TypeID.Float64),
+]
+
+# Fortran column-major extents per rank: rank-r uses (2,3,4,5)[:r].
+_MATRIX_FORTRAN_EXTENTS = {0: (), 1: (2,), 2: (2, 3), 3: (2, 3, 4), 4: (2, 3, 4, 5)}
+# Every (tag, rank) field name the wire-matrix scenario must emit.
+_MATRIX_FIELD_NAMES = {
+    f"{tag}{rank}" for (tag, _tid) in _MATRIX_DTYPES for rank in range(5)
+}
+
+
+@pytest.fixture(scope="module")
+def matrix_store(tmp_path_factory: pytest.TempPathFactory) -> dict[str, object]:
+    """Run the `wire-matrix` scenario once and read back the matrix store.
+
+    Module-scoped so the Fortran binary runs a single time for the whole
+    parametrised matrix. ``_require_binary`` applies the same skip / hard-fail
+    semantics (``PRESERF_REQUIRE_FORTRAN``) as the ``fortran_binary`` fixture.
+    """
+    binary = _require_binary("unit/m_preserf", "preserf_fortran_test_minimal")
+    out_dir = tmp_path_factory.mktemp("wire_matrix")
+    result = subprocess.run(
+        [str(binary), str(out_dir), "wire-matrix"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, (
+        f"Fortran binary exited {result.returncode}.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "preserf-fortran: wire-matrix OK" in result.stdout
+
+    nc_path = out_dir / "fmatrix.nc"
+
+    import netCDF4  # local import; netCDF4 is a dev-only dependency
+
+    registry_type_id: dict[str, int] = {}
+    savepoint_dtype: dict[str, np.dtype] = {}
+    raw = netCDF4.Dataset(str(nc_path), "r")
+    try:
+        fields_grp = raw.groups["_fields"]
+        sp_grp = raw.groups["savepoints"].groups["sp_000000"]
+        for vname in fields_grp.variables:
+            registry_type_id[vname] = int(
+                fields_grp.variables[vname].getncattr("type_id")
+            )
+        for vname in sp_grp.variables:
+            savepoint_dtype[vname] = sp_grp.variables[vname].dtype
+    finally:
+        raw.close()
+
+    # Completeness guard: the writer must emit exactly the 25 matrix
+    # fields — no more, no less. Without this a dropped field surfaces as
+    # a bare KeyError on one parametrised case, and a spurious extra
+    # variable goes unnoticed entirely.
+    assert set(registry_type_id) == _MATRIX_FIELD_NAMES, (
+        "registry fields differ from the expected 25-field matrix: "
+        f"missing={_MATRIX_FIELD_NAMES - set(registry_type_id)}, "
+        f"unexpected={set(registry_type_id) - _MATRIX_FIELD_NAMES}"
+    )
+    assert set(savepoint_dtype) == _MATRIX_FIELD_NAMES, (
+        "savepoint variables differ from the expected 25-field matrix: "
+        f"missing={_MATRIX_FIELD_NAMES - set(savepoint_dtype)}, "
+        f"unexpected={set(savepoint_dtype) - _MATRIX_FIELD_NAMES}"
+    )
+
+    return {
+        "registry_type_id": registry_type_id,
+        "savepoint_dtype": savepoint_dtype,
+        "dump": read_dump(str(nc_path)),
+    }
+
+
+@pytest.mark.parametrize("rank", [0, 1, 2, 3, 4])
+@pytest.mark.parametrize(("tag", "tid"), _MATRIX_DTYPES)
+def test_fortran_type_coverage_matrix(
+    matrix_store: dict[str, object],
+    rank: int,
+    tag: str,
+    tid: TypeID,
+) -> None:
+    """Each (rank, dtype) field has the expected on-disk type, shape, and values."""
+    name = f"{tag}{rank}"
+    expected_dtype = numpy_dtype_for(tid)
+    # On disk the dims/shape are C-order = reverse of the Fortran extents.
+    c_shape = tuple(reversed(_MATRIX_FORTRAN_EXTENTS[rank]))
+
+    registry_type_id = matrix_store["registry_type_id"]
+    savepoint_dtype = matrix_store["savepoint_dtype"]
+    dump = matrix_store["dump"]
+
+    # Registry type_id (storage_mapping §1 TypeID) and the raw on-disk
+    # savepoint variable netCDF type both match the table.
+    assert registry_type_id[name] == int(tid), (  # type: ignore[index]
+        f"/_fields/{name} type_id should be {int(tid)} ({tid.name})"
+    )
+    assert savepoint_dtype[name] == expected_dtype, (  # type: ignore[index]
+        f"savepoint variable {name} on-disk dtype should be {expected_dtype}"
+    )
+
+    info = dump.field_map[name]  # type: ignore[attr-defined]
+    assert info.type_id == tid
+    # Distinct extents make this assertion sensitive to an axis-order
+    # (C-order vs Fortran-order) transpose regression.
+    assert info.dims == list(c_shape)
+
+    arr = dump.field_data[name][0]  # type: ignore[attr-defined]
+    assert arr.shape == c_shape
+    assert arr.dtype == expected_dtype
+    if tag == "l":
+        # Logical fields are filled all-.true. -> on-disk byte 1.
+        assert np.all(arr == 1)
+    else:
+        # Numeric fields carry a Fortran column-major ramp 1..N. preserf
+        # reverses axes on disk (Fortran (i,j,k) -> numpy [k,j,i]), so the
+        # on-disk array traversed C-order (row-major) reproduces that
+        # column-major fill; any element-order scramble breaks the ramp.
+        expected = np.arange(1, arr.size + 1, dtype=expected_dtype)
+        np.testing.assert_array_equal(arr.ravel(order="C"), expected)
+
+
+def test_fortran_array_metainfo_matrix(matrix_store: dict[str, object]) -> None:
+    """1D-array metainfo of each scalar type round-trips with its array TypeID."""
+    gm = matrix_store["dump"].global_meta_info  # type: ignore[attr-defined]
+
+    assert gm["a_lg"].type_id == TypeID.ArrayOfBoolean
+    assert gm["a_lg"].value == [True, False]
+    assert gm["a_i4"].type_id == TypeID.ArrayOfInt32
+    assert gm["a_i4"].value == [10, 20, 30]
+    assert gm["a_i8"].type_id == TypeID.ArrayOfInt64
+    assert gm["a_i8"].value == [100, 200]
+    assert gm["a_r4"].type_id == TypeID.ArrayOfFloat32
+    assert gm["a_r4"].value == pytest.approx([1.5, 2.5])
+    assert gm["a_r8"].type_id == TypeID.ArrayOfFloat64
+    assert gm["a_r8"].value == [3.5, 4.5]

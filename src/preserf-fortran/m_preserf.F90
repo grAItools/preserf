@@ -35,6 +35,10 @@ module m_preserf
    integer(int32), parameter :: TID_FLOAT32 = 4
    integer(int32), parameter :: TID_FLOAT64 = 5
    integer(int32), parameter :: TID_STRING = 6
+   ! Array bit (Serialbox MetainfoValue::Array): the array TypeID of a
+   ! scalar TypeID `t` is `TID_ARRAY .or. t` (e.g. ArrayOfInt32 = 18).
+   ! Matches `tests/_support/serialbox.py::TypeID.Array` (0x10).
+   integer(int32), parameter :: TID_ARRAY = 16
 
    ! `serialisation_enabled` is owned by utils_preserf (so that
    ! ppser_initialize can reset it on a fresh session); imported via
@@ -53,6 +57,12 @@ module m_preserf
       module procedure fs_add_savepoint_metainfo_r4
       module procedure fs_add_savepoint_metainfo_r8
       module procedure fs_add_savepoint_metainfo_s
+      ! 1D-array overloads (Serialbox MetainfoValue::Array).
+      module procedure fs_add_savepoint_metainfo_l_1d
+      module procedure fs_add_savepoint_metainfo_i4_1d
+      module procedure fs_add_savepoint_metainfo_i8_1d
+      module procedure fs_add_savepoint_metainfo_r4_1d
+      module procedure fs_add_savepoint_metainfo_r8_1d
    end interface
    public :: fs_add_savepoint_metainfo
 
@@ -63,23 +73,52 @@ module m_preserf
       module procedure fs_add_serializer_metainfo_r4
       module procedure fs_add_serializer_metainfo_r8
       module procedure fs_add_serializer_metainfo_s
+      ! 1D-array overloads (Serialbox MetainfoValue::Array).
+      module procedure fs_add_serializer_metainfo_l_1d
+      module procedure fs_add_serializer_metainfo_i4_1d
+      module procedure fs_add_serializer_metainfo_i8_1d
+      module procedure fs_add_serializer_metainfo_r4_1d
+      module procedure fs_add_serializer_metainfo_r8_1d
    end interface
    public :: fs_add_serializer_metainfo
 
+   ! Field write/read overload matrix: {logical, int32, int64, real32,
+   ! real64} x {0D, 1D, 2D, 3D, 4D}. The bodies are generated from
+   ! `#include` templates in the contains section
+   ! (docs/adr/0004-fortran-cpp-templates.md); these lists keep every
+   ! generated name greppable and resolve the generic interface.
    interface fs_write_field
-      module procedure fs_write_field_r8_1d
-      module procedure fs_write_field_r8_2d
-      module procedure fs_write_field_r8_3d
+      module procedure fs_write_field_l_0d, fs_write_field_l_1d, &
+         fs_write_field_l_2d, fs_write_field_l_3d, fs_write_field_l_4d
+      module procedure fs_write_field_i4_0d, fs_write_field_i4_1d, &
+         fs_write_field_i4_2d, fs_write_field_i4_3d, fs_write_field_i4_4d
+      module procedure fs_write_field_i8_0d, fs_write_field_i8_1d, &
+         fs_write_field_i8_2d, fs_write_field_i8_3d, fs_write_field_i8_4d
+      module procedure fs_write_field_r4_0d, fs_write_field_r4_1d, &
+         fs_write_field_r4_2d, fs_write_field_r4_3d, fs_write_field_r4_4d
+      module procedure fs_write_field_r8_0d, fs_write_field_r8_1d, &
+         fs_write_field_r8_2d, fs_write_field_r8_3d, fs_write_field_r8_4d
    end interface
    public :: fs_write_field
 
    interface fs_read_field
-      module procedure fs_read_field_r8_1d
-      module procedure fs_read_field_r8_2d
-      module procedure fs_read_field_r8_3d
-      module procedure fs_read_field_r8_1d_perturb
-      module procedure fs_read_field_r8_2d_perturb
-      module procedure fs_read_field_r8_3d_perturb
+      module procedure fs_read_field_l_0d, fs_read_field_l_1d, &
+         fs_read_field_l_2d, fs_read_field_l_3d, fs_read_field_l_4d
+      module procedure fs_read_field_i4_0d, fs_read_field_i4_1d, &
+         fs_read_field_i4_2d, fs_read_field_i4_3d, fs_read_field_i4_4d
+      module procedure fs_read_field_i8_0d, fs_read_field_i8_1d, &
+         fs_read_field_i8_2d, fs_read_field_i8_3d, fs_read_field_i8_4d
+      module procedure fs_read_field_r4_0d, fs_read_field_r4_1d, &
+         fs_read_field_r4_2d, fs_read_field_r4_3d, fs_read_field_r4_4d
+      module procedure fs_read_field_r8_0d, fs_read_field_r8_1d, &
+         fs_read_field_r8_2d, fs_read_field_r8_3d, fs_read_field_r8_4d
+      ! Read-perturb (5-arg) overloads: floating dtypes only, ranks 0-4.
+      module procedure fs_read_field_r4_0d_perturb, &
+         fs_read_field_r4_1d_perturb, fs_read_field_r4_2d_perturb, &
+         fs_read_field_r4_3d_perturb, fs_read_field_r4_4d_perturb
+      module procedure fs_read_field_r8_0d_perturb, &
+         fs_read_field_r8_1d_perturb, fs_read_field_r8_2d_perturb, &
+         fs_read_field_r8_3d_perturb, fs_read_field_r8_4d_perturb
    end interface
    public :: fs_read_field
 
@@ -468,6 +507,129 @@ contains
    end subroutine
 
    ! ========================================================================
+   ! METAINFO — 1D-array overloads (savepoint)
+   !
+   ! netCDF attributes are natively vector-valued, so an array metainfo
+   ! value lands as a vector attribute of the same on-disk type as its
+   ! scalar sibling; the `<key>__preserf_type_id` shadow records the
+   ! array TypeID (TID_ARRAY .or. base) so readers decode it as an array
+   ! (storage_mapping.md §1, §3.3). Array STRING metainfo (NC_STRING) is
+   ! deferred to Slice B' alongside string data fields — the F90
+   ! nf90_put_att API has no clean vector-of-strings path.
+   ! ========================================================================
+   subroutine fs_add_savepoint_metainfo_l_1d(sp, key, value)
+      type(t_savepoint), intent(in) :: sp
+      character(len=*), intent(in) :: key
+      logical, intent(in) :: value(:)
+      integer(int8), allocatable :: stored(:)
+      if (serialisation_enabled == 0) return
+      call require_savepoint(sp, 'fs_add_savepoint_metainfo')
+      stored = merge(1_int8, 0_int8, value)
+      call put_typed_array_attr(sp%grpid, key, NF90_BYTE, &
+                                i8_val=stored, base_tid=TID_BOOLEAN, &
+                                extra_reserved='name')
+   end subroutine
+
+   subroutine fs_add_savepoint_metainfo_i4_1d(sp, key, value)
+      type(t_savepoint), intent(in) :: sp
+      character(len=*), intent(in) :: key
+      integer(int32), intent(in) :: value(:)
+      if (serialisation_enabled == 0) return
+      call require_savepoint(sp, 'fs_add_savepoint_metainfo')
+      call put_typed_array_attr(sp%grpid, key, NF90_INT, &
+                                i32_val=value, base_tid=TID_INT32, &
+                                extra_reserved='name')
+   end subroutine
+
+   subroutine fs_add_savepoint_metainfo_i8_1d(sp, key, value)
+      type(t_savepoint), intent(in) :: sp
+      character(len=*), intent(in) :: key
+      integer(int64), intent(in) :: value(:)
+      if (serialisation_enabled == 0) return
+      call require_savepoint(sp, 'fs_add_savepoint_metainfo')
+      call put_typed_array_attr(sp%grpid, key, NF90_INT64, &
+                                i64_val=value, base_tid=TID_INT64, &
+                                extra_reserved='name')
+   end subroutine
+
+   subroutine fs_add_savepoint_metainfo_r4_1d(sp, key, value)
+      type(t_savepoint), intent(in) :: sp
+      character(len=*), intent(in) :: key
+      real(real32), intent(in) :: value(:)
+      if (serialisation_enabled == 0) return
+      call require_savepoint(sp, 'fs_add_savepoint_metainfo')
+      call put_typed_array_attr(sp%grpid, key, NF90_FLOAT, &
+                                r32_val=value, base_tid=TID_FLOAT32, &
+                                extra_reserved='name')
+   end subroutine
+
+   subroutine fs_add_savepoint_metainfo_r8_1d(sp, key, value)
+      type(t_savepoint), intent(in) :: sp
+      character(len=*), intent(in) :: key
+      real(real64), intent(in) :: value(:)
+      if (serialisation_enabled == 0) return
+      call require_savepoint(sp, 'fs_add_savepoint_metainfo')
+      call put_typed_array_attr(sp%grpid, key, NF90_DOUBLE, &
+                                r64_val=value, base_tid=TID_FLOAT64, &
+                                extra_reserved='name')
+   end subroutine
+
+   ! ========================================================================
+   ! METAINFO — 1D-array overloads (serializer / root group)
+   ! ========================================================================
+   subroutine fs_add_serializer_metainfo_l_1d(s, key, value)
+      type(t_serializer), intent(in) :: s
+      character(len=*), intent(in) :: key
+      logical, intent(in) :: value(:)
+      integer(int8), allocatable :: stored(:)
+      if (serialisation_enabled == 0) return
+      call require_open(s, 'fs_add_serializer_metainfo')
+      stored = merge(1_int8, 0_int8, value)
+      call put_typed_array_attr(s%ncid, key, NF90_BYTE, &
+                                i8_val=stored, base_tid=TID_BOOLEAN)
+   end subroutine
+
+   subroutine fs_add_serializer_metainfo_i4_1d(s, key, value)
+      type(t_serializer), intent(in) :: s
+      character(len=*), intent(in) :: key
+      integer(int32), intent(in) :: value(:)
+      if (serialisation_enabled == 0) return
+      call require_open(s, 'fs_add_serializer_metainfo')
+      call put_typed_array_attr(s%ncid, key, NF90_INT, &
+                                i32_val=value, base_tid=TID_INT32)
+   end subroutine
+
+   subroutine fs_add_serializer_metainfo_i8_1d(s, key, value)
+      type(t_serializer), intent(in) :: s
+      character(len=*), intent(in) :: key
+      integer(int64), intent(in) :: value(:)
+      if (serialisation_enabled == 0) return
+      call require_open(s, 'fs_add_serializer_metainfo')
+      call put_typed_array_attr(s%ncid, key, NF90_INT64, &
+                                i64_val=value, base_tid=TID_INT64)
+   end subroutine
+
+   subroutine fs_add_serializer_metainfo_r4_1d(s, key, value)
+      type(t_serializer), intent(in) :: s
+      character(len=*), intent(in) :: key
+      real(real32), intent(in) :: value(:)
+      if (serialisation_enabled == 0) return
+      call require_open(s, 'fs_add_serializer_metainfo')
+      call put_typed_array_attr(s%ncid, key, NF90_FLOAT, &
+                                r32_val=value, base_tid=TID_FLOAT32)
+   end subroutine
+
+   subroutine fs_add_serializer_metainfo_r8_1d(s, key, value)
+      type(t_serializer), intent(in) :: s
+      character(len=*), intent(in) :: key
+      real(real64), intent(in) :: value(:)
+      if (serialisation_enabled == 0) return
+      call require_open(s, 'fs_add_serializer_metainfo')
+      call put_typed_array_attr(s%ncid, key, NF90_DOUBLE, &
+                                r64_val=value, base_tid=TID_FLOAT64)
+   end subroutine
+
+   ! ========================================================================
    ! DATA — write
    !
    ! The `s` argument is accepted to keep the call shape pp_ser emits
@@ -476,119 +638,336 @@ contains
    ! validate that `s` has been initialised so callers get a clear
    ! error if they forgot `ppser_initialize`.
    ! ========================================================================
-   subroutine fs_write_field_r8_1d(s, sp, fieldname, data)
-      type(t_serializer), intent(inout) :: s
-      type(t_savepoint), intent(in) :: sp
-      character(len=*), intent(in) :: fieldname
-      real(real64), intent(in) :: data(:)
-      integer :: ncerr, varid
-      integer, allocatable :: dimids(:)
+   ! Logical field writes (NF90_BYTE 0/1 encoding).
+#define PRESERF_SUB fs_write_field_l_0d
+#define PRESERF_DIMS
+#include "preserf_write_field_logical.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_field_l_1d
+#define PRESERF_DIMS , dimension(:)
+#include "preserf_write_field_logical.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_field_l_2d
+#define PRESERF_DIMS , dimension(:, :)
+#include "preserf_write_field_logical.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_field_l_3d
+#define PRESERF_DIMS , dimension(:, :, :)
+#include "preserf_write_field_logical.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_field_l_4d
+#define PRESERF_DIMS , dimension(:, :, :, :)
+#include "preserf_write_field_logical.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
 
-      if (serialisation_enabled == 0) return
-      call require_open(s, 'fs_write_field')
-      call require_savepoint(sp, 'fs_write_field')
-      call require_savepoint_owner(s, sp, 'fs_write_field')
-      call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'write')
-      call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
-      call ensure_variable(sp%grpid, fieldname, NF90_DOUBLE, dimids, varid)
-      ncerr = nf90_put_var(sp%grpid, varid, data)
-      call preserf_check_nf_with_msg(ncerr, 'put_var '//trim(fieldname)//' (1d)')
-   end subroutine
+   ! int32 field writes.
+#define PRESERF_DTYPE integer(int32)
+#define PRESERF_NCTYPE NF90_INT
+#define PRESERF_TID TID_INT32
+#define PRESERF_SUB fs_write_field_i4_0d
+#define PRESERF_DIMS
+#include "preserf_write_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_field_i4_1d
+#define PRESERF_DIMS , dimension(:)
+#include "preserf_write_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_field_i4_2d
+#define PRESERF_DIMS , dimension(:, :)
+#include "preserf_write_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_field_i4_3d
+#define PRESERF_DIMS , dimension(:, :, :)
+#include "preserf_write_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_field_i4_4d
+#define PRESERF_DIMS , dimension(:, :, :, :)
+#include "preserf_write_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#undef PRESERF_TID
+#undef PRESERF_NCTYPE
+#undef PRESERF_DTYPE
 
-   subroutine fs_write_field_r8_2d(s, sp, fieldname, data)
-      type(t_serializer), intent(inout) :: s
-      type(t_savepoint), intent(in) :: sp
-      character(len=*), intent(in) :: fieldname
-      real(real64), intent(in) :: data(:, :)
-      integer :: ncerr, varid
-      integer, allocatable :: dimids(:)
+   ! int64 field writes.
+#define PRESERF_DTYPE integer(int64)
+#define PRESERF_NCTYPE NF90_INT64
+#define PRESERF_TID TID_INT64
+#define PRESERF_SUB fs_write_field_i8_0d
+#define PRESERF_DIMS
+#include "preserf_write_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_field_i8_1d
+#define PRESERF_DIMS , dimension(:)
+#include "preserf_write_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_field_i8_2d
+#define PRESERF_DIMS , dimension(:, :)
+#include "preserf_write_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_field_i8_3d
+#define PRESERF_DIMS , dimension(:, :, :)
+#include "preserf_write_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_field_i8_4d
+#define PRESERF_DIMS , dimension(:, :, :, :)
+#include "preserf_write_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#undef PRESERF_TID
+#undef PRESERF_NCTYPE
+#undef PRESERF_DTYPE
 
-      if (serialisation_enabled == 0) return
-      call require_open(s, 'fs_write_field')
-      call require_savepoint(sp, 'fs_write_field')
-      call require_savepoint_owner(s, sp, 'fs_write_field')
-      call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'write')
-      call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
-      call ensure_variable(sp%grpid, fieldname, NF90_DOUBLE, dimids, varid)
-      ncerr = nf90_put_var(sp%grpid, varid, data)
-      call preserf_check_nf_with_msg(ncerr, 'put_var '//trim(fieldname)//' (2d)')
-   end subroutine
+   ! real32 field writes.
+#define PRESERF_DTYPE real(real32)
+#define PRESERF_NCTYPE NF90_FLOAT
+#define PRESERF_TID TID_FLOAT32
+#define PRESERF_SUB fs_write_field_r4_0d
+#define PRESERF_DIMS
+#include "preserf_write_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_field_r4_1d
+#define PRESERF_DIMS , dimension(:)
+#include "preserf_write_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_field_r4_2d
+#define PRESERF_DIMS , dimension(:, :)
+#include "preserf_write_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_field_r4_3d
+#define PRESERF_DIMS , dimension(:, :, :)
+#include "preserf_write_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_field_r4_4d
+#define PRESERF_DIMS , dimension(:, :, :, :)
+#include "preserf_write_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#undef PRESERF_TID
+#undef PRESERF_NCTYPE
+#undef PRESERF_DTYPE
 
-   subroutine fs_write_field_r8_3d(s, sp, fieldname, data)
-      type(t_serializer), intent(inout) :: s
-      type(t_savepoint), intent(in) :: sp
-      character(len=*), intent(in) :: fieldname
-      real(real64), intent(in) :: data(:, :, :)
-      integer :: ncerr, varid
-      integer, allocatable :: dimids(:)
-
-      if (serialisation_enabled == 0) return
-      call require_open(s, 'fs_write_field')
-      call require_savepoint(sp, 'fs_write_field')
-      call require_savepoint_owner(s, sp, 'fs_write_field')
-      call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'write')
-      call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
-      call ensure_variable(sp%grpid, fieldname, NF90_DOUBLE, dimids, varid)
-      ncerr = nf90_put_var(sp%grpid, varid, data)
-      call preserf_check_nf_with_msg(ncerr, 'put_var '//trim(fieldname)//' (3d)')
-   end subroutine
+   ! real64 field writes.
+#define PRESERF_DTYPE real(real64)
+#define PRESERF_NCTYPE NF90_DOUBLE
+#define PRESERF_TID TID_FLOAT64
+#define PRESERF_SUB fs_write_field_r8_0d
+#define PRESERF_DIMS
+#include "preserf_write_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_field_r8_1d
+#define PRESERF_DIMS , dimension(:)
+#include "preserf_write_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_field_r8_2d
+#define PRESERF_DIMS , dimension(:, :)
+#include "preserf_write_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_field_r8_3d
+#define PRESERF_DIMS , dimension(:, :, :)
+#include "preserf_write_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_field_r8_4d
+#define PRESERF_DIMS , dimension(:, :, :, :)
+#include "preserf_write_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#undef PRESERF_TID
+#undef PRESERF_NCTYPE
+#undef PRESERF_DTYPE
 
    ! ========================================================================
    ! DATA — read
    ! ========================================================================
-   subroutine fs_read_field_r8_1d(s, sp, fieldname, data)
-      type(t_serializer), intent(in) :: s
-      type(t_savepoint), intent(in) :: sp
-      character(len=*), intent(in) :: fieldname
-      real(real64), intent(inout) :: data(:)
-      integer :: ncerr, varid, read_grpid
-      if (serialisation_enabled == 0) return
-      call require_open(s, 'fs_read_field')
-      call require_savepoint(sp, 'fs_read_field')
-      call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'read')
-      read_grpid = resolve_savepoint_grpid(s, sp)
-      ncerr = nf90_inq_varid(read_grpid, trim(fieldname), varid)
-      call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
-      call require_variable_xtype(s, read_grpid, varid, fieldname, NF90_DOUBLE)
-      ncerr = nf90_get_var(read_grpid, varid, data)
-      call preserf_check_nf_with_msg(ncerr, 'get_var '//trim(fieldname)//' (1d)')
-   end subroutine
+   ! Logical field reads (NF90_BYTE 0/1 -> .true./.false.).
+#define PRESERF_SUB fs_read_field_l_0d
+#define PRESERF_DIMS
+#define PRESERF_BUFALLOC allocate (buf)
+#include "preserf_read_field_logical.inc"
+#undef PRESERF_BUFALLOC
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_l_1d
+#define PRESERF_DIMS , dimension(:)
+#define PRESERF_BUFALLOC allocate (buf(size(data, 1)))
+#include "preserf_read_field_logical.inc"
+#undef PRESERF_BUFALLOC
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_l_2d
+#define PRESERF_DIMS , dimension(:, :)
+#define PRESERF_BUFALLOC allocate (buf(size(data, 1), size(data, 2)))
+#include "preserf_read_field_logical.inc"
+#undef PRESERF_BUFALLOC
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_l_3d
+#define PRESERF_DIMS , dimension(:, :, :)
+#define PRESERF_BUFALLOC allocate (buf(size(data, 1), size(data, 2), size(data, 3)))
+#include "preserf_read_field_logical.inc"
+#undef PRESERF_BUFALLOC
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_l_4d
+#define PRESERF_DIMS , dimension(:, :, :, :)
+#define PRESERF_BUFALLOC allocate (buf(size(data, 1), size(data, 2), size(data, 3), size(data, 4)))
+#include "preserf_read_field_logical.inc"
+#undef PRESERF_BUFALLOC
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
 
-   subroutine fs_read_field_r8_2d(s, sp, fieldname, data)
-      type(t_serializer), intent(in) :: s
-      type(t_savepoint), intent(in) :: sp
-      character(len=*), intent(in) :: fieldname
-      real(real64), intent(inout) :: data(:, :)
-      integer :: ncerr, varid, read_grpid
-      if (serialisation_enabled == 0) return
-      call require_open(s, 'fs_read_field')
-      call require_savepoint(sp, 'fs_read_field')
-      call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'read')
-      read_grpid = resolve_savepoint_grpid(s, sp)
-      ncerr = nf90_inq_varid(read_grpid, trim(fieldname), varid)
-      call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
-      call require_variable_xtype(s, read_grpid, varid, fieldname, NF90_DOUBLE)
-      ncerr = nf90_get_var(read_grpid, varid, data)
-      call preserf_check_nf_with_msg(ncerr, 'get_var '//trim(fieldname)//' (2d)')
-   end subroutine
+   ! int32 field reads.
+#define PRESERF_DTYPE integer(int32)
+#define PRESERF_NCTYPE NF90_INT
+#define PRESERF_TID TID_INT32
+#define PRESERF_SUB fs_read_field_i4_0d
+#define PRESERF_DIMS
+#include "preserf_read_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_i4_1d
+#define PRESERF_DIMS , dimension(:)
+#include "preserf_read_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_i4_2d
+#define PRESERF_DIMS , dimension(:, :)
+#include "preserf_read_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_i4_3d
+#define PRESERF_DIMS , dimension(:, :, :)
+#include "preserf_read_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_i4_4d
+#define PRESERF_DIMS , dimension(:, :, :, :)
+#include "preserf_read_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#undef PRESERF_TID
+#undef PRESERF_NCTYPE
+#undef PRESERF_DTYPE
 
-   subroutine fs_read_field_r8_3d(s, sp, fieldname, data)
-      type(t_serializer), intent(in) :: s
-      type(t_savepoint), intent(in) :: sp
-      character(len=*), intent(in) :: fieldname
-      real(real64), intent(inout) :: data(:, :, :)
-      integer :: ncerr, varid, read_grpid
-      if (serialisation_enabled == 0) return
-      call require_open(s, 'fs_read_field')
-      call require_savepoint(sp, 'fs_read_field')
-      call validate_field_shape(s, fieldname, shape(data), TID_FLOAT64, 'read')
-      read_grpid = resolve_savepoint_grpid(s, sp)
-      ncerr = nf90_inq_varid(read_grpid, trim(fieldname), varid)
-      call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
-      call require_variable_xtype(s, read_grpid, varid, fieldname, NF90_DOUBLE)
-      ncerr = nf90_get_var(read_grpid, varid, data)
-      call preserf_check_nf_with_msg(ncerr, 'get_var '//trim(fieldname)//' (3d)')
-   end subroutine
+   ! int64 field reads.
+#define PRESERF_DTYPE integer(int64)
+#define PRESERF_NCTYPE NF90_INT64
+#define PRESERF_TID TID_INT64
+#define PRESERF_SUB fs_read_field_i8_0d
+#define PRESERF_DIMS
+#include "preserf_read_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_i8_1d
+#define PRESERF_DIMS , dimension(:)
+#include "preserf_read_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_i8_2d
+#define PRESERF_DIMS , dimension(:, :)
+#include "preserf_read_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_i8_3d
+#define PRESERF_DIMS , dimension(:, :, :)
+#include "preserf_read_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_i8_4d
+#define PRESERF_DIMS , dimension(:, :, :, :)
+#include "preserf_read_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#undef PRESERF_TID
+#undef PRESERF_NCTYPE
+#undef PRESERF_DTYPE
+
+   ! real32 field reads.
+#define PRESERF_DTYPE real(real32)
+#define PRESERF_NCTYPE NF90_FLOAT
+#define PRESERF_TID TID_FLOAT32
+#define PRESERF_SUB fs_read_field_r4_0d
+#define PRESERF_DIMS
+#include "preserf_read_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_r4_1d
+#define PRESERF_DIMS , dimension(:)
+#include "preserf_read_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_r4_2d
+#define PRESERF_DIMS , dimension(:, :)
+#include "preserf_read_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_r4_3d
+#define PRESERF_DIMS , dimension(:, :, :)
+#include "preserf_read_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_r4_4d
+#define PRESERF_DIMS , dimension(:, :, :, :)
+#include "preserf_read_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#undef PRESERF_TID
+#undef PRESERF_NCTYPE
+#undef PRESERF_DTYPE
+
+   ! real64 field reads.
+#define PRESERF_DTYPE real(real64)
+#define PRESERF_NCTYPE NF90_DOUBLE
+#define PRESERF_TID TID_FLOAT64
+#define PRESERF_SUB fs_read_field_r8_0d
+#define PRESERF_DIMS
+#include "preserf_read_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_r8_1d
+#define PRESERF_DIMS , dimension(:)
+#include "preserf_read_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_r8_2d
+#define PRESERF_DIMS , dimension(:, :)
+#include "preserf_read_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_r8_3d
+#define PRESERF_DIMS , dimension(:, :, :)
+#include "preserf_read_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_r8_4d
+#define PRESERF_DIMS , dimension(:, :, :, :)
+#include "preserf_read_field.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#undef PRESERF_TID
+#undef PRESERF_NCTYPE
+#undef PRESERF_DTYPE
 
    ! ------------------------------------------------------------------------
    ! DATA — read with perturbation magnitude (CASE(2) form)
@@ -601,86 +980,187 @@ contains
    ! applies symmetric multiplicative noise
    !   data = data * (1 + perturb*(2*r - 1)),  r ~ U[0,1)
    ! (the original COSMO `serialize` semantics; upstream serialbox2
-   ! leaves the perturb arg unused).
+   ! leaves the perturb arg unused). Perturbation is only meaningful for
+   ! floating fields, so only real32 / real64 get the 5-arg overload; the
+   ! apply_perturb_* helpers and the overloads themselves are generated
+   ! from templates (docs/adr/0004-fortran-cpp-templates.md).
    ! ------------------------------------------------------------------------
-   subroutine fs_read_field_r8_1d_perturb(s, sp, fieldname, data, perturb)
-      type(t_serializer), intent(in) :: s
-      type(t_savepoint), intent(in) :: sp
-      character(len=*), intent(in) :: fieldname
-      real(real64), intent(inout) :: data(:)
-      real(real64), intent(in) :: perturb
-      if (serialisation_enabled == 0) return
-      call fs_read_field_r8_1d(s, sp, fieldname, data)
-      call apply_perturb_1d(data, perturb)
-   end subroutine
 
-   subroutine fs_read_field_r8_2d_perturb(s, sp, fieldname, data, perturb)
-      type(t_serializer), intent(in) :: s
-      type(t_savepoint), intent(in) :: sp
-      character(len=*), intent(in) :: fieldname
-      real(real64), intent(inout) :: data(:, :)
-      real(real64), intent(in) :: perturb
-      if (serialisation_enabled == 0) return
-      call fs_read_field_r8_2d(s, sp, fieldname, data)
-      call apply_perturb_2d(data, perturb)
-   end subroutine
+   ! real32 perturbation helpers.
+#define PRESERF_DTYPE real(real32)
+#define PRESERF_SUB apply_perturb_r4_0d
+#define PRESERF_DIMS
+#define PRESERF_RANK 0
+#include "preserf_apply_perturb.inc"
+#undef PRESERF_RANK
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB apply_perturb_r4_1d
+#define PRESERF_DIMS , dimension(:)
+#define PRESERF_RANK 1
+#include "preserf_apply_perturb.inc"
+#undef PRESERF_RANK
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB apply_perturb_r4_2d
+#define PRESERF_DIMS , dimension(:, :)
+#define PRESERF_RANK 2
+#include "preserf_apply_perturb.inc"
+#undef PRESERF_RANK
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB apply_perturb_r4_3d
+#define PRESERF_DIMS , dimension(:, :, :)
+#define PRESERF_RANK 3
+#include "preserf_apply_perturb.inc"
+#undef PRESERF_RANK
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB apply_perturb_r4_4d
+#define PRESERF_DIMS , dimension(:, :, :, :)
+#define PRESERF_RANK 4
+#include "preserf_apply_perturb.inc"
+#undef PRESERF_RANK
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#undef PRESERF_DTYPE
 
-   subroutine fs_read_field_r8_3d_perturb(s, sp, fieldname, data, perturb)
-      type(t_serializer), intent(in) :: s
-      type(t_savepoint), intent(in) :: sp
-      character(len=*), intent(in) :: fieldname
-      real(real64), intent(inout) :: data(:, :, :)
-      real(real64), intent(in) :: perturb
-      if (serialisation_enabled == 0) return
-      call fs_read_field_r8_3d(s, sp, fieldname, data)
-      call apply_perturb_3d(data, perturb)
-   end subroutine
+   ! real64 perturbation helpers.
+#define PRESERF_DTYPE real(real64)
+#define PRESERF_SUB apply_perturb_r8_0d
+#define PRESERF_DIMS
+#define PRESERF_RANK 0
+#include "preserf_apply_perturb.inc"
+#undef PRESERF_RANK
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB apply_perturb_r8_1d
+#define PRESERF_DIMS , dimension(:)
+#define PRESERF_RANK 1
+#include "preserf_apply_perturb.inc"
+#undef PRESERF_RANK
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB apply_perturb_r8_2d
+#define PRESERF_DIMS , dimension(:, :)
+#define PRESERF_RANK 2
+#include "preserf_apply_perturb.inc"
+#undef PRESERF_RANK
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB apply_perturb_r8_3d
+#define PRESERF_DIMS , dimension(:, :, :)
+#define PRESERF_RANK 3
+#include "preserf_apply_perturb.inc"
+#undef PRESERF_RANK
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB apply_perturb_r8_4d
+#define PRESERF_DIMS , dimension(:, :, :, :)
+#define PRESERF_RANK 4
+#include "preserf_apply_perturb.inc"
+#undef PRESERF_RANK
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#undef PRESERF_DTYPE
 
-   ! In-place multiplicative noise — no full-size scratch array, so peak
-   ! memory is the field itself. A zero scale is the identity, so we skip
-   ! the RNG draws entirely.
-   subroutine apply_perturb_1d(data, scale)
-      real(real64), intent(inout) :: data(:)
-      real(real64), intent(in) :: scale
-      real(real64) :: rv
-      integer :: i
-      if (scale == 0.0_real64) return
-      do i = 1, size(data)
-         call random_number(rv)
-         data(i) = data(i)*(1.0_real64 + scale*(2.0_real64*rv - 1.0_real64))
-      end do
-   end subroutine
+   ! real32 read-perturb (5-arg) overloads.
+#define PRESERF_DTYPE real(real32)
+#define PRESERF_SUB fs_read_field_r4_0d_perturb
+#define PRESERF_DIMS
+#define PRESERF_BASE fs_read_field_r4_0d
+#define PRESERF_APPLY apply_perturb_r4_0d
+#include "preserf_read_field_perturb.inc"
+#undef PRESERF_APPLY
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_r4_1d_perturb
+#define PRESERF_DIMS , dimension(:)
+#define PRESERF_BASE fs_read_field_r4_1d
+#define PRESERF_APPLY apply_perturb_r4_1d
+#include "preserf_read_field_perturb.inc"
+#undef PRESERF_APPLY
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_r4_2d_perturb
+#define PRESERF_DIMS , dimension(:, :)
+#define PRESERF_BASE fs_read_field_r4_2d
+#define PRESERF_APPLY apply_perturb_r4_2d
+#include "preserf_read_field_perturb.inc"
+#undef PRESERF_APPLY
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_r4_3d_perturb
+#define PRESERF_DIMS , dimension(:, :, :)
+#define PRESERF_BASE fs_read_field_r4_3d
+#define PRESERF_APPLY apply_perturb_r4_3d
+#include "preserf_read_field_perturb.inc"
+#undef PRESERF_APPLY
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_r4_4d_perturb
+#define PRESERF_DIMS , dimension(:, :, :, :)
+#define PRESERF_BASE fs_read_field_r4_4d
+#define PRESERF_APPLY apply_perturb_r4_4d
+#include "preserf_read_field_perturb.inc"
+#undef PRESERF_APPLY
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#undef PRESERF_DTYPE
 
-   subroutine apply_perturb_2d(data, scale)
-      real(real64), intent(inout) :: data(:, :)
-      real(real64), intent(in) :: scale
-      real(real64) :: rv
-      integer :: i, j
-      if (scale == 0.0_real64) return
-      do j = 1, size(data, 2)
-         do i = 1, size(data, 1)
-            call random_number(rv)
-            data(i, j) = data(i, j)*(1.0_real64 + scale*(2.0_real64*rv - 1.0_real64))
-         end do
-      end do
-   end subroutine
-
-   subroutine apply_perturb_3d(data, scale)
-      real(real64), intent(inout) :: data(:, :, :)
-      real(real64), intent(in) :: scale
-      real(real64) :: rv
-      integer :: i, j, k
-      if (scale == 0.0_real64) return
-      do k = 1, size(data, 3)
-         do j = 1, size(data, 2)
-            do i = 1, size(data, 1)
-               call random_number(rv)
-               data(i, j, k) = data(i, j, k)* &
-                               (1.0_real64 + scale*(2.0_real64*rv - 1.0_real64))
-            end do
-         end do
-      end do
-   end subroutine
+   ! real64 read-perturb (5-arg) overloads.
+#define PRESERF_DTYPE real(real64)
+#define PRESERF_SUB fs_read_field_r8_0d_perturb
+#define PRESERF_DIMS
+#define PRESERF_BASE fs_read_field_r8_0d
+#define PRESERF_APPLY apply_perturb_r8_0d
+#include "preserf_read_field_perturb.inc"
+#undef PRESERF_APPLY
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_r8_1d_perturb
+#define PRESERF_DIMS , dimension(:)
+#define PRESERF_BASE fs_read_field_r8_1d
+#define PRESERF_APPLY apply_perturb_r8_1d
+#include "preserf_read_field_perturb.inc"
+#undef PRESERF_APPLY
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_r8_2d_perturb
+#define PRESERF_DIMS , dimension(:, :)
+#define PRESERF_BASE fs_read_field_r8_2d
+#define PRESERF_APPLY apply_perturb_r8_2d
+#include "preserf_read_field_perturb.inc"
+#undef PRESERF_APPLY
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_r8_3d_perturb
+#define PRESERF_DIMS , dimension(:, :, :)
+#define PRESERF_BASE fs_read_field_r8_3d
+#define PRESERF_APPLY apply_perturb_r8_3d
+#include "preserf_read_field_perturb.inc"
+#undef PRESERF_APPLY
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_r8_4d_perturb
+#define PRESERF_DIMS , dimension(:, :, :, :)
+#define PRESERF_BASE fs_read_field_r8_4d
+#define PRESERF_APPLY apply_perturb_r8_4d
+#include "preserf_read_field_perturb.inc"
+#undef PRESERF_APPLY
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#undef PRESERF_DTYPE
 
    ! ========================================================================
    ! Internal helpers
@@ -788,6 +1268,15 @@ contains
          error stop 1
       end if
 
+      ! A fully-zero tuple is a rank-0 (scalar) field: the `dims`
+      ! attribute is a zero-length vector and the per-savepoint variable
+      ! is a netCDF scalar. This is the 0-D corner of the type-coverage
+      ! matrix (Slice B); ranks 1-4 fall through to the checks below.
+      if (iSize == 0 .and. jSize == 0 .and. kSize == 0 .and. lSize == 0) then
+         allocate (d(0))
+         return
+      end if
+
       ! Reject non-contiguous prefixes up front.
       if (jSize > 0 .and. iSize <= 0) call active_dims_inconsistent( &
          iSize, jSize, kSize, lSize)
@@ -796,9 +1285,10 @@ contains
       if (lSize > 0 .and. kSize <= 0) call active_dims_inconsistent( &
          iSize, jSize, kSize, lSize)
 
-      ! At least iSize must be strictly positive — a (0,0,0,0) tuple
-      ! would otherwise produce a rank-0 dims attribute, but the
-      ! helper API doesn't support 0-D fields.
+      ! At least iSize must be strictly positive for a rank >= 1 field —
+      ! a tuple with a zero iSize but non-zero trailing sizes is a
+      ! non-contiguous prefix (already rejected above); a partially-zero
+      ! tuple that reaches here with iSize == 0 is malformed.
       if (iSize <= 0) then
          write (*, '(a,4(i0,a))') &
             'preserf: invalid dim tuple (', &
@@ -1134,6 +1624,151 @@ contains
       end select
    end subroutine check_typed_scalar_attr
 
+   !> Array counterpart of put_typed_scalar_attr: write a 1D-array metainfo
+   !> value as the vector attribute `<key>` plus its `<key>__preserf_type_id`
+   !> shadow tag carrying the *array* TypeID (TID_ARRAY .or. base_tid). In
+   !> read mode it validates the stored attribute instead of writing it.
+   !> Exactly one of i8_val / i32_val / i64_val / r32_val / r64_val must be
+   !> supplied, matching nc_type (the boolean path pre-converts to int8).
+   subroutine put_typed_array_attr(grpid, key, nc_type, base_tid, &
+                                   i8_val, i32_val, i64_val, &
+                                   r32_val, r64_val, extra_reserved)
+      integer, intent(in) :: grpid
+      character(len=*), intent(in) :: key
+      integer, intent(in) :: nc_type
+      integer(int32), intent(in) :: base_tid
+      integer(int8), intent(in), optional :: i8_val(:)
+      integer(int32), intent(in), optional :: i32_val(:)
+      integer(int64), intent(in), optional :: i64_val(:)
+      real(real32), intent(in), optional :: r32_val(:)
+      real(real64), intent(in), optional :: r64_val(:)
+      character(len=*), intent(in), optional :: extra_reserved
+
+      integer :: ncerr
+      integer(int32) :: array_tid
+      character(len=:), allocatable :: shadow
+
+      if (serialisation_enabled == 0) return
+      call reject_reserved_metainfo_key(key, extra_reserved)
+      ! The array bit distinguishes a length-1 array from a scalar, so a
+      ! reader keys off this shadow tag (not the on-disk shape).
+      array_tid = ior(TID_ARRAY, base_tid)
+
+      if (ppser_get_mode() /= 0) then
+         call check_typed_array_attr(grpid, key, nc_type, array_tid, &
+                                     i8_val, i32_val, i64_val, r32_val, r64_val)
+         return
+      end if
+
+      select case (nc_type)
+      case (NF90_BYTE)
+         if (.not. present(i8_val)) call missing_value_arg(key, 'i8_val')
+         ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, i8_val)
+      case (NF90_INT)
+         if (.not. present(i32_val)) call missing_value_arg(key, 'i32_val')
+         ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, i32_val)
+      case (NF90_INT64)
+         if (.not. present(i64_val)) call missing_value_arg(key, 'i64_val')
+         ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, i64_val)
+      case (NF90_FLOAT)
+         if (.not. present(r32_val)) call missing_value_arg(key, 'r32_val')
+         ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, r32_val)
+      case (NF90_DOUBLE)
+         if (.not. present(r64_val)) call missing_value_arg(key, 'r64_val')
+         ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, r64_val)
+      case default
+         write (*, '(a,i0)') 'preserf: unsupported array nc_type ', nc_type
+         error stop 1
+      end select
+      call preserf_check_nf_with_msg(ncerr, 'put_att '//key)
+
+      shadow = trim(key)//'__preserf_type_id'
+      ncerr = nf90_put_att(grpid, NF90_GLOBAL, shadow, array_tid)
+      call preserf_check_nf_with_msg(ncerr, 'put_att '//shadow)
+   end subroutine put_typed_array_attr
+
+   !> Read-mode counterpart of put_typed_array_attr: verify the stored
+   !> array attribute's element count, values, and `__preserf_type_id`
+   !> shadow tag all match the runtime metainfo argument; abort otherwise.
+   subroutine check_typed_array_attr(grpid, key, nc_type, array_tid, &
+                                     i8_val, i32_val, i64_val, r32_val, r64_val)
+      integer, intent(in) :: grpid
+      character(len=*), intent(in) :: key
+      integer, intent(in) :: nc_type
+      integer(int32), intent(in) :: array_tid
+      integer(int8), intent(in), optional :: i8_val(:)
+      integer(int32), intent(in), optional :: i32_val(:)
+      integer(int64), intent(in), optional :: i64_val(:)
+      real(real32), intent(in), optional :: r32_val(:)
+      real(real64), intent(in), optional :: r64_val(:)
+
+      integer :: ncerr, alen
+      integer(int32) :: stored_tid
+      character(len=:), allocatable :: shadow
+      integer(int8), allocatable :: b_i8(:)
+      integer(int32), allocatable :: b_i32(:)
+      integer(int64), allocatable :: b_i64(:)
+      real(real32), allocatable :: b_r32(:)
+      real(real64), allocatable :: b_r64(:)
+
+      shadow = trim(key)//'__preserf_type_id'
+      ncerr = nf90_get_att(grpid, NF90_GLOBAL, shadow, stored_tid)
+      if (ncerr == NF90_ENOTATT) call metainfo_absent(key)
+      call preserf_check_nf_with_msg(ncerr, 'get_att '//shadow)
+      if (stored_tid /= array_tid) then
+         write (*, '(a,a,a,i0,a,i0)') &
+            'preserf: read-mode metainfo "', trim(key), &
+            '" type-id mismatch: store has ', stored_tid, &
+            ', run expects ', array_tid
+         error stop 1
+      end if
+
+      ncerr = nf90_inquire_attribute(grpid, NF90_GLOBAL, key, len=alen)
+      if (ncerr == NF90_ENOTATT) call metainfo_absent(key)
+      call preserf_check_nf_with_msg(ncerr, 'inquire_attribute '//key)
+
+      select case (nc_type)
+      case (NF90_BYTE)
+         if (.not. present(i8_val)) call missing_value_arg(key, 'i8_val')
+         if (alen /= size(i8_val)) call metainfo_value_mismatch(key)
+         allocate (b_i8(alen))
+         ncerr = nf90_get_att(grpid, NF90_GLOBAL, key, b_i8)
+         call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
+         if (any(b_i8 /= i8_val)) call metainfo_value_mismatch(key)
+      case (NF90_INT)
+         if (.not. present(i32_val)) call missing_value_arg(key, 'i32_val')
+         if (alen /= size(i32_val)) call metainfo_value_mismatch(key)
+         allocate (b_i32(alen))
+         ncerr = nf90_get_att(grpid, NF90_GLOBAL, key, b_i32)
+         call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
+         if (any(b_i32 /= i32_val)) call metainfo_value_mismatch(key)
+      case (NF90_INT64)
+         if (.not. present(i64_val)) call missing_value_arg(key, 'i64_val')
+         if (alen /= size(i64_val)) call metainfo_value_mismatch(key)
+         allocate (b_i64(alen))
+         ncerr = nf90_get_att(grpid, NF90_GLOBAL, key, b_i64)
+         call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
+         if (any(b_i64 /= i64_val)) call metainfo_value_mismatch(key)
+      case (NF90_FLOAT)
+         if (.not. present(r32_val)) call missing_value_arg(key, 'r32_val')
+         if (alen /= size(r32_val)) call metainfo_value_mismatch(key)
+         allocate (b_r32(alen))
+         ncerr = nf90_get_att(grpid, NF90_GLOBAL, key, b_r32)
+         call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
+         if (any(b_r32 /= r32_val)) call metainfo_value_mismatch(key)
+      case (NF90_DOUBLE)
+         if (.not. present(r64_val)) call missing_value_arg(key, 'r64_val')
+         if (alen /= size(r64_val)) call metainfo_value_mismatch(key)
+         allocate (b_r64(alen))
+         ncerr = nf90_get_att(grpid, NF90_GLOBAL, key, b_r64)
+         call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
+         if (any(b_r64 /= r64_val)) call metainfo_value_mismatch(key)
+      case default
+         write (*, '(a,i0)') 'preserf: unsupported array nc_type ', nc_type
+         error stop 1
+      end select
+   end subroutine check_typed_array_attr
+
    subroutine metainfo_absent(key)
       character(len=*), intent(in) :: key
       write (*, '(a,a,a)') &
@@ -1262,13 +1897,18 @@ contains
    !> Aborts with a clear error on type-id mismatch, shape mismatch, or
    !> on accesses to fields that were never registered. `op` is "write"
    !> or "read" and is interpolated into error messages.
+   !> When `registered_dims_out` is present it returns the registry's
+   !> C-order `dims` vector this routine already fetched, so a read-path
+   !> caller can hand it to `require_variable_xtype` instead of having it
+   !> re-read the same attribute from the registry.
    subroutine validate_field_shape(s, fieldname, fortran_shape, &
-                                   expected_tid, op)
+                                   expected_tid, op, registered_dims_out)
       type(t_serializer), intent(in) :: s
       character(len=*), intent(in) :: fieldname
       integer, intent(in) :: fortran_shape(:)
       integer(int32), intent(in) :: expected_tid
       character(len=*), intent(in) :: op
+      integer(int32), allocatable, intent(out), optional :: registered_dims_out(:)
       integer :: ncerr, varid, attr_len, axis
       integer(int32), allocatable :: registered_dims(:)
       integer(int32) :: registered_tid
@@ -1330,6 +1970,10 @@ contains
             error stop 1
          end if
       end do
+
+      ! Hand the validated C-order dims back so the read path's
+      ! require_variable_xtype need not re-read them from the registry.
+      if (present(registered_dims_out)) registered_dims_out = registered_dims
    end subroutine validate_field_shape
 
    !> Ensure per-field dimensions exist on `grpid` and return their dim ids.
@@ -1478,32 +2122,41 @@ contains
    !> variable disagree (e.g. mutated by a third-party tool) is
    !> rejected up-front instead of being silently coerced by
    !> nf90_get_var or hitting a low-level netCDF error mid-read.
+   !> `known_dims_c`, when present, is the registry's C-order `dims`
+   !> vector already fetched by `validate_field_shape` on this same read;
+   !> passing it avoids re-reading the identical attribute from the
+   !> registry. When absent the dims are fetched here (e.g. for callers
+   !> that did not run validate_field_shape first).
    subroutine require_variable_xtype(s, sp_grpid, varid, fieldname, &
-                                     expected_xtype)
+                                     expected_xtype, known_dims_c)
       type(t_serializer), intent(in) :: s
       integer, intent(in) :: sp_grpid, varid
       character(len=*), intent(in) :: fieldname
       integer, intent(in) :: expected_xtype
+      integer(int32), intent(in), optional :: known_dims_c(:)
       integer :: ncerr, actual_xtype, actual_ndims, axis, registry_varid, &
                  attr_len
       integer(int32), allocatable :: expected_dims_c(:)
       integer, allocatable :: dimids(:)
       integer :: actual_len
 
-      ! Re-fetch the registry's `dims` attribute so the on-disk variable
-      ! comparison uses exactly the same reference values that
-      ! `validate_field_shape` checked the caller against.
-      ncerr = nf90_inq_varid(s%fields_grpid, trim(fieldname), registry_varid)
-      call preserf_check_nf_with_msg(ncerr, &
-                                     'inq_varid /_fields/'//trim(fieldname))
-      ncerr = nf90_inquire_attribute(s%fields_grpid, registry_varid, 'dims', &
-                                     len=attr_len)
-      call preserf_check_nf_with_msg(ncerr, &
-                                     'inquire_attribute dims (for variable check)')
-      allocate (expected_dims_c(attr_len))
-      ncerr = nf90_get_att(s%fields_grpid, registry_varid, 'dims', &
-                           expected_dims_c)
-      call preserf_check_nf_with_msg(ncerr, 'get_att dims (for variable check)')
+      ! Reuse the registry `dims` validate_field_shape already fetched on
+      ! this read; only fall back to re-reading them when not supplied.
+      if (present(known_dims_c)) then
+         expected_dims_c = known_dims_c
+      else
+         ncerr = nf90_inq_varid(s%fields_grpid, trim(fieldname), registry_varid)
+         call preserf_check_nf_with_msg(ncerr, &
+                                        'inq_varid /_fields/'//trim(fieldname))
+         ncerr = nf90_inquire_attribute(s%fields_grpid, registry_varid, 'dims', &
+                                        len=attr_len)
+         call preserf_check_nf_with_msg(ncerr, &
+                                        'inquire_attribute dims (for variable check)')
+         allocate (expected_dims_c(attr_len))
+         ncerr = nf90_get_att(s%fields_grpid, registry_varid, 'dims', &
+                              expected_dims_c)
+         call preserf_check_nf_with_msg(ncerr, 'get_att dims (for variable check)')
+      end if
 
       ncerr = nf90_inquire_variable(sp_grpid, varid, xtype=actual_xtype, &
                                     ndims=actual_ndims)

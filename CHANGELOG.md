@@ -14,6 +14,29 @@ embedded in each spec's Problem section.
 
 ### Added
 
+- Full numeric type-coverage matrix (Slice B): the Fortran helper's
+  `fs_write_field` / `fs_read_field` overloads now cover every
+  `{logical, int32, int64, real32, real64}` × `{0D, 1D, 2D, 3D, 4D}`
+  combination (was `real64` 1D/2D/3D only), and read-perturb (the 5-arg
+  `fs_read_field`) extends to `real32` alongside `real64`. Logical fields
+  land as `NF90_BYTE` 0/1; 0-D (scalar) fields register with a zero-length
+  `dims` attribute and a netCDF scalar variable. New 1D-array overloads of
+  `fs_add_savepoint_metainfo` / `fs_add_serializer_metainfo` cover
+  `logical / int32 / int64 / real32 / real64` (Serialbox
+  `MetainfoValue::Array`), stored as native vector attributes whose
+  `__preserf_type_id` shadow carries the array TypeID (`TID_ARRAY .or.
+  base`). The 50 field overloads, 10 read-perturb overloads, and 10
+  `apply_perturb` helpers are generated from `#include` templates:
+  `m_preserf.f90` becomes `m_preserf.F90`, compiled with `-cpp` (the
+  array-metainfo overloads and their write/validate helpers are
+  hand-written, since they do not vary over rank) (see
+  [ADR 0004](docs/adr/0004-fortran-cpp-templates.md)). A native
+  `type-matrix` ctest scenario round-trips each dtype, a 0-D scalar, a 4-D
+  field, real32 perturb, and array metainfo; a `wire-matrix` scenario plus
+  a parametrised `test_fortran_wire_compat.py` matrix assert the on-disk
+  netCDF type and registry `type_id` for all 25 `(rank, dtype)`
+  combinations against `storage_mapping.md` §1. Array **string** metainfo
+  (`NC_STRING`) is deferred to Slice B′ with string data fields.
 - Backend selector + NCZarr URL targets (Slice E): `ppser_initialize` now
   accepts a `backend` keyword selecting `'netcdf4'` (default, the v0.1
   `.nc` file behaviour) or `'nczarr-v2'`. `preserf_open_serializer`
