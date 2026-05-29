@@ -554,6 +554,10 @@ program test_minimal
                real(real32) :: r4f(3), r4fb(3), r4p(3)
                real(real64) :: r8f(3), r8fb(3)
                real(real32) :: a4(2, 2, 2, 2), a4b(2, 2, 2, 2)
+               ! 0-D (scalar) logical + real32 exercise the rank-0 logical
+               ! byte buffer and the rank-0 perturb path end to end.
+               logical :: lsc, lscb
+               real(real32) :: rsc, rscb
                integer :: i, j, k, l
                lf = [.true., .false., .true.]
                do i = 1, 3
@@ -563,6 +567,8 @@ program test_minimal
                   r8f(i) = real(i, real64) + 0.25_real64
                end do
                sc = 4242_int32
+               lsc = .true.
+               rsc = 6.25_real32
                do l = 1, 2
                   do k = 1, 2
                      do j = 1, 2
@@ -590,6 +596,11 @@ program test_minimal
                ! 4-D real32.
                call fs_register_field(ppser_serializer, 'a4', 'float', 4, &
                                       2, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0)
+               ! 0-D logical and 0-D real32 (scalar) fields.
+               call fs_register_field(ppser_serializer, 'lsc', 'bool', 1, &
+                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'rsc', 'float', 4, &
+                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
                call fs_create_savepoint('step', ppser_savepoint)
                call fs_write_field(ppser_serializer, ppser_savepoint, 'lf', lf)
                call fs_write_field(ppser_serializer, ppser_savepoint, 'i4f', i4f)
@@ -598,6 +609,8 @@ program test_minimal
                call fs_write_field(ppser_serializer, ppser_savepoint, 'r8f', r8f)
                call fs_write_field(ppser_serializer, ppser_savepoint, 'sc', sc)
                call fs_write_field(ppser_serializer, ppser_savepoint, 'a4', a4)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'lsc', lsc)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'rsc', rsc)
                ! 1D-array metainfo overloads (one per scalar type), on both
                ! the root serializer and the savepoint.
                call fs_add_serializer_metainfo(ppser_serializer, 'm_i4', i4f)
@@ -622,6 +635,10 @@ program test_minimal
                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
                call fs_register_field(ppser_serializer, 'a4', 'float', 4, &
                                       2, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'lsc', 'bool', 1, &
+                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'rsc', 'float', 4, &
+                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
                call fs_create_savepoint('step', ppser_savepoint)
                call fs_read_field(ppser_serializer, ppser_savepoint, 'lf', lfb)
                call fs_read_field(ppser_serializer, ppser_savepoint, 'i4f', i4fb)
@@ -630,6 +647,8 @@ program test_minimal
                call fs_read_field(ppser_serializer, ppser_savepoint, 'r8f', r8fb)
                call fs_read_field(ppser_serializer, ppser_savepoint, 'sc', scb)
                call fs_read_field(ppser_serializer, ppser_savepoint, 'a4', a4b)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'lsc', lscb)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'rsc', rscb)
                if (any(lfb .neqv. lf)) error stop 'type-matrix: logical mismatch'
                if (any(i4fb /= i4f)) error stop 'type-matrix: int32 mismatch'
                if (any(i8fb /= i8f)) error stop 'type-matrix: int64 mismatch'
@@ -637,6 +656,8 @@ program test_minimal
                if (any(r8fb /= r8f)) error stop 'type-matrix: real64 mismatch'
                if (scb /= sc) error stop 'type-matrix: 0-D scalar mismatch'
                if (any(a4b /= a4)) error stop 'type-matrix: 4-D mismatch'
+               if (lscb .neqv. lsc) error stop 'type-matrix: 0-D logical mismatch'
+               if (rscb /= rsc) error stop 'type-matrix: 0-D real32 mismatch'
                ! Read-mode validation of the 1D-array metainfo: replaying
                ! the same calls checks each stored vector attribute's
                ! values, length, and array TypeID shadow tag.
@@ -657,6 +678,17 @@ program test_minimal
                   if (r4p(i) < r4f(i)*0.9_real32 .or. r4p(i) > r4f(i)*1.1_real32) &
                      error stop 'type-matrix: real32 perturb out of bounds'
                end do
+               ! 0-D real32 read-perturb exercises the scalar apply_perturb
+               ! (PRESERF_RANK == 0) branch: scale 0 is the identity, a
+               ! non-zero scale stays within +/- scale.
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'rsc', &
+                                  rscb, 0.0_real64)
+               if (rscb /= rsc) error stop &
+                  'type-matrix: 0-D real32 perturb scale 0 should be identity'
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'rsc', &
+                                  rscb, 0.1_real64)
+               if (rscb < rsc*0.9_real32 .or. rscb > rsc*1.1_real32) error stop &
+                  'type-matrix: 0-D real32 perturb out of bounds'
                call ppser_finalize()
                write (*, '(a)') 'preserf-fortran: type-matrix OK'
                stop
@@ -666,51 +698,74 @@ program test_minimal
             ! combination plus a 1D-array metainfo of each scalar type,
             ! so the Python cross-language test can assert the on-disk
             ! netCDF type for the whole matrix against storage_mapping §1.
-            ! Each rank-r field has extent 2 on every axis; every element
-            ! is filled with a per-dtype constant the Python side knows.
+            !
+            ! Extents are DISTINCT per axis (rank-r uses (2,3,4,5)[:r]) so
+            ! the Python shape/dims assertions actually constrain axis
+            ! order (a C-order/Fortran-order transpose regression would
+            ! change the shape). Numeric fields are filled with a
+            ! column-major ramp 1..N via reshape, so the Python side can
+            ! verify element order with arr.ravel(order='F') == arange,
+            ! catching an element-order scramble that a uniform fill could
+            ! not. Logical fields stay all-.true. (their encode is covered
+            ! by the native type-matrix scenario and the a_lg metainfo).
             block
-               logical :: l0, l1(2), l2(2, 2), l3(2, 2, 2), l4(2, 2, 2, 2)
-               integer(int32) :: i40, i41(2), i42(2, 2), i43(2, 2, 2), i44(2, 2, 2, 2)
-               integer(int64) :: i80, i81(2), i82(2, 2), i83(2, 2, 2), i84(2, 2, 2, 2)
-               real(real32) :: r40, r41(2), r42(2, 2), r43(2, 2, 2), r44(2, 2, 2, 2)
-               real(real64) :: r80, r81(2), r82(2, 2), r83(2, 2, 2), r84(2, 2, 2, 2)
+               logical :: l0, l1(2), l2(2, 3), l3(2, 3, 4), l4(2, 3, 4, 5)
+               integer(int32) :: i40, i41(2), i42(2, 3), i43(2, 3, 4), i44(2, 3, 4, 5)
+               integer(int64) :: i80, i81(2), i82(2, 3), i83(2, 3, 4), i84(2, 3, 4, 5)
+               real(real32) :: r40, r41(2), r42(2, 3), r43(2, 3, 4), r44(2, 3, 4, 5)
+               real(real64) :: r80, r81(2), r82(2, 3), r83(2, 3, 4), r84(2, 3, 4, 5)
+               integer :: ii
                l0 = .true.; l1 = .true.; l2 = .true.; l3 = .true.; l4 = .true.
-               i40 = 7_int32; i41 = 7_int32; i42 = 7_int32; i43 = 7_int32; i44 = 7_int32
-               i80 = 77_int64; i81 = 77_int64; i82 = 77_int64
-               i83 = 77_int64; i84 = 77_int64
-               r40 = 1.5_real32; r41 = 1.5_real32; r42 = 1.5_real32
-               r43 = 1.5_real32; r44 = 1.5_real32
-               r80 = 2.5_real64; r81 = 2.5_real64; r82 = 2.5_real64
-               r83 = 2.5_real64; r84 = 2.5_real64
+               i40 = 1_int32
+               i41 = reshape([(int(ii, int32), ii=1, size(i41))], shape(i41))
+               i42 = reshape([(int(ii, int32), ii=1, size(i42))], shape(i42))
+               i43 = reshape([(int(ii, int32), ii=1, size(i43))], shape(i43))
+               i44 = reshape([(int(ii, int32), ii=1, size(i44))], shape(i44))
+               i80 = 1_int64
+               i81 = reshape([(int(ii, int64), ii=1, size(i81))], shape(i81))
+               i82 = reshape([(int(ii, int64), ii=1, size(i82))], shape(i82))
+               i83 = reshape([(int(ii, int64), ii=1, size(i83))], shape(i83))
+               i84 = reshape([(int(ii, int64), ii=1, size(i84))], shape(i84))
+               r40 = 1.0_real32
+               r41 = reshape([(real(ii, real32), ii=1, size(r41))], shape(r41))
+               r42 = reshape([(real(ii, real32), ii=1, size(r42))], shape(r42))
+               r43 = reshape([(real(ii, real32), ii=1, size(r43))], shape(r43))
+               r44 = reshape([(real(ii, real32), ii=1, size(r44))], shape(r44))
+               r80 = 1.0_real64
+               r81 = reshape([(real(ii, real64), ii=1, size(r81))], shape(r81))
+               r82 = reshape([(real(ii, real64), ii=1, size(r82))], shape(r82))
+               r83 = reshape([(real(ii, real64), ii=1, size(r83))], shape(r83))
+               r84 = reshape([(real(ii, real64), ii=1, size(r84))], shape(r84))
 
                call ppser_initialize(out_dir, 'fmatrix', 'w')
                ! Register + write every (dtype, rank). Names are
-               ! "<tag><rank>" so the Python test can build them.
+               ! "<tag><rank>" so the Python test can build them; sizes use
+               ! the distinct (2,3,4,5) prefix per rank.
                call reg_matrix_field('l0', 'bool', 1, 0, 0, 0, 0)
                call reg_matrix_field('l1', 'bool', 1, 2, 0, 0, 0)
-               call reg_matrix_field('l2', 'bool', 1, 2, 2, 0, 0)
-               call reg_matrix_field('l3', 'bool', 1, 2, 2, 2, 0)
-               call reg_matrix_field('l4', 'bool', 1, 2, 2, 2, 2)
+               call reg_matrix_field('l2', 'bool', 1, 2, 3, 0, 0)
+               call reg_matrix_field('l3', 'bool', 1, 2, 3, 4, 0)
+               call reg_matrix_field('l4', 'bool', 1, 2, 3, 4, 5)
                call reg_matrix_field('i40', 'int', 4, 0, 0, 0, 0)
                call reg_matrix_field('i41', 'int', 4, 2, 0, 0, 0)
-               call reg_matrix_field('i42', 'int', 4, 2, 2, 0, 0)
-               call reg_matrix_field('i43', 'int', 4, 2, 2, 2, 0)
-               call reg_matrix_field('i44', 'int', 4, 2, 2, 2, 2)
+               call reg_matrix_field('i42', 'int', 4, 2, 3, 0, 0)
+               call reg_matrix_field('i43', 'int', 4, 2, 3, 4, 0)
+               call reg_matrix_field('i44', 'int', 4, 2, 3, 4, 5)
                call reg_matrix_field('i80', 'int64', 8, 0, 0, 0, 0)
                call reg_matrix_field('i81', 'int64', 8, 2, 0, 0, 0)
-               call reg_matrix_field('i82', 'int64', 8, 2, 2, 0, 0)
-               call reg_matrix_field('i83', 'int64', 8, 2, 2, 2, 0)
-               call reg_matrix_field('i84', 'int64', 8, 2, 2, 2, 2)
+               call reg_matrix_field('i82', 'int64', 8, 2, 3, 0, 0)
+               call reg_matrix_field('i83', 'int64', 8, 2, 3, 4, 0)
+               call reg_matrix_field('i84', 'int64', 8, 2, 3, 4, 5)
                call reg_matrix_field('r40', 'float', 4, 0, 0, 0, 0)
                call reg_matrix_field('r41', 'float', 4, 2, 0, 0, 0)
-               call reg_matrix_field('r42', 'float', 4, 2, 2, 0, 0)
-               call reg_matrix_field('r43', 'float', 4, 2, 2, 2, 0)
-               call reg_matrix_field('r44', 'float', 4, 2, 2, 2, 2)
+               call reg_matrix_field('r42', 'float', 4, 2, 3, 0, 0)
+               call reg_matrix_field('r43', 'float', 4, 2, 3, 4, 0)
+               call reg_matrix_field('r44', 'float', 4, 2, 3, 4, 5)
                call reg_matrix_field('r80', 'double', 8, 0, 0, 0, 0)
                call reg_matrix_field('r81', 'double', 8, 2, 0, 0, 0)
-               call reg_matrix_field('r82', 'double', 8, 2, 2, 0, 0)
-               call reg_matrix_field('r83', 'double', 8, 2, 2, 2, 0)
-               call reg_matrix_field('r84', 'double', 8, 2, 2, 2, 2)
+               call reg_matrix_field('r82', 'double', 8, 2, 3, 0, 0)
+               call reg_matrix_field('r83', 'double', 8, 2, 3, 4, 0)
+               call reg_matrix_field('r84', 'double', 8, 2, 3, 4, 5)
                call fs_create_savepoint('step', ppser_savepoint)
                call fs_write_field(ppser_serializer, ppser_savepoint, 'l0', l0)
                call fs_write_field(ppser_serializer, ppser_savepoint, 'l1', l1)

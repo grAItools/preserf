@@ -43,6 +43,20 @@ target_sources(preserf_fortran PRIVATE
     m_serialize.f90
 )
 
+# m_preserf.F90 pulls in the preserf_*.inc overload templates via the C
+# preprocessor. CMake's Fortran dependency scanner only follows Fortran
+# INCLUDE / USE, not cpp `#include`, so without this an incremental build
+# would not rebuild m_preserf.F90 when a template changes and would reuse a
+# stale object. Register the templates explicitly as OBJECT_DEPENDS.
+set_source_files_properties(m_preserf.F90 PROPERTIES OBJECT_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/preserf_write_field.inc;\
+${CMAKE_CURRENT_SOURCE_DIR}/preserf_write_field_logical.inc;\
+${CMAKE_CURRENT_SOURCE_DIR}/preserf_read_field.inc;\
+${CMAKE_CURRENT_SOURCE_DIR}/preserf_read_field_logical.inc;\
+${CMAKE_CURRENT_SOURCE_DIR}/preserf_read_field_perturb.inc;\
+${CMAKE_CURRENT_SOURCE_DIR}/preserf_apply_perturb.inc"
+)
+
 # Put .mod files where dependents can find them. Fortran_STANDARD /
 # Fortran_STANDARD_REQUIRED set the portable property for any
 # CMake/compiler combo that knows how to translate it (recent ifort/

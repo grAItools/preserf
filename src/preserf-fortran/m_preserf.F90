@@ -1897,13 +1897,18 @@ contains
    !> Aborts with a clear error on type-id mismatch, shape mismatch, or
    !> on accesses to fields that were never registered. `op` is "write"
    !> or "read" and is interpolated into error messages.
+   !> When `registered_dims_out` is present it returns the registry's
+   !> C-order `dims` vector this routine already fetched, so a read-path
+   !> caller can hand it to `require_variable_xtype` instead of having it
+   !> re-read the same attribute from the registry.
    subroutine validate_field_shape(s, fieldname, fortran_shape, &
-                                   expected_tid, op)
+                                   expected_tid, op, registered_dims_out)
       type(t_serializer), intent(in) :: s
       character(len=*), intent(in) :: fieldname
       integer, intent(in) :: fortran_shape(:)
       integer(int32), intent(in) :: expected_tid
       character(len=*), intent(in) :: op
+      integer(int32), allocatable, intent(out), optional :: registered_dims_out(:)
       integer :: ncerr, varid, attr_len, axis
       integer(int32), allocatable :: registered_dims(:)
       integer(int32) :: registered_tid
@@ -1965,6 +1970,10 @@ contains
             error stop 1
          end if
       end do
+
+      ! Hand the validated C-order dims back so the read path's
+      ! require_variable_xtype need not re-read them from the registry.
+      if (present(registered_dims_out)) registered_dims_out = registered_dims
    end subroutine validate_field_shape
 
    !> Ensure per-field dimensions exist on `grpid` and return their dim ids.
@@ -2113,32 +2122,41 @@ contains
    !> variable disagree (e.g. mutated by a third-party tool) is
    !> rejected up-front instead of being silently coerced by
    !> nf90_get_var or hitting a low-level netCDF error mid-read.
+   !> `known_dims_c`, when present, is the registry's C-order `dims`
+   !> vector already fetched by `validate_field_shape` on this same read;
+   !> passing it avoids re-reading the identical attribute from the
+   !> registry. When absent the dims are fetched here (e.g. for callers
+   !> that did not run validate_field_shape first).
    subroutine require_variable_xtype(s, sp_grpid, varid, fieldname, &
-                                     expected_xtype)
+                                     expected_xtype, known_dims_c)
       type(t_serializer), intent(in) :: s
       integer, intent(in) :: sp_grpid, varid
       character(len=*), intent(in) :: fieldname
       integer, intent(in) :: expected_xtype
+      integer(int32), intent(in), optional :: known_dims_c(:)
       integer :: ncerr, actual_xtype, actual_ndims, axis, registry_varid, &
                  attr_len
       integer(int32), allocatable :: expected_dims_c(:)
       integer, allocatable :: dimids(:)
       integer :: actual_len
 
-      ! Re-fetch the registry's `dims` attribute so the on-disk variable
-      ! comparison uses exactly the same reference values that
-      ! `validate_field_shape` checked the caller against.
-      ncerr = nf90_inq_varid(s%fields_grpid, trim(fieldname), registry_varid)
-      call preserf_check_nf_with_msg(ncerr, &
-                                     'inq_varid /_fields/'//trim(fieldname))
-      ncerr = nf90_inquire_attribute(s%fields_grpid, registry_varid, 'dims', &
-                                     len=attr_len)
-      call preserf_check_nf_with_msg(ncerr, &
-                                     'inquire_attribute dims (for variable check)')
-      allocate (expected_dims_c(attr_len))
-      ncerr = nf90_get_att(s%fields_grpid, registry_varid, 'dims', &
-                           expected_dims_c)
-      call preserf_check_nf_with_msg(ncerr, 'get_att dims (for variable check)')
+      ! Reuse the registry `dims` validate_field_shape already fetched on
+      ! this read; only fall back to re-reading them when not supplied.
+      if (present(known_dims_c)) then
+         expected_dims_c = known_dims_c
+      else
+         ncerr = nf90_inq_varid(s%fields_grpid, trim(fieldname), registry_varid)
+         call preserf_check_nf_with_msg(ncerr, &
+                                        'inq_varid /_fields/'//trim(fieldname))
+         ncerr = nf90_inquire_attribute(s%fields_grpid, registry_varid, 'dims', &
+                                        len=attr_len)
+         call preserf_check_nf_with_msg(ncerr, &
+                                        'inquire_attribute dims (for variable check)')
+         allocate (expected_dims_c(attr_len))
+         ncerr = nf90_get_att(s%fields_grpid, registry_varid, 'dims', &
+                              expected_dims_c)
+         call preserf_check_nf_with_msg(ncerr, 'get_att dims (for variable check)')
+      end if
 
       ncerr = nf90_inquire_variable(sp_grpid, varid, xtype=actual_xtype, &
                                     ndims=actual_ndims)

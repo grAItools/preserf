@@ -377,21 +377,32 @@ def test_fortran_realtype_too_long_aborts(tmp_path: Path, fortran_binary: Path) 
 # Slice B: full (rank x dtype) type-coverage matrix.
 #
 # The `wire-matrix` scenario writes one field of every dtype x rank
-# combination (named "<tag><rank>", every axis extent 2, filled with a
-# per-dtype constant) plus a 1D-array metainfo of each scalar type. The
-# parametrised test below asserts, for each (rank, dtype), that the raw
-# on-disk netCDF type and the registry type_id match the TypeID ->
-# netCDF-type table in docs/references/storage_mapping.md §1.
+# combination (named "<tag><rank>") plus a 1D-array metainfo of each
+# scalar type. Extents are distinct per axis (rank-r uses the (2,3,4,5)
+# prefix) so the on-disk C-order shape/dims constrain axis order; numeric
+# fields are filled with a column-major ramp 1..N, so the on-disk array
+# read back as numpy ravel(order="F") must equal arange(1, N+1) — this
+# catches both an axis-order transpose (wrong shape) and an element-order
+# scramble (wrong ramp). The test asserts, for each (rank, dtype), the raw
+# on-disk netCDF type and registry type_id against the TypeID -> netCDF
+# table in docs/references/storage_mapping.md §1, plus shape and values.
 # ---------------------------------------------------------------------------
 
-# (tag, primitive TypeID, fill value the Fortran writer used)
+# (tag, primitive TypeID)
 _MATRIX_DTYPES = [
-    ("l", TypeID.Boolean, 1),
-    ("i4", TypeID.Int32, 7),
-    ("i8", TypeID.Int64, 77),
-    ("r4", TypeID.Float32, 1.5),
-    ("r8", TypeID.Float64, 2.5),
+    ("l", TypeID.Boolean),
+    ("i4", TypeID.Int32),
+    ("i8", TypeID.Int64),
+    ("r4", TypeID.Float32),
+    ("r8", TypeID.Float64),
 ]
+
+# Fortran column-major extents per rank: rank-r uses (2,3,4,5)[:r].
+_MATRIX_FORTRAN_EXTENTS = {0: (), 1: (2,), 2: (2, 3), 3: (2, 3, 4), 4: (2, 3, 4, 5)}
+# Every (tag, rank) field name the wire-matrix scenario must emit.
+_MATRIX_FIELD_NAMES = {
+    f"{tag}{rank}" for (tag, _tid) in _MATRIX_DTYPES for rank in range(5)
+}
 
 
 @pytest.fixture(scope="module")
@@ -436,6 +447,21 @@ def matrix_store(tmp_path_factory: pytest.TempPathFactory) -> dict[str, object]:
     finally:
         raw.close()
 
+    # Completeness guard: the writer must emit exactly the 25 matrix
+    # fields — no more, no less. Without this a dropped field surfaces as
+    # a bare KeyError on one parametrised case, and a spurious extra
+    # variable goes unnoticed entirely.
+    assert set(registry_type_id) == _MATRIX_FIELD_NAMES, (
+        "registry fields differ from the expected 25-field matrix: "
+        f"missing={_MATRIX_FIELD_NAMES - set(registry_type_id)}, "
+        f"unexpected={set(registry_type_id) - _MATRIX_FIELD_NAMES}"
+    )
+    assert set(savepoint_dtype) == _MATRIX_FIELD_NAMES, (
+        "savepoint variables differ from the expected 25-field matrix: "
+        f"missing={_MATRIX_FIELD_NAMES - set(savepoint_dtype)}, "
+        f"unexpected={set(savepoint_dtype) - _MATRIX_FIELD_NAMES}"
+    )
+
     return {
         "registry_type_id": registry_type_id,
         "savepoint_dtype": savepoint_dtype,
@@ -444,17 +470,18 @@ def matrix_store(tmp_path_factory: pytest.TempPathFactory) -> dict[str, object]:
 
 
 @pytest.mark.parametrize("rank", [0, 1, 2, 3, 4])
-@pytest.mark.parametrize(("tag", "tid", "value"), _MATRIX_DTYPES)
+@pytest.mark.parametrize(("tag", "tid"), _MATRIX_DTYPES)
 def test_fortran_type_coverage_matrix(
     matrix_store: dict[str, object],
     rank: int,
     tag: str,
     tid: TypeID,
-    value: float,
 ) -> None:
-    """Each (rank, dtype) field has the expected on-disk + registry type."""
+    """Each (rank, dtype) field has the expected on-disk type, shape, and values."""
     name = f"{tag}{rank}"
     expected_dtype = numpy_dtype_for(tid)
+    # On disk the dims/shape are C-order = reverse of the Fortran extents.
+    c_shape = tuple(reversed(_MATRIX_FORTRAN_EXTENTS[rank]))
 
     registry_type_id = matrix_store["registry_type_id"]
     savepoint_dtype = matrix_store["savepoint_dtype"]
@@ -471,12 +498,23 @@ def test_fortran_type_coverage_matrix(
 
     info = dump.field_map[name]  # type: ignore[attr-defined]
     assert info.type_id == tid
-    assert info.dims == [2] * rank
+    # Distinct extents make this assertion sensitive to an axis-order
+    # (C-order vs Fortran-order) transpose regression.
+    assert info.dims == list(c_shape)
 
     arr = dump.field_data[name][0]  # type: ignore[attr-defined]
-    assert arr.shape == (2,) * rank
+    assert arr.shape == c_shape
     assert arr.dtype == expected_dtype
-    assert np.all(arr == expected_dtype.type(value))
+    if tag == "l":
+        # Logical fields are filled all-.true. -> on-disk byte 1.
+        assert np.all(arr == 1)
+    else:
+        # Numeric fields carry a Fortran column-major ramp 1..N. preserf
+        # reverses axes on disk (Fortran (i,j,k) -> numpy [k,j,i]), so the
+        # on-disk array traversed C-order (row-major) reproduces that
+        # column-major fill; any element-order scramble breaks the ramp.
+        expected = np.arange(1, arr.size + 1, dtype=expected_dtype)
+        np.testing.assert_array_equal(arr.ravel(order="C"), expected)
 
 
 def test_fortran_array_metainfo_matrix(matrix_store: dict[str, object]) -> None:
