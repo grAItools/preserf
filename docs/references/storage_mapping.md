@@ -93,7 +93,7 @@ physical halo, not the storage axis.
 ├── /_tracers                         (group; present only when a tracer is registered, §4a)
 │   ├── <tracername>                  (dummy scalar variable per registered tracer;
 │   │   │                              carries field schema + stype/tracer_index)
-│   │   └── attributes: type_id, dims, halos, stype, tracer_index (§4a)
+│   │   └── attributes: type_id, dims, stype, tracer_index (§4a)
 │   └── …
 └── /savepoints                       (group; ordered savepoint vector)
     ├── /sp_000000                    (one subgroup per savepoint, zero-padded index)
@@ -272,13 +272,17 @@ itself carries no data array).
 
 Attributes:
 
-| Attribute                  | Type              | Req? | Source                                                      |
-| -------------------------- | ----------------- | ---- | ----------------------------------------------------------- |
-| `type_id`                  | `NF90_INT`        | yes  | Serialbox TypeID (1..6) — see §1                            |
-| `dims`                     | vector `NF90_INT` | yes  | C-order shape — see §1.1                                    |
-| `*minushalo` / `*plushalo` | `NF90_INT`        | no   | optional halos, via `put_halo_attr` (zero omitted, §4)      |
-| `stype`                    | `NF90_CHAR`       | yes  | one of `tens` / `bd` / `surf` / `sedimvel`, or empty string |
-| `tracer_index`             | `NF90_INT`        | yes  | 1-based position in registration order                      |
+| Attribute      | Type              | Req? | Source                                                      |
+| -------------- | ----------------- | ---- | ----------------------------------------------------------- |
+| `type_id`      | `NF90_INT`        | yes  | Serialbox TypeID (1..6) — see §1                            |
+| `dims`         | vector `NF90_INT` | yes  | C-order shape — see §1.1                                    |
+| `stype`        | `NF90_CHAR`       | yes  | one of `tens` / `bd` / `surf` / `sedimvel`, or empty string |
+| `tracer_index` | `NF90_INT`        | yes  | 1-based position in registration order                      |
+
+v1.0 tracer descriptors do **not** carry halo attributes — the registration
+surface (`ppser_register_tracer`) takes no halo extents and
+`write_tracer_descriptor` emits none. Halo support for tracers, if needed,
+is a future extension of both the API and this table.
 
 Tracer **data** written at a savepoint lands as an ordinary savepoint
 variable (§6) **named by the tracer name alone** (e.g. `q_v`) — identical in

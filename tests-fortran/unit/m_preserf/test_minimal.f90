@@ -1106,6 +1106,28 @@ program test_minimal
                call ppser_write_tracer_by_idx(5)
                call abort_unexpected('tracers-bad-idx')
             end block
+         else if (scenario == 'tracers-bad-reorder') then
+            ! Read-mode registration order must match the write order: a
+            ! tracer registered at a different position than its stored
+            ! tracer_index must abort (else by_idx resolves the wrong one).
+            block
+               real(real64), target :: q1(3), q2(3)
+               q1 = 1.0_real64
+               q2 = 2.0_real64
+               call ppser_initialize(out_dir, 'ftbo', 'w')
+               call ppser_register_tracer('q_v', q1, stype='tens')
+               call ppser_register_tracer('q_c', q2, stype='bd')
+               call fs_RegisterAllTracers()
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+               call ppser_finalize()
+               ! Re-open read-only and register in the REVERSE order.
+               call ppser_initialize(out_dir, 'ftbo', 'r')
+               call ppser_register_tracer('q_c', q2, stype='bd')
+               call ppser_register_tracer('q_v', q1, stype='tens')
+               call fs_RegisterAllTracers()
+               call abort_unexpected('tracers-bad-reorder')
+            end block
          else if (scenario == 'tracers-bad-range') then
             ! A descending tracer index range (idx2 < idx) must abort rather
             ! than silently write nothing.

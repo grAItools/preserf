@@ -48,16 +48,19 @@ arguments: it is a bulk "register everything the model knows about" hook.
 `fs_register_field` does under `/_fields` (`src/preserf-fortran/m_preserf.F90`
 `fs_register_field`). Each carrier holds:
 
-| Attribute                  | Type              | Source / meaning                                                  |
-| -------------------------- | ----------------- | ----------------------------------------------------------------- |
-| `type_id`                  | `NF90_INT`        | Serialbox TypeID, as for fields (storage_mapping §1)              |
-| `dims`                     | vector `NF90_INT` | C-order shape, reversed from Fortran sizes (storage_mapping §1.1) |
-| `*minushalo` / `*plushalo` | `NF90_INT`        | optional, via the existing `put_halo_attr` (zero omitted)         |
-| `stype`                    | `NF90_CHAR`       | `tens`/`bd`/`surf`/`sedimvel`, or empty string                    |
-| `tracer_index`             | `NF90_INT`        | 1-based position in the ordered tracer set                        |
+| Attribute      | Type              | Source / meaning                                                  |
+| -------------- | ----------------- | ----------------------------------------------------------------- |
+| `type_id`      | `NF90_INT`        | Serialbox TypeID, as for fields (storage_mapping §1)              |
+| `dims`         | vector `NF90_INT` | C-order shape, reversed from Fortran sizes (storage_mapping §1.1) |
+| `stype`        | `NF90_CHAR`       | `tens`/`bd`/`surf`/`sedimvel`, or empty string                    |
+| `tracer_index` | `NF90_INT`        | 1-based position in the ordered tracer set                        |
 
 The descriptor write path is the field path with two extra string/int
-attributes; no new netCDF machinery is introduced.
+attributes (`stype`, `tracer_index`); no new netCDF machinery is introduced.
+v1.0 tracer descriptors carry **no halo attributes** — `ppser_register_tracer`
+takes no halo extents — so unlike `/_fields` carriers they have no
+`*minushalo` / `*plushalo`; adding them is a future extension of the
+registration API.
 
 The `/_tracers` group is **created lazily** — by `fs_RegisterAllTracers` the
 first time a tracer is registered, not as part of the init-time skeleton

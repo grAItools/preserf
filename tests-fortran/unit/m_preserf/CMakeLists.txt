@@ -407,6 +407,17 @@ set_tests_properties(preserf_fortran_tracers_bad_idx PROPERTIES
 )
 
 add_test(
+    NAME preserf_fortran_tracers_bad_reorder
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracers-bad-reorder
+)
+set_tests_properties(preserf_fortran_tracers_bad_reorder PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "tracer_index mismatch"
+    TIMEOUT 60
+)
+
+add_test(
     NAME preserf_fortran_tracers_bad_range
     COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
             "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracers-bad-range

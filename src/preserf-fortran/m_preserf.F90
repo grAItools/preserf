@@ -598,7 +598,7 @@ contains
             error stop 1
          end if
          do i = 1, ppser_tracer_count
-            call validate_registered_tracer(ppser_serializer, ppser_tracers(i))
+            call validate_registered_tracer(ppser_serializer, ppser_tracers(i), i)
          end do
          return
       end if
@@ -656,12 +656,18 @@ contains
 
    !> Read-mode counterpart to write_tracer_descriptor: confirm the
    !> registered tracer's `/_tracers/<name>` carrier exists and agrees on
-   !> type_id, dims (C-order) and stype. Mirrors validate_registered_field.
-   subroutine validate_registered_tracer(s, entry)
+   !> type_id, dims (C-order), stype, and its 1-based `tracer_index`.
+   !> Mirrors validate_registered_field. `expected_index` is the tracer's
+   !> position in the current run's registration order; checking it against
+   !> the stored value catches a read run that registers tracers in a
+   !> different order, which would otherwise make `ppser_write_tracer_by_idx`
+   !> resolve a different tracer than was written at that index.
+   subroutine validate_registered_tracer(s, entry, expected_index)
       type(t_serializer), intent(in) :: s
       type(t_tracer_entry), intent(in) :: entry
+      integer, intent(in) :: expected_index
       integer :: ncerr, varid, attr_len, axis
-      integer(int32) :: stored_tid
+      integer(int32) :: stored_tid, stored_idx
       integer(int32), allocatable :: stored_dims(:), cdims(:)
       character(len=:), allocatable :: stored_stype
 
@@ -716,6 +722,16 @@ contains
             'preserf: read-mode tracer "', trim(entry%name), &
             '" stype mismatch: store "', trim(stored_stype), &
             '", run "', trim(entry%stype)
+         error stop 1
+      end if
+
+      ncerr = nf90_get_att(s%tracers_grpid, varid, 'tracer_index', stored_idx)
+      call preserf_check_nf_with_msg(ncerr, 'get_att tracer_index')
+      if (int(stored_idx) /= expected_index) then
+         write (*, '(a,a,a,i0,a,i0)') &
+            'preserf: read-mode tracer "', trim(entry%name), &
+            '" tracer_index mismatch: store has ', int(stored_idx), &
+            ', run registered it at position ', expected_index
          error stop 1
       end if
    end subroutine validate_registered_tracer
