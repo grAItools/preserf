@@ -1013,6 +1013,27 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: option OK'
                stop
             end block
+         else if (scenario == 'tracer-tl-overwrite') then
+            ! "Last write wins": write q_v twice at one savepoint, first
+            ! with timelevel=2 then without. The final variable must carry
+            ! no timelevel attribute. The Python wire-compat test asserts
+            ! the attribute is absent.
+            block
+               real(real64), target :: q(3)
+               integer :: i
+               do i = 1, 3
+                  q(i) = real(i, real64)
+               end do
+               call ppser_initialize(out_dir, 'ftltl', 'w')
+               call ppser_register_tracer('q_v', q, stype='tens')
+               call fs_RegisterAllTracers()
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_write_tracer_by_name('q_v', stype='tens', timelevel=2)
+               call ppser_write_tracer_by_name('q_v', stype='tens')
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: tracer-tl-overwrite OK'
+               stop
+            end block
          else if (scenario == 'tracers-bad-dup') then
             ! Registering the same tracer name twice must abort.
             block

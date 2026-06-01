@@ -24,6 +24,15 @@ subroutine PRESERF_SUB(grpid, entry, mode, timelevel, has_timelevel)
          ncerr = nf90_put_att(grpid, varid, 'timelevel', tl)
          call preserf_check_nf_with_msg(ncerr, &
                                         'put_att tracer timelevel '//trim(entry%name))
+      else
+         ! "Last write wins": if a prior write of this tracer at this
+         ! savepoint set a timelevel and this (final) write omits it, the
+         ! attribute must not linger on the reused variable. Removing an
+         ! absent attribute is a no-op (NF90_ENOTATT).
+         ncerr = nf90_del_att(grpid, varid, 'timelevel')
+         if (ncerr /= NF90_NOERR .and. ncerr /= NF90_ENOTATT) &
+            call preserf_check_nf_with_msg(ncerr, &
+                                           'del_att tracer timelevel '//trim(entry%name))
       end if
    else
       ncerr = nf90_inq_varid(grpid, trim(entry%name), varid)

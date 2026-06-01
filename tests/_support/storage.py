@@ -238,12 +238,19 @@ def write_dump(dump: SerialboxDump, directory: Path, *, backend: str) -> str:
             _write_field_registry(fields_grp, fname, info)
 
         # Tracer descriptors mirror /_fields (Slice C / ADR 0003 §4a). The
-        # group is created only when tracers are registered, matching the
-        # Fortran helper and read_dump's optional `/_tracers` handling.
-        if dump.tracer_map:
-            tracers_grp = root.createGroup("_tracers")
-            for pos, (tname, info) in enumerate(dump.tracer_map.items(), start=1):
-                _write_tracer_registry(tracers_grp, tname, info, dump, pos)
+        # `/_tracers` group is created unconditionally — empty when no tracer
+        # is registered — matching the Fortran helper, which always creates
+        # it. A name cannot be both a field and a tracer (read_dump rejects
+        # the overlap), so fail fast here rather than write an unreadable
+        # store.
+        overlap = set(dump.field_map) & set(dump.tracer_map)
+        if overlap:
+            raise ValueError(
+                f"name(s) registered as both field and tracer: {sorted(overlap)}"
+            )
+        tracers_grp = root.createGroup("_tracers")
+        for pos, (tname, info) in enumerate(dump.tracer_map.items(), start=1):
+            _write_tracer_registry(tracers_grp, tname, info, dump, pos)
 
         savepoints_grp = root.createGroup("savepoints")
         for idx, sp in enumerate(dump.savepoints):

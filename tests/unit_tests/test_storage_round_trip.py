@@ -244,6 +244,20 @@ def test_round_trip_tracers_and_option(tmp_path: Path, backend: str) -> None:
     _assert_dumps_equal(original, reconstructed)
 
 
+def test_write_dump_rejects_field_tracer_name_overlap(tmp_path: Path) -> None:
+    """A name registered as both a field and a tracer is rejected on write.
+
+    read_dump() refuses such a store, so write_dump() must fail fast rather
+    than produce an unreadable one (symmetry, Slice C review)."""
+    dump = SerialboxDump(prefix="clash")
+    dump.field_map = {"x": FieldMetainfo(type_id=TypeID.Float64, dims=[2])}
+    dump.tracer_map = {"x": FieldMetainfo(type_id=TypeID.Float64, dims=[2])}
+    dump.tracer_stype = {"x": ""}
+    dump.tracer_index = {"x": 1}
+    with pytest.raises(ValueError, match="both field and tracer"):
+        write_dump(dump, tmp_path / "clash", backend="netcdf4")
+
+
 def test_serialbox_disk_round_trip(tmp_path: Path) -> None:
     """The SerialboxDump reader/writer itself round-trips through disk.
 

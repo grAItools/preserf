@@ -335,6 +335,21 @@ set_tests_properties(preserf_fortran_option PROPERTIES
     TIMEOUT 60
 )
 
+# Slice C: "last write wins" — a second tracer write omitting timelevel must
+# clear a timelevel set by an earlier write at the same savepoint. The
+# Python cross-language test asserts the attribute is absent; the native run
+# confirms the writer completes.
+add_test(
+    NAME preserf_fortran_tracer_tl_overwrite
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracer-tl-overwrite
+)
+set_tests_properties(preserf_fortran_tracer_tl_overwrite PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: tracer-tl-overwrite OK"
+    TIMEOUT 60
+)
+
 # Slice C negative scenarios: each must abort with its specific message.
 add_test(
     NAME preserf_fortran_tracers_bad_dup

@@ -418,6 +418,45 @@ def test_fortran_writes_tracers_python_reads(
     assert qr[1, 1, 1] == 222  # qr(2,2,2)
 
 
+def test_fortran_tracer_timelevel_last_write_wins(
+    tmp_path: Path, fortran_binary: Path
+) -> None:
+    """A later tracer write that omits @timelevel clears an earlier one.
+
+    The ``tracer-tl-overwrite`` scenario writes q_v twice at one savepoint —
+    first ``timelevel=2`` then with no timelevel. Per ADR 0003 §2 (last write
+    wins), the on-disk variable must carry no ``timelevel`` attribute.
+    """
+    out_dir = tmp_path / "fortran_out"
+    out_dir.mkdir()
+
+    result = subprocess.run(
+        [str(fortran_binary), str(out_dir), "tracer-tl-overwrite"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, (
+        f"Fortran binary exited {result.returncode}.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "preserf-fortran: tracer-tl-overwrite OK" in result.stdout
+
+    import netCDF4  # local import; netCDF4 is a dev-only dependency
+
+    raw = netCDF4.Dataset(str(out_dir / "ftltl.nc"), "r")
+    try:
+        q_v = raw.groups["savepoints"].groups["sp_000000"].variables["q_v"]
+        assert "timelevel" not in q_v.ncattrs(), (
+            "a final tracer write without @timelevel must clear the attribute "
+            "left by an earlier write (last-write-wins)"
+        )
+        np.testing.assert_array_equal(np.asarray(q_v[...]), np.array([1.0, 2.0, 3.0]))
+    finally:
+        raw.close()
+
+
 def test_fortran_writes_kbuff_python_reads(
     tmp_path: Path, fortran_binary: Path
 ) -> None:
