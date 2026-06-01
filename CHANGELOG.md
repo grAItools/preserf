@@ -42,8 +42,16 @@ embedded in each spec's Problem section.
   `real(real64)` slices of rank 1–3 (fields rank 2–4) in write mode; read
   mode is a no-op (the assembled field is recoverable via `fs_read_field`).
   A native `kbuff` ctest plus a `test_fortran_wire_compat.py` scenario
-  assert the assembled fields against the per-level accumulation. `!$SER
-  OPTION` (Slice C Phase 3) is still pending.
+  assert the assembled fields against the per-level accumulation.
+- Runtime options (Slice C, Phase 3 — `!$SER OPTION`): `fs_Option` exposes
+  a single fixed keyword, `verbosity` (ADR 0003 §4) — Fortran cannot accept
+  an arbitrary `key=value` dummy, so the preprocessor now rejects any other
+  OPTION key with a clear directive error (was: passed through verbatim).
+  `fs_Option(verbosity=N)` sets a module-level verbosity knob and records
+  the value as the reserved `_preserf_option_verbosity` root attribute so it
+  round-trips (`storage_mapping.md` §4b); the `on`/`off` → `1`/`0` mapping is
+  unchanged. With this, Slice C (tracers + k-buffer + OPTION) and its
+  predecessor ADR (C-0) are complete.
 - Full numeric type-coverage matrix (Slice B): the Fortran helper's
   `fs_write_field` / `fs_read_field` overloads now cover every
   `{logical, int32, int64, real32, real64}` × `{0D, 1D, 2D, 3D, 4D}`

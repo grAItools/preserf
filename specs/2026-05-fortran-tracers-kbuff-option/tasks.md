@@ -36,12 +36,16 @@ Tracks the phased plan in `plan.md` (and the folded-in ADR per
 
 ## Phase 3 — OPTION (`fs_Option`)
 
-- [ ] `fs_Option(verbosity)` + module verbosity state +
+- [x] `fs_Option(verbosity)` + module verbosity state +
       `_preserf_option_verbosity` root attribute
-- [ ] Tighten `_ser_option` to reject non-`verbosity` keys + unit test
-- [ ] Cross-language OPTION round-trip test
+- [x] Tighten `_ser_option` to reject non-`verbosity` keys + unit tests
+- [x] Cross-language OPTION round-trip test (`option` scenario +
+      `test_fortran_writes_option_python_reads`); native `option` ctest;
+      Python reader surfaces `option_verbosity`
 
 ## Close-out (after Phase 3)
 
-- [ ] `specs/README.md` progress table: C-0 + C → shipped
-- [ ] Remove any remaining "not yet implemented" notes / `error stop` stubs
+- [x] `specs/README.md` progress table: C-0 + C → shipped
+- [x] Remove any remaining "not yet implemented" notes / `error stop` stubs
+      (m_serialize.f90 shim comment updated each phase; no compile-only
+      stubs were introduced for the new symbols)

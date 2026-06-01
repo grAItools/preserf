@@ -343,6 +343,10 @@ def read_dump(url: str) -> SerialboxDump:
             dump.archive = str(root.getncattr("_preserf_archive"))
         if "_preserf_unique_id" in root_attrs:
             dump.unique_id = int(root.getncattr("_preserf_unique_id"))
+        # `!$SER OPTION verbosity=` value (Slice C / ADR 0003 §4b),
+        # present only when the option was set.
+        if "_preserf_option_verbosity" in root_attrs:
+            dump.option_verbosity = int(root.getncattr("_preserf_option_verbosity"))
 
         if "_fields" not in root.groups:
             raise ValueError(

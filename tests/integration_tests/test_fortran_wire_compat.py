@@ -479,6 +479,50 @@ def test_fortran_writes_kbuff_python_reads(
     np.testing.assert_array_equal(c, expected_c)
 
 
+def test_fortran_writes_option_python_reads(
+    tmp_path: Path, fortran_binary: Path
+) -> None:
+    """Slice C Phase 3: an OPTION value round-trips through Python.
+
+    The ``option`` scenario calls ``fs_Option(verbosity=2)`` on a writable
+    store; the helper records it as the reserved root attribute
+    ``_preserf_option_verbosity`` (ADR 0003 §4, storage_mapping §4b). This
+    asserts the value is decoded by the Python reference reader.
+    """
+    out_dir = tmp_path / "fortran_out"
+    out_dir.mkdir()
+
+    result = subprocess.run(
+        [str(fortran_binary), str(out_dir), "option"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, (
+        f"Fortran binary exited {result.returncode}.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "preserf-fortran: option OK" in result.stdout
+
+    nc_path = out_dir / "foption.nc"
+
+    # The option lands in the reserved `_preserf_*` namespace as NF90_INT.
+    import netCDF4  # local import; netCDF4 is a dev-only dependency
+
+    raw = netCDF4.Dataset(str(nc_path), "r")
+    try:
+        v = raw.getncattr("_preserf_option_verbosity")
+        assert v == 2 and v.dtype == np.dtype("int32"), (
+            f"_preserf_option_verbosity on disk is {v.dtype}, expected int32"
+        )
+    finally:
+        raw.close()
+
+    dump = read_dump(str(nc_path))
+    assert dump.option_verbosity == 2
+
+
 def test_fortran_bad_reference_path_keeps_target(
     tmp_path: Path, fortran_binary: Path
 ) -> None:

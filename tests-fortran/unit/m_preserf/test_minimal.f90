@@ -943,6 +943,33 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: kbuff OK'
                stop
             end block
+         else if (scenario == 'option') then
+            ! Slice C Phase 3: OPTION. fs_Option(verbosity=N) sets the
+            ! module verbosity knob and records the reserved
+            ! _preserf_option_verbosity root attribute on the writable
+            ! store. The Python wire-compat test reads the value back.
+            block
+               real(real64) :: uo(3)
+               integer :: i
+               do i = 1, 3
+                  uo(i) = real(i, real64)
+               end do
+               call ppser_initialize(out_dir, 'foption', 'w')
+               if (ppser_verbosity /= 0) error stop &
+                  'option: verbosity should default to 0 on fresh init'
+               call fs_Option(verbosity=2)
+               if (ppser_verbosity /= 2) error stop &
+                  'option: fs_Option(verbosity=2) did not update ppser_verbosity'
+               ! A minimal field write so the store is a complete sample.
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', uo)
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: option OK'
+               stop
+            end block
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &

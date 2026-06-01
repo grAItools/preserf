@@ -243,6 +243,11 @@ class SerialboxDump:
     archive: str = "Binary"
     unique_id: int = 0
 
+    # `!$SER OPTION verbosity=` value (Slice C / ADR 0003 §4), recorded by
+    # the Fortran helper as the reserved `_preserf_option_verbosity` root
+    # attribute. None when the option was never set.
+    option_verbosity: int | None = None
+
     # ---- Tracers (Slice C / ADR 0003, storage_mapping.md §4a) ----
     # Tracer descriptors mirror /_fields entries (type_id + dims via
     # FieldMetainfo); tracer_stype / tracer_index carry the two extra

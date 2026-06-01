@@ -320,3 +320,17 @@ set_tests_properties(preserf_fortran_kbuff PROPERTIES
     PASS_REGULAR_EXPRESSION "preserf-fortran: kbuff OK"
     TIMEOUT 60
 )
+
+# Slice C Phase 3: OPTION. fs_Option(verbosity=2) sets the runtime knob and
+# records the _preserf_option_verbosity root attribute; the Python
+# cross-language test reads it back.
+add_test(
+    NAME preserf_fortran_option
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" option
+)
+set_tests_properties(preserf_fortran_option PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: option OK"
+    TIMEOUT 60
+)

@@ -112,6 +112,12 @@ module utils_preserf
    ! subsequent fs_* call in the same process.
    integer, save, public :: serialisation_enabled = 1
 
+   ! Verbosity level set by `!$SER OPTION verbosity=` via fs_Option
+   ! (ADR 0003 §4). A runtime knob with no on-disk effect beyond the
+   ! `_preserf_option_verbosity` round-trip attribute the helper records;
+   ! reset to 0 on every fresh ppser_initialize.
+   integer, save, public :: ppser_verbosity = 0
+
    ! Schema version written into _preserf_schema_version. Must match
    ! tests/_support/storage.py SCHEMA_VERSION.
    integer(int32), parameter, public :: PRESERF_SCHEMA_VERSION = 1
@@ -434,6 +440,10 @@ contains
       ! otherwise carry into this session and get re-emitted.
       call ppser_reset_tracers()
       call ppser_reset_kbuffers()
+
+      ! Verbosity is a runtime knob; start each session at the default so
+      ! a prior `!$SER OPTION verbosity=` does not stick across a re-init.
+      ppser_verbosity = 0
    end subroutine ppser_initialize
 
    !> Close the dataset(s) opened by ppser_initialize.

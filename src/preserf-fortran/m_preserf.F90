@@ -29,7 +29,8 @@ module m_preserf
                             ppser_tracer_count, PPSER_MAX_TRACERS, &
                             PPSER_TRACER_TID_FLOAT64, &
                             t_kbuff_entry, ppser_kbuffers, &
-                            ppser_kbuff_count, PPSER_MAX_KBUFF
+                            ppser_kbuff_count, PPSER_MAX_KBUFF, &
+                            ppser_verbosity
    implicit none
    private
 
@@ -79,6 +80,10 @@ module m_preserf
       module procedure fs_write_kbuff_r8_3d
    end interface
    public :: fs_write_kbuff
+
+   ! OPTION (Slice C / ADR 0003 §4). The helper exposes a single fixed
+   ! keyword, `verbosity`; the preprocessor rejects any other OPTION key.
+   public :: fs_Option
 
    interface fs_add_savepoint_metainfo
       module procedure fs_add_savepoint_metainfo_l
@@ -938,6 +943,37 @@ contains
       ppser_kbuffers(idx)%k_size = 0
       ppser_kbuffers(idx)%filled = 0
    end subroutine kbuff_flush
+
+   ! ========================================================================
+   ! OPTION (ADR 0003 §4, storage_mapping.md §4b)
+   !
+   ! fs_Option exposes a single fixed keyword, `verbosity` (the only key
+   ! the preprocessor lets through). It sets the module-level verbosity
+   ! state and, on a writable store, records the value as the reserved
+   ! `_preserf_option_verbosity` root attribute so it round-trips.
+   ! ========================================================================
+   subroutine fs_Option(verbosity)
+      integer, intent(in), optional :: verbosity
+      integer :: ncerr
+      integer(int32) :: v
+
+      if (serialisation_enabled == 0) return
+      if (.not. present(verbosity)) return
+
+      ppser_verbosity = verbosity
+
+      ! pp_ser emits OPTION outside the DATA-mode SELECT CASE, so it runs
+      ! in read mode too; only persist the attribute on a writable store
+      ! (a read-mode open is read-only). The runtime verbosity knob is
+      ! still updated above regardless of mode.
+      if (ppser_serializer%ncid /= -1 .and. ppser_serializer%writable) then
+         v = int(verbosity, int32)
+         ncerr = nf90_put_att(ppser_serializer%ncid, NF90_GLOBAL, &
+                              '_preserf_option_verbosity', v)
+         call preserf_check_nf_with_msg(ncerr, &
+                                        'put_att _preserf_option_verbosity')
+      end if
+   end subroutine fs_Option
 
    ! ========================================================================
    ! METAINFO — scalar overloads (savepoint)
