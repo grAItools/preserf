@@ -59,6 +59,13 @@ arguments: it is a bulk "register everything the model knows about" hook.
 The descriptor write path is the field path with two extra string/int
 attributes; no new netCDF machinery is introduced.
 
+The `/_tracers` group is **created lazily** — by `fs_RegisterAllTracers` the
+first time a tracer is registered, not as part of the init-time skeleton
+(`/_fields` / `/savepoints`). A field-only store therefore carries no empty
+`/_tracers` group, and readers tolerate its absence (as they already must for
+stores written before this ADR). netCDF-4 permits defining a group at any
+time, the same way per-savepoint groups are created on the fly.
+
 ### 2. Tracer data lands as ordinary savepoint variables
 
 A `!$SER TRACER` write at a savepoint produces a data variable inside

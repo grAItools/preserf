@@ -90,7 +90,7 @@ physical halo, not the storage axis.
 │   │   │                              carries field schema as attributes, value 0)
 │   │   └── attributes: type_id, dims, halos, user metainfo (§4)
 │   └── …
-├── /_tracers                         (group; one carrier per registered tracer, §4a)
+├── /_tracers                         (group; present only when a tracer is registered, §4a)
 │   ├── <tracername>                  (dummy scalar variable per registered tracer;
 │   │   │                              carries field schema + stype/tracer_index)
 │   │   └── attributes: type_id, dims, halos, stype, tracer_index (§4a)
@@ -262,7 +262,10 @@ Tracers (`!$SER REGISTERTRACERS`, `!$SER TRACER`) are ordinary fields that
 additionally carry a storage type and a 1-based index into an ordered tracer
 set. `fs_RegisterAllTracers` writes one **scalar carrier variable** (rank-0,
 `NF90_INT`, value `0`) per registered tracer under `/_tracers`, exactly as
-`/_fields` carriers (§4). See ADR
+`/_fields` carriers (§4). The `/_tracers` group is created **lazily** — only
+when at least one tracer is registered — so a field-only store omits it
+entirely; readers MUST tolerate its absence (as they must for stores written
+before ADR 0003). See ADR
 [0003](../adr/0003-tracer-storage.md) for the rationale and for the
 **built-in tracer registry** that supplies tracer data (the directive surface
 itself carries no data array).

@@ -238,19 +238,20 @@ def write_dump(dump: SerialboxDump, directory: Path, *, backend: str) -> str:
             _write_field_registry(fields_grp, fname, info)
 
         # Tracer descriptors mirror /_fields (Slice C / ADR 0003 §4a). The
-        # `/_tracers` group is created unconditionally — empty when no tracer
-        # is registered — matching the Fortran helper, which always creates
-        # it. A name cannot be both a field and a tracer (read_dump rejects
-        # the overlap), so fail fast here rather than write an unreadable
-        # store.
+        # `/_tracers` group is created lazily — only when a tracer is
+        # registered — matching the Fortran helper (fs_RegisterAllTracers),
+        # so a field-only store carries no empty tracer group; read_dump
+        # tolerates its absence. A name cannot be both a field and a tracer
+        # (read_dump rejects the overlap), so fail fast here.
         overlap = set(dump.field_map) & set(dump.tracer_map)
         if overlap:
             raise ValueError(
                 f"name(s) registered as both field and tracer: {sorted(overlap)}"
             )
-        tracers_grp = root.createGroup("_tracers")
-        for pos, (tname, info) in enumerate(dump.tracer_map.items(), start=1):
-            _write_tracer_registry(tracers_grp, tname, info, dump, pos)
+        if dump.tracer_map:
+            tracers_grp = root.createGroup("_tracers")
+            for pos, (tname, info) in enumerate(dump.tracer_map.items(), start=1):
+                _write_tracer_registry(tracers_grp, tname, info, dump, pos)
 
         savepoints_grp = root.createGroup("savepoints")
         for idx, sp in enumerate(dump.savepoints):
@@ -430,10 +431,9 @@ def read_dump(url: str) -> SerialboxDump:
             dump.field_map[fname] = info
 
         # Tracer descriptors (Slice C / ADR 0003, storage_mapping.md §4a).
-        # `/_tracers` is read defensively: preserf writers (this module and
-        # the Fortran helper) always create the group — empty when no tracer
-        # is registered — but stores written before ADR 0003 omit it
-        # entirely, so its absence is tolerated.
+        # `/_tracers` is optional: preserf writers create it lazily, only
+        # when a tracer is registered, so a field-only store (and any store
+        # written before ADR 0003) simply omits it. Its absence is tolerated.
         if "_tracers" in root.groups:
             tracers_grp = root.groups["_tracers"]
             for tname, var in tracers_grp.variables.items():

@@ -790,12 +790,9 @@ contains
       ncerr = nf90_def_grp(s%ncid, '_fields', s%fields_grpid)
       call preserf_check_nf_with_msg(ncerr, 'def_grp /_fields')
 
-      ! `/_tracers` mirrors `/_fields` for registered tracers (ADR 0003
-      ! §1, storage_mapping.md §4a). Created unconditionally so a reader
-      ! always finds the group even when no tracer was registered.
-      ncerr = nf90_def_grp(s%ncid, '_tracers', s%tracers_grpid)
-      call preserf_check_nf_with_msg(ncerr, 'def_grp /_tracers')
-
+      ! `/_tracers` is created lazily by fs_RegisterAllTracers the first
+      ! time a tracer is registered (ADR 0003 §1, storage_mapping.md §4a),
+      ! not here — so a field-only store carries no empty tracer group.
       ncerr = nf90_def_grp(s%ncid, 'savepoints', s%savepoints_grpid)
       call preserf_check_nf_with_msg(ncerr, 'def_grp /savepoints')
    end subroutine preserf_create_skeleton_groups

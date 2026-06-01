@@ -117,6 +117,12 @@ def test_fortran_writes_python_reads(tmp_path: Path, fortran_binary: Path) -> No
                 f"/_fields/{fname} carrier must be NF90_INT"
             )
             assert fields_grp.variables[fname].getncattr("type_id") == 5
+        # `/_tracers` is created lazily (ADR 0003 §1): this hello-world store
+        # registers no tracer, so the group must be absent — not present-and-
+        # empty.
+        assert "_tracers" not in raw.groups, (
+            "field-only store must not carry an empty /_tracers group"
+        )
         # ON / OFF gate must have produced no side effects: the
         # fs_register_field call inside the disabled window targeted
         # `disabled_field` and the fs_add_serializer_metainfo call

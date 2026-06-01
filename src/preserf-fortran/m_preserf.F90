@@ -581,7 +581,7 @@ contains
    !> and validates that each registered tracer's descriptor is present
    !> in the store and agrees on type_id / dims / stype.
    subroutine fs_RegisterAllTracers()
-      integer :: i
+      integer :: i, ncerr
 
       if (serialisation_enabled == 0) return
       if (ppser_serializer%ncid == -1) then
@@ -601,6 +601,19 @@ contains
             call validate_registered_tracer(ppser_serializer, ppser_tracers(i))
          end do
          return
+      end if
+
+      ! No registered tracers → no `/_tracers` group (lazy creation, ADR
+      ! 0003 §1): a field-only store carries no empty tracer group.
+      if (ppser_tracer_count == 0) return
+
+      ! Create `/_tracers` on first use. It is NOT part of the init-time
+      ! skeleton (unlike `/_fields` / `/savepoints`); netCDF-4 allows
+      ! defining a group at any time, as fs_create_savepoint already does.
+      if (ppser_serializer%tracers_grpid == -1) then
+         ncerr = nf90_def_grp(ppser_serializer%ncid, '_tracers', &
+                              ppser_serializer%tracers_grpid)
+         call preserf_check_nf_with_msg(ncerr, 'def_grp /_tracers')
       end if
 
       do i = 1, ppser_tracer_count
