@@ -14,6 +14,25 @@ embedded in each spec's Problem section.
 
 ### Added
 
+- Tracers (Slice C, Phase 1 — `!$SER REGISTERTRACERS` / `!$SER TRACER`):
+  the Fortran helper gains `fs_RegisterAllTracers`,
+  `ppser_write_tracer_by_name` / `_by_idx` / `_all`, and a host-side
+  `ppser_register_tracer` that binds tracer data to a small built-in
+  registry (the directive surface carries only a name/index + stype +
+  integer timelevel, never the data — see
+  [ADR 0003](docs/adr/0003-tracer-storage.md)). `fs_RegisterAllTracers`
+  writes one `/_tracers/<name>` descriptor per registered tracer
+  (`type_id`, C-order `dims`, `stype`, `tracer_index`), mirroring
+  `/_fields`; the write entry points emit each tracer as an ordinary
+  savepoint variable (byte-identical to a `!$SER DATA` field) with the
+  integer timelevel as an optional `timelevel` attribute. One snapshot per
+  `(savepoint, tracer)`, last-wins (`storage_mapping.md` §4a). v1.0 stores
+  `real(real64)` tracers (ranks 1–4); read mode validates the descriptors.
+  A native `tracers` / `tracers-roundtrip` ctest plus a
+  `test_fortran_wire_compat.py` scenario assert the descriptors, per-entry-
+  point data placement, the timelevel attribute, and axis-order through the
+  Python reference reader. `!$SER DATA_KBUFF` / `!$SER OPTION` (Slice C
+  Phases 2–3) are still pending.
 - Full numeric type-coverage matrix (Slice B): the Fortran helper's
   `fs_write_field` / `fs_read_field` overloads now cover every
   `{logical, int32, int64, real32, real64}` × `{0D, 1D, 2D, 3D, 4D}`

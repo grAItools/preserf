@@ -808,6 +808,100 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: wire-matrix OK'
                stop
             end block
+         else if (scenario == 'tracers') then
+            ! Slice C Phase 1: tracers. Register three real64 tracers of
+            ! rank 1/2/3 in the built-in registry, write their /_tracers
+            ! descriptors via fs_RegisterAllTracers, then exercise all four
+            ! TRACER write entry points across distinct savepoints:
+            !   sp_000000  by_name('q_v', timelevel=2)  -> {q_v}
+            !   sp_000001  by_idx(2)                     -> {q_c}
+            !   sp_000002  by_idx(1, 3)                  -> {q_v,q_c,q_r}
+            !   sp_000003  all()                         -> {q_v,q_c,q_r}
+            !   sp_000004  all(stype='tens')             -> {q_v}
+            ! The Python wire-compat test reads back the descriptors,
+            ! data, and the optional timelevel attribute.
+            block
+               real(real64) :: qv(3), qc(2, 3), qr(2, 2, 2)
+               integer :: i, j, k
+               do i = 1, 3
+                  qv(i) = real(10 + i, real64)
+               end do
+               do j = 1, 3
+                  do i = 1, 2
+                     qc(i, j) = real(100*i + j, real64)
+                  end do
+               end do
+               do k = 1, 2
+                  do j = 1, 2
+                     do i = 1, 2
+                        qr(i, j, k) = real(100*i + 10*j + k, real64)
+                     end do
+                  end do
+               end do
+
+               call ppser_initialize(out_dir, 'ftracers', 'w')
+               ! Registration order fixes tracer_index: q_v=1, q_c=2, q_r=3.
+               call ppser_register_tracer('q_v', qv, stype='tens')
+               call ppser_register_tracer('q_c', qc, stype='bd')
+               call ppser_register_tracer('q_r', qr)
+               call fs_RegisterAllTracers()
+
+               call fs_create_savepoint('sp_byname', ppser_savepoint)
+               call ppser_write_tracer_by_name('q_v', stype='tens', timelevel=2)
+
+               call fs_create_savepoint('sp_byidx', ppser_savepoint)
+               call ppser_write_tracer_by_idx(2, stype='bd')
+
+               call fs_create_savepoint('sp_byrange', ppser_savepoint)
+               call ppser_write_tracer_by_idx(1, 3, stype='')
+
+               call fs_create_savepoint('sp_all', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+
+               call fs_create_savepoint('sp_tens', ppser_savepoint)
+               call ppser_write_tracer_all(stype='tens')
+
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: tracers OK'
+               stop
+            end block
+         else if (scenario == 'tracers-roundtrip') then
+            ! Slice C Phase 1 read-mode: write a tracer store, finalize,
+            ! re-open read-only, re-register the same tracers, and call
+            ! fs_RegisterAllTracers — which in read mode resolves and
+            ! validates each /_tracers descriptor (type_id / dims / stype)
+            ! instead of creating it. Proves the read path does not attempt
+            ! a def_var on the read-only handle.
+            block
+               real(real64) :: qv(3), qc(2, 3)
+               integer :: i, j
+               do i = 1, 3
+                  qv(i) = real(10 + i, real64)
+               end do
+               do j = 1, 3
+                  do i = 1, 2
+                     qc(i, j) = real(100*i + j, real64)
+                  end do
+               end do
+               call ppser_initialize(out_dir, 'ftrt', 'w')
+               call ppser_register_tracer('q_v', qv, stype='tens')
+               call ppser_register_tracer('q_c', qc, stype='bd')
+               call fs_RegisterAllTracers()
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+               call ppser_finalize()
+               ! Re-open read-only. ppser_finalize cleared the registry, so
+               ! re-register the same tracers before validating.
+               call ppser_initialize(out_dir, 'ftrt', 'r')
+               if (ppser_get_mode() /= 1) error stop &
+                  'tracers-roundtrip: read open should set mode 1'
+               call ppser_register_tracer('q_v', qv, stype='tens')
+               call ppser_register_tracer('q_c', qc, stype='bd')
+               call fs_RegisterAllTracers()
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: tracers-roundtrip OK'
+               stop
+            end block
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &

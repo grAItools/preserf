@@ -177,6 +177,7 @@ def _write_metainfo_attrs(
 
 
 _RESERVED_FIELD_REGISTRY = frozenset({"type_id", "dims"})
+_RESERVED_TRACER_REGISTRY = frozenset({"type_id", "dims", "stype", "tracer_index"})
 _RESERVED_SAVEPOINT = frozenset({"name"})
 
 
@@ -366,6 +367,31 @@ def read_dump(url: str) -> SerialboxDump:
             )
             dump.field_map[fname] = info
 
+        # Tracer descriptors (Slice C / ADR 0003, storage_mapping.md §4a).
+        # `/_tracers` is optional: stores written before ADR 0003, and any
+        # run that registered no tracers, simply omit it.
+        if "_tracers" in root.groups:
+            tracers_grp = root.groups["_tracers"]
+            for tname, var in tracers_grp.variables.items():
+                missing_attrs = _RESERVED_TRACER_REGISTRY - set(var.ncattrs())
+                if missing_attrs:
+                    raise ValueError(
+                        f"{url}: tracer registry '/_tracers/{tname}' is missing "
+                        f"required attribute(s) {sorted(missing_attrs)}"
+                    )
+                tid = TypeID(int(var.getncattr("type_id")))
+                dims_attr = var.getncattr("dims")
+                dims = [int(d) for d in np.atleast_1d(dims_attr).tolist()]
+                dump.tracer_map[tname] = FieldMetainfo(
+                    type_id=tid,
+                    dims=dims,
+                    meta_info=_read_metainfo_attrs(
+                        var, reserved=_RESERVED_TRACER_REGISTRY
+                    ),
+                )
+                dump.tracer_stype[tname] = str(var.getncattr("stype"))
+                dump.tracer_index[tname] = int(var.getncattr("tracer_index"))
+
         # Build savepoints in index order; group names are sorted lexically.
         if "savepoints" not in root.groups:
             raise ValueError(
@@ -400,7 +426,9 @@ def read_dump(url: str) -> SerialboxDump:
                             f"duplicate entry for field '{fname_key}'"
                         )
                     id_map[fname_key] = int(flat[i + 1])
-                expected_fields = set(grp.variables.keys())
+                # Tracer variables are excluded from `_preserf_field_ids`
+                # (that table is field-only, ADR 0003 / storage_mapping §7).
+                expected_fields = {v for v in grp.variables if v not in dump.tracer_map}
                 mapped_fields = set(id_map.keys())
                 if mapped_fields != expected_fields:
                     missing = expected_fields - mapped_fields
@@ -411,20 +439,38 @@ def read_dump(url: str) -> SerialboxDump:
                         f"(missing={sorted(missing)}, extra={sorted(extra)})"
                     )
 
+            # One snapshot per (savepoint, tracer) is keyed by savepoint
+            # position; savepoints are appended in order, so the index of the
+            # one we're building now is the current length.
+            sp_index = len(dump.savepoints)
             for fname, var in grp.variables.items():
-                if fname not in dump.field_map:
+                if fname in dump.field_map:
+                    info = dump.field_map[fname]
+                    arr = np.asarray(var[...]).astype(info.element_dtype(), copy=False)
+                    if info.dims:
+                        arr = arr.reshape([int(d) for d in info.dims])
+                    fid = id_map.get(fname, len(dump.field_data.get(fname, {})))
+                    sp.fields[fname] = fid
+                    dump.field_data.setdefault(fname, {})[fid] = arr
+                elif fname in dump.tracer_map:
+                    info = dump.tracer_map[fname]
+                    arr = np.asarray(var[...]).astype(info.element_dtype(), copy=False)
+                    if info.dims:
+                        arr = arr.reshape([int(d) for d in info.dims])
+                    dump.tracer_data.setdefault(fname, {})[sp_index] = arr
+                    tl = (
+                        int(var.getncattr("timelevel"))
+                        if "timelevel" in var.ncattrs()
+                        else None
+                    )
+                    dump.tracer_timelevel.setdefault(fname, {})[sp_index] = tl
+                else:
                     raise ValueError(
                         f"{url}: savepoint '{name}' contains variable "
                         f"'{fname}' but no matching entry exists under "
-                        "'/_fields' (store is internally inconsistent)"
+                        "'/_fields' or '/_tracers' (store is internally "
+                        "inconsistent)"
                     )
-                info = dump.field_map[fname]
-                arr = np.asarray(var[...]).astype(info.element_dtype(), copy=False)
-                if info.dims:
-                    arr = arr.reshape([int(d) for d in info.dims])
-                fid = id_map.get(fname, len(dump.field_data.get(fname, {})))
-                sp.fields[fname] = fid
-                dump.field_data.setdefault(fname, {})[fid] = arr
             dump.savepoints.append(sp)
     finally:
         root.close()

@@ -276,3 +276,32 @@ set_tests_properties(preserf_fortran_read_bad_xtype PROPERTIES
     PASS_REGULAR_EXPRESSION "Registry / variable mismatch"
     TIMEOUT 60
 )
+
+# Slice C Phase 1: tracers. The 'tracers' scenario registers three real64
+# tracers and writes them through every TRACER entry point; the Python
+# cross-language test asserts the on-disk descriptors and data. The native
+# run confirms the writer completes.
+add_test(
+    NAME preserf_fortran_tracers
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracers
+)
+set_tests_properties(preserf_fortran_tracers PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: tracers OK"
+    TIMEOUT 60
+)
+
+# Slice C Phase 1 read-mode: re-open a tracer store read-only and validate
+# each /_tracers descriptor via fs_RegisterAllTracers (no def_var on the
+# read-only handle).
+add_test(
+    NAME preserf_fortran_tracers_roundtrip
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracers-roundtrip
+)
+set_tests_properties(preserf_fortran_tracers_roundtrip PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: tracers-roundtrip OK"
+    TIMEOUT 60
+)

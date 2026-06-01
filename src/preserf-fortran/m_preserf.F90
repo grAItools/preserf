@@ -19,12 +19,15 @@ module m_preserf
    use, intrinsic :: iso_fortran_env, only: int8, int32, int64, real32, real64
    use netcdf
    use utils_preserf, only: t_serializer, t_savepoint, &
-                            ppser_serializer, &
+                            ppser_serializer, ppser_savepoint, &
                             ppser_get_mode, &
                             preserf_check_nf_with_msg, &
                             preserf_logical_to_byte, &
                             PRESERF_SAVEPOINT_INDEX_LIMIT, &
-                            serialisation_enabled
+                            serialisation_enabled, &
+                            t_tracer_entry, ppser_tracers, &
+                            ppser_tracer_count, PPSER_MAX_TRACERS, &
+                            PPSER_TRACER_TID_FLOAT64
    implicit none
    private
 
@@ -49,6 +52,22 @@ module m_preserf
    public :: fs_enable_serialization
    public :: fs_disable_serialization
    public :: fs_serialization_status
+
+   ! Tracers (Slice C / ADR 0003). `ppser_register_tracer` is the
+   ! host-side registration entry point (not pp_ser-generated); the
+   ! `fs_RegisterAllTracers` and `ppser_write_tracer_*` names are what
+   ! pp_ser emits for REGISTERTRACERS / TRACER.
+   interface ppser_register_tracer
+      module procedure ppser_register_tracer_1d
+      module procedure ppser_register_tracer_2d
+      module procedure ppser_register_tracer_3d
+      module procedure ppser_register_tracer_4d
+   end interface
+   public :: ppser_register_tracer
+   public :: fs_RegisterAllTracers
+   public :: ppser_write_tracer_by_name
+   public :: ppser_write_tracer_by_idx
+   public :: ppser_write_tracer_all
 
    interface fs_add_savepoint_metainfo
       module procedure fs_add_savepoint_metainfo_l
@@ -369,6 +388,381 @@ contains
       savepoint%owner_ncid = ser%ncid
       ser%next_sp_index = ser%next_sp_index + 1
    end subroutine resolve_savepoint_on
+
+   ! ========================================================================
+   ! TRACERS (REGISTERTRACERS + TRACER, ADR 0003 / storage_mapping.md §4a)
+   !
+   ! pp_ser's tracer directives carry only a name/index + stype + an
+   ! integer timelevel, never the data. Host code / tests bind the data
+   ! up front via `ppser_register_tracer` (the built-in registry in
+   ! utils_preserf); `fs_RegisterAllTracers` writes one `/_tracers/<name>`
+   ! descriptor per entry, and the `ppser_write_tracer_*` entry points
+   ! resolve the registered data and write it to the current savepoint as
+   ! a variable named by the tracer (byte-identical to a !$SER DATA
+   ! field), with the integer timelevel as an optional attribute.
+   !
+   ! v1.0 stores real(real64) data and writes in write mode only; read
+   ! mode validates the descriptors but does not read tracer data back
+   ! into Fortran arrays (the registry holds flattened copies, not
+   ! pointers — symmetric read-back is a documented follow-up).
+   ! ========================================================================
+
+   ! Host-side registration overloads (real64, ranks 1-4).
+#define PRESERF_SUB ppser_register_tracer_1d
+#define PRESERF_DIMS , dimension(:)
+#include "preserf_register_tracer.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB ppser_register_tracer_2d
+#define PRESERF_DIMS , dimension(:, :)
+#include "preserf_register_tracer.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB ppser_register_tracer_3d
+#define PRESERF_DIMS , dimension(:, :, :)
+#include "preserf_register_tracer.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB ppser_register_tracer_4d
+#define PRESERF_DIMS , dimension(:, :, :, :)
+#include "preserf_register_tracer.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+
+   ! Per-rank tracer-data writers (real64, ranks 1-4).
+#define PRESERF_SUB put_tracer_data_1d
+#define PRESERF_DIMS , dimension(:)
+#include "preserf_write_tracer_data.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB put_tracer_data_2d
+#define PRESERF_DIMS , dimension(:, :)
+#include "preserf_write_tracer_data.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB put_tracer_data_3d
+#define PRESERF_DIMS , dimension(:, :, :)
+#include "preserf_write_tracer_data.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB put_tracer_data_4d
+#define PRESERF_DIMS , dimension(:, :, :, :)
+#include "preserf_write_tracer_data.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+
+   !> Shared table-insertion body for the ppser_register_tracer overloads.
+   !> Stores a flattened real64 copy of the tracer plus its Fortran shape.
+   !> Rejects a duplicate name (which would collide when fs_RegisterAllTracers
+   !> defines the `/_tracers/<name>` carrier) and a full registry.
+   subroutine register_tracer_impl(name, flat, fshape, stype)
+      character(len=*), intent(in) :: name
+      real(real64), intent(in) :: flat(:)
+      integer, intent(in) :: fshape(:)
+      character(len=*), intent(in), optional :: stype
+      integer :: n
+
+      if (size(fshape) < 1 .or. size(fshape) > 4) then
+         write (*, '(a)') &
+            'preserf: ppser_register_tracer supports rank 1..4 only'
+         error stop 1
+      end if
+      if (find_tracer(name) /= 0) then
+         write (*, '(a,a,a)') &
+            'preserf: tracer "', trim(name), '" is already registered'
+         error stop 1
+      end if
+      if (ppser_tracer_count >= PPSER_MAX_TRACERS) then
+         write (*, '(a,i0)') &
+            'preserf: tracer registry full; cap is ', PPSER_MAX_TRACERS
+         error stop 1
+      end if
+
+      ppser_tracer_count = ppser_tracer_count + 1
+      n = ppser_tracer_count
+      ppser_tracers(n)%name = name
+      ppser_tracers(n)%stype = ''
+      if (present(stype)) ppser_tracers(n)%stype = stype
+      ppser_tracers(n)%type_id = PPSER_TRACER_TID_FLOAT64
+      ppser_tracers(n)%rank = size(fshape)
+      ppser_tracers(n)%fshape = 0
+      ppser_tracers(n)%fshape(1:size(fshape)) = fshape
+      ppser_tracers(n)%buffer = flat
+   end subroutine register_tracer_impl
+
+   !> 1-based index of the registry entry named `name`, or 0 if absent.
+   function find_tracer(name) result(idx)
+      character(len=*), intent(in) :: name
+      integer :: idx, i
+      idx = 0
+      do i = 1, ppser_tracer_count
+         if (trim(ppser_tracers(i)%name) == trim(name)) then
+            idx = i
+            return
+         end if
+      end do
+   end function find_tracer
+
+   !> The tracer's C-order dims (slowest-varying first), reversed from the
+   !> stored Fortran shape — the same convention `/_fields` uses (§1.1).
+   function tracer_c_order_dims(entry) result(cd)
+      type(t_tracer_entry), intent(in) :: entry
+      integer(int32), allocatable :: cd(:)
+      integer :: i, r
+      r = entry%rank
+      allocate (cd(r))
+      do i = 1, r
+         cd(i) = int(entry%fshape(r - i + 1), int32)
+      end do
+   end function tracer_c_order_dims
+
+   !> Register all tracers currently in the built-in registry (the
+   !> REGISTERTRACERS directive). In write mode this writes a
+   !> `/_tracers/<name>` descriptor per entry; in read mode it resolves
+   !> and validates that each registered tracer's descriptor is present
+   !> in the store and agrees on type_id / dims / stype.
+   subroutine fs_RegisterAllTracers()
+      integer :: i
+
+      if (serialisation_enabled == 0) return
+      if (ppser_serializer%ncid == -1) then
+         write (*, '(a)') &
+            'preserf: fs_RegisterAllTracers called before ppser_initialize'
+         error stop 1
+      end if
+
+      if (ppser_get_mode() /= 0) then
+         if (ppser_tracer_count > 0 .and. ppser_serializer%tracers_grpid == -1) then
+            write (*, '(a)') &
+               'preserf: read-mode store has no /_tracers group but tracers '// &
+               'are registered'
+            error stop 1
+         end if
+         do i = 1, ppser_tracer_count
+            call validate_registered_tracer(ppser_serializer, ppser_tracers(i))
+         end do
+         return
+      end if
+
+      do i = 1, ppser_tracer_count
+         call write_tracer_descriptor(ppser_serializer%tracers_grpid, &
+                                      ppser_tracers(i), i)
+      end do
+   end subroutine fs_RegisterAllTracers
+
+   !> Write one `/_tracers/<name>` descriptor: a scalar NF90_INT carrier
+   !> (value 0) holding type_id, C-order dims, stype, and the 1-based
+   !> tracer_index — mirroring fs_register_field's `/_fields` carrier.
+   subroutine write_tracer_descriptor(grpid, entry, tracer_index)
+      integer, intent(in) :: grpid
+      type(t_tracer_entry), intent(in) :: entry
+      integer, intent(in) :: tracer_index
+      integer :: ncerr, varid
+      integer(int32) :: zero, tid, idx_attr
+      integer(int32), allocatable :: cdims(:)
+
+      zero = 0_int32
+      tid = entry%type_id
+      cdims = tracer_c_order_dims(entry)
+
+      ncerr = nf90_def_var(grpid, trim(entry%name), NF90_INT, varid)
+      call preserf_check_nf_with_msg(ncerr, &
+                                     'def_var /_tracers/'//trim(entry%name))
+      ncerr = nf90_put_att(grpid, varid, 'type_id', tid)
+      call preserf_check_nf_with_msg(ncerr, 'put_att tracer type_id')
+      ncerr = nf90_put_att(grpid, varid, 'dims', cdims)
+      call preserf_check_nf_with_msg(ncerr, 'put_att tracer dims')
+      ncerr = nf90_put_att(grpid, varid, 'stype', trim(entry%stype))
+      call preserf_check_nf_with_msg(ncerr, 'put_att tracer stype')
+      idx_attr = int(tracer_index, int32)
+      ncerr = nf90_put_att(grpid, varid, 'tracer_index', idx_attr)
+      call preserf_check_nf_with_msg(ncerr, 'put_att tracer_index')
+      ncerr = nf90_put_var(grpid, varid, zero)
+      call preserf_check_nf_with_msg(ncerr, &
+                                     'put_var (tracer descriptor placeholder)')
+   end subroutine write_tracer_descriptor
+
+   !> Read-mode counterpart to write_tracer_descriptor: confirm the
+   !> registered tracer's `/_tracers/<name>` carrier exists and agrees on
+   !> type_id, dims (C-order) and stype. Mirrors validate_registered_field.
+   subroutine validate_registered_tracer(s, entry)
+      type(t_serializer), intent(in) :: s
+      type(t_tracer_entry), intent(in) :: entry
+      integer :: ncerr, varid, attr_len, axis
+      integer(int32) :: stored_tid
+      integer(int32), allocatable :: stored_dims(:), cdims(:)
+      character(len=:), allocatable :: stored_stype
+
+      ncerr = nf90_inq_varid(s%tracers_grpid, trim(entry%name), varid)
+      if (ncerr == NF90_ENOTVAR) then
+         write (*, '(a,a,a)') &
+            'preserf: read-mode tracer "', trim(entry%name), &
+            '" is not present in the store /_tracers registry'
+         error stop 1
+      end if
+      call preserf_check_nf_with_msg(ncerr, &
+                                     'inq_varid /_tracers/'//trim(entry%name))
+
+      ncerr = nf90_get_att(s%tracers_grpid, varid, 'type_id', stored_tid)
+      call preserf_check_nf_with_msg(ncerr, 'get_att tracer type_id')
+      if (stored_tid /= entry%type_id) then
+         write (*, '(a,a,a,i0,a,i0)') &
+            'preserf: read-mode tracer "', trim(entry%name), &
+            '" type_id mismatch: store has ', stored_tid, &
+            ', run expects ', entry%type_id
+         error stop 1
+      end if
+
+      cdims = tracer_c_order_dims(entry)
+      ncerr = nf90_inquire_attribute(s%tracers_grpid, varid, 'dims', len=attr_len)
+      call preserf_check_nf_with_msg(ncerr, 'inquire_attribute tracer dims')
+      allocate (stored_dims(attr_len))
+      ncerr = nf90_get_att(s%tracers_grpid, varid, 'dims', stored_dims)
+      call preserf_check_nf_with_msg(ncerr, 'get_att tracer dims')
+      if (attr_len /= size(cdims)) then
+         write (*, '(a,a,a,i0,a,i0)') &
+            'preserf: read-mode tracer "', trim(entry%name), &
+            '" rank mismatch: store ', attr_len, ', run ', size(cdims)
+         error stop 1
+      end if
+      do axis = 1, attr_len
+         if (stored_dims(axis) /= cdims(axis)) then
+            write (*, '(a,a,a)') &
+               'preserf: read-mode tracer "', trim(entry%name), &
+               '" dims mismatch with registered shape'
+            error stop 1
+         end if
+      end do
+
+      ncerr = nf90_inquire_attribute(s%tracers_grpid, varid, 'stype', len=attr_len)
+      call preserf_check_nf_with_msg(ncerr, 'inquire_attribute tracer stype')
+      allocate (character(len=attr_len) :: stored_stype)
+      ncerr = nf90_get_att(s%tracers_grpid, varid, 'stype', stored_stype)
+      call preserf_check_nf_with_msg(ncerr, 'get_att tracer stype')
+      if (trim(stored_stype) /= trim(entry%stype)) then
+         write (*, '(a,a,a,a,a,a)') &
+            'preserf: read-mode tracer "', trim(entry%name), &
+            '" stype mismatch: store "', trim(stored_stype), &
+            '", run "', trim(entry%stype)
+         error stop 1
+      end if
+   end subroutine validate_registered_tracer
+
+   !> Write the registry entry `idx` to the current savepoint, dispatching
+   !> on its stored rank to reshape the flattened buffer back to its
+   !> Fortran shape before handing it to the matching put_tracer_data_*.
+   subroutine write_tracer_at_current_sp(idx, timelevel)
+      integer, intent(in) :: idx
+      integer, intent(in), optional :: timelevel
+      integer :: tl, grpid
+      logical :: has_tl
+
+      call require_open(ppser_serializer, 'ppser_write_tracer')
+      call require_savepoint(ppser_savepoint, 'ppser_write_tracer')
+      call require_savepoint_owner(ppser_serializer, ppser_savepoint, &
+                                   'ppser_write_tracer')
+
+      has_tl = present(timelevel)
+      tl = 0
+      if (has_tl) tl = timelevel
+      grpid = ppser_savepoint%grpid
+
+      select case (ppser_tracers(idx)%rank)
+      case (1)
+         call put_tracer_data_1d(grpid, trim(ppser_tracers(idx)%name), &
+                                 reshape(ppser_tracers(idx)%buffer, &
+                                         ppser_tracers(idx)%fshape(1:1)), tl, has_tl)
+      case (2)
+         call put_tracer_data_2d(grpid, trim(ppser_tracers(idx)%name), &
+                                 reshape(ppser_tracers(idx)%buffer, &
+                                         ppser_tracers(idx)%fshape(1:2)), tl, has_tl)
+      case (3)
+         call put_tracer_data_3d(grpid, trim(ppser_tracers(idx)%name), &
+                                 reshape(ppser_tracers(idx)%buffer, &
+                                         ppser_tracers(idx)%fshape(1:3)), tl, has_tl)
+      case (4)
+         call put_tracer_data_4d(grpid, trim(ppser_tracers(idx)%name), &
+                                 reshape(ppser_tracers(idx)%buffer, &
+                                         ppser_tracers(idx)%fshape(1:4)), tl, has_tl)
+      case default
+         write (*, '(a,i0)') &
+            'preserf: tracer has unsupported rank ', ppser_tracers(idx)%rank
+         error stop 1
+      end select
+   end subroutine write_tracer_at_current_sp
+
+   !> `!$SER TRACER <name>` — write the named tracer to the current
+   !> savepoint. `stype` is accepted to match pp_ser's call shape but is
+   !> not needed here (it is fixed at registration time and recorded on the
+   !> `/_tracers` descriptor). Read mode is a no-op (see section header).
+   subroutine ppser_write_tracer_by_name(name, stype, timelevel)
+      character(len=*), intent(in) :: name
+      character(len=*), intent(in), optional :: stype
+      integer, intent(in), optional :: timelevel
+      integer :: idx
+
+      if (serialisation_enabled == 0) return
+      if (ppser_get_mode() /= 0) return
+      if (present(stype)) continue  ! accepted for call-shape compatibility
+      idx = find_tracer(name)
+      if (idx == 0) then
+         write (*, '(a,a,a)') &
+            'preserf: ppser_write_tracer_by_name: tracer "', trim(name), &
+            '" is not registered'
+         error stop 1
+      end if
+      call write_tracer_at_current_sp(idx, timelevel)
+   end subroutine ppser_write_tracer_by_name
+
+   !> `!$SER TRACER $idx` / `$idx-idx2` — write the tracer(s) at the given
+   !> 1-based registry index (or inclusive index range) to the current
+   !> savepoint. Read mode is a no-op (see section header).
+   subroutine ppser_write_tracer_by_idx(idx, idx2, stype, timelevel)
+      integer, intent(in) :: idx
+      integer, intent(in), optional :: idx2
+      character(len=*), intent(in), optional :: stype
+      integer, intent(in), optional :: timelevel
+      integer :: lo, hi, i
+
+      if (serialisation_enabled == 0) return
+      if (ppser_get_mode() /= 0) return
+      if (present(stype)) continue  ! accepted for call-shape compatibility
+      lo = idx
+      hi = idx
+      if (present(idx2)) hi = idx2
+      do i = lo, hi
+         if (i < 1 .or. i > ppser_tracer_count) then
+            write (*, '(a,i0,a,i0,a)') &
+               'preserf: ppser_write_tracer_by_idx: index ', i, &
+               ' is out of range (1..', ppser_tracer_count, ')'
+            error stop 1
+         end if
+         call write_tracer_at_current_sp(i, timelevel)
+      end do
+   end subroutine ppser_write_tracer_by_idx
+
+   !> `!$SER TRACER %all` — write every registered tracer to the current
+   !> savepoint, optionally filtered to a single stype (empty = no filter).
+   !> Read mode is a no-op (see section header).
+   subroutine ppser_write_tracer_all(stype, timelevel)
+      character(len=*), intent(in), optional :: stype
+      integer, intent(in), optional :: timelevel
+      integer :: i
+      logical :: filter
+
+      if (serialisation_enabled == 0) return
+      if (ppser_get_mode() /= 0) return
+      filter = .false.
+      if (present(stype)) then
+         if (len_trim(stype) > 0) filter = .true.
+      end if
+      do i = 1, ppser_tracer_count
+         if (filter) then
+            if (trim(ppser_tracers(i)%stype) /= trim(stype)) cycle
+         end if
+         call write_tracer_at_current_sp(i, timelevel)
+      end do
+   end subroutine ppser_write_tracer_all
 
    ! ========================================================================
    ! METAINFO — scalar overloads (savepoint)

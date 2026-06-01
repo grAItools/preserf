@@ -29,6 +29,7 @@ module utils_preserf
    type, public :: t_serializer
       integer :: ncid = -1
       integer :: fields_grpid = -1
+      integer :: tracers_grpid = -1
       integer :: savepoints_grpid = -1
       integer :: next_sp_index = 0
       logical :: writable = .true.
@@ -119,10 +120,45 @@ module utils_preserf
    integer, parameter, public :: PRESERF_SAVEPOINT_INDEX_LIMIT = 1000000
 
    ! -------------------------------------------------------------------------
+   ! Tracer registry (ADR 0003 §3, storage_mapping.md §4a)
+   ! -------------------------------------------------------------------------
+   !
+   ! pp_ser's tracer directives carry only a name/index + stype + an
+   ! integer timelevel — never the data array (real Serialbox resolves
+   ! it from the host model's tracer module). preserf has no host model,
+   ! so the helper owns a small built-in registry that host code / tests
+   ! populate via `ppser_register_tracer` (m_preserf). `fs_RegisterAllTracers`
+   ! then writes one `/_tracers/<name>` descriptor per entry, and the
+   ! `ppser_write_tracer_*` entry points resolve the data from here.
+   !
+   ! v1.0 stores real(real64) tracer data only (TypeID 5), flattened into
+   ! `buffer` with the Fortran shape kept in `fshape(1:rank)`; the write
+   ! path reshapes it back per rank. Extending to other dtypes is a
+   ! template-stanza change, not new logic (ADR 0004).
+   integer, parameter, public :: PPSER_MAX_TRACERS = 256
+   integer, parameter, public :: PPSER_TRACER_NAME_LEN = 64
+   integer, parameter, public :: PPSER_TRACER_STYPE_LEN = 16
+   ! Serialbox TypeID for real(real64); mirrors TID_FLOAT64 in m_preserf.
+   integer(int32), parameter, public :: PPSER_TRACER_TID_FLOAT64 = 5
+
+   type, public :: t_tracer_entry
+      character(len=PPSER_TRACER_NAME_LEN) :: name = ''
+      character(len=PPSER_TRACER_STYPE_LEN) :: stype = ''
+      integer(int32) :: type_id = PPSER_TRACER_TID_FLOAT64
+      integer :: rank = 0
+      integer :: fshape(4) = 0
+      real(real64), allocatable :: buffer(:)
+   end type t_tracer_entry
+
+   type(t_tracer_entry), public, save :: ppser_tracers(PPSER_MAX_TRACERS)
+   integer, public, save :: ppser_tracer_count = 0
+
+   ! -------------------------------------------------------------------------
    ! Public procedures
    ! -------------------------------------------------------------------------
    public :: ppser_initialize, ppser_finalize
    public :: ppser_get_mode, ppser_set_mode
+   public :: ppser_reset_tracers
    public :: preserf_check_nf, preserf_check_nf_with_msg
    public :: preserf_writer_version
    public :: preserf_logical_to_byte
@@ -365,6 +401,11 @@ contains
       ! otherwise leave every subsequent fs_* call in this process a
       ! silent no-op even after a fresh INIT.
       serialisation_enabled = 1
+
+      ! Start the tracer registry empty (ADR 0003 §3). It is module SAVE
+      ! state, so a tracer registered before a prior finalize would
+      ! otherwise carry into this session and get re-emitted.
+      call ppser_reset_tracers()
    end subroutine ppser_initialize
 
    !> Close the dataset(s) opened by ppser_initialize.
@@ -375,6 +416,7 @@ contains
       ppser_savepoint%idx = -1
       ppser_savepoint%owner_ncid = -1
       ppser_mode_state = 0
+      call ppser_reset_tracers()
       ! Also restore the ON/OFF gate to its default. ppser_initialize
       ! re-sets this on every fresh session as belt-and-braces, but
       ! resetting here too means an explicit finalize + later code
@@ -387,6 +429,22 @@ contains
       integer :: m
       m = ppser_mode_state
    end function ppser_get_mode
+
+   !> Empty the built-in tracer registry (ADR 0003 §3). Called on every
+   !> fresh `ppser_initialize` and on `ppser_finalize` so a tracer
+   !> registered in a previous session does not leak into the next one.
+   !> Deallocates each entry's data buffer to release the flattened copy.
+   subroutine ppser_reset_tracers()
+      integer :: i
+      do i = 1, ppser_tracer_count
+         if (allocated(ppser_tracers(i)%buffer)) deallocate (ppser_tracers(i)%buffer)
+         ppser_tracers(i)%name = ''
+         ppser_tracers(i)%stype = ''
+         ppser_tracers(i)%rank = 0
+         ppser_tracers(i)%fshape = 0
+      end do
+      ppser_tracer_count = 0
+   end subroutine ppser_reset_tracers
 
    !> Set the runtime DATA mode. Only 0 (write), 1 (read), and 2
    !> (read-perturb) are accepted; pp_ser-generated SELECT CASE blocks
@@ -661,6 +719,12 @@ contains
       ncerr = nf90_def_grp(s%ncid, '_fields', s%fields_grpid)
       call preserf_check_nf_with_msg(ncerr, 'def_grp /_fields')
 
+      ! `/_tracers` mirrors `/_fields` for registered tracers (ADR 0003
+      ! §1, storage_mapping.md §4a). Created unconditionally so a reader
+      ! always finds the group even when no tracer was registered.
+      ncerr = nf90_def_grp(s%ncid, '_tracers', s%tracers_grpid)
+      call preserf_check_nf_with_msg(ncerr, 'def_grp /_tracers')
+
       ncerr = nf90_def_grp(s%ncid, 'savepoints', s%savepoints_grpid)
       call preserf_check_nf_with_msg(ncerr, 'def_grp /savepoints')
    end subroutine preserf_create_skeleton_groups
@@ -671,6 +735,14 @@ contains
 
       ncerr = nf90_inq_ncid(s%ncid, '_fields', s%fields_grpid)
       call preserf_check_nf_with_msg(ncerr, 'inq_ncid /_fields')
+
+      ! `/_tracers` is resolved leniently: stores written before ADR 0003
+      ! have no such group, and a field-only run must still open them. Any
+      ! lookup failure (the common one being "group not found") leaves
+      ! tracers_grpid = -1, which the tracer read path treats as "no
+      ! tracers registered".
+      ncerr = nf90_inq_ncid(s%ncid, '_tracers', s%tracers_grpid)
+      if (ncerr /= NF90_NOERR) s%tracers_grpid = -1
 
       ncerr = nf90_inq_ncid(s%ncid, 'savepoints', s%savepoints_grpid)
       call preserf_check_nf_with_msg(ncerr, 'inq_ncid /savepoints')
