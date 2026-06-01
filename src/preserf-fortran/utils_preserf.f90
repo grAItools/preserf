@@ -478,7 +478,9 @@ contains
    !> Empty the built-in tracer registry (ADR 0003 §3). Called on every
    !> fresh `ppser_initialize` and on `ppser_finalize` so a tracer
    !> registered in a previous session does not leak into the next one.
-   !> Deallocates each entry's data buffer to release the flattened copy.
+   !> Only nullifies the data pointers and clears metadata — the registry
+   !> holds pointers to caller-owned TARGET arrays and owns no storage to
+   !> release.
    subroutine ppser_reset_tracers()
       integer :: i
       ! Only nullify — the registry does not own the pointed-to host arrays.

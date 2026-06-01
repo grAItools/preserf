@@ -28,6 +28,7 @@ module m_preserf
                             t_tracer_entry, ppser_tracers, &
                             ppser_tracer_count, PPSER_MAX_TRACERS, &
                             PPSER_TRACER_TID_FLOAT64, &
+                            PPSER_TRACER_NAME_LEN, PPSER_TRACER_STYPE_LEN, &
                             t_kbuff_entry, ppser_kbuffers, &
                             ppser_kbuff_count, PPSER_MAX_KBUFF, &
                             ppser_verbosity
@@ -60,6 +61,13 @@ module m_preserf
    ! host-side registration entry point (not pp_ser-generated); the
    ! `fs_RegisterAllTracers` and `ppser_write_tracer_*` names are what
    ! pp_ser emits for REGISTERTRACERS / TRACER.
+   !
+   ! IMPORTANT: the `data` array passed to `ppser_register_tracer` MUST
+   ! have the TARGET attribute and outlive the run. The registry stores a
+   ! pointer to it (not a copy) so a read-mode `!$SER TRACER` can read the
+   ! stored field back into the same array (F2008 12.5.2.4). Passing a
+   ! non-TARGET array — or letting it go out of scope / be reallocated —
+   ! leaves a dangling pointer.
    interface ppser_register_tracer
       module procedure ppser_register_tracer_1d
       module procedure ppser_register_tracer_2d
@@ -502,6 +510,23 @@ contains
             'preserf: ppser_register_tracer supports rank 1..4 only'
          error stop 1
       end if
+      ! Reject names / stypes that would silently truncate into the
+      ! fixed-length registry components (which would then mismatch the
+      ! on-disk variable name / stype attribute).
+      if (len_trim(name) > PPSER_TRACER_NAME_LEN) then
+         write (*, '(a,a,a,i0,a)') &
+            'preserf: tracer name "', trim(name), '" exceeds ', &
+            PPSER_TRACER_NAME_LEN, ' characters'
+         error stop 1
+      end if
+      if (present(stype)) then
+         if (len_trim(stype) > PPSER_TRACER_STYPE_LEN) then
+            write (*, '(a,a,a,i0,a)') &
+               'preserf: tracer stype "', trim(stype), '" exceeds ', &
+               PPSER_TRACER_STYPE_LEN, ' characters'
+            error stop 1
+         end if
+      end if
       if (find_tracer(name) /= 0) then
          write (*, '(a,a,a)') &
             'preserf: tracer "', trim(name), '" is already registered'
@@ -858,7 +883,19 @@ contains
       ppser_kbuffers(idx)%buffer(off + 1:off + slice_size) = flat_slice
       ppser_kbuffers(idx)%filled = ppser_kbuffers(idx)%filled + 1
 
-      if (k == k_size) call kbuff_flush(s, sp, idx)
+      if (k == k_size) then
+         ! Completeness guard: reaching the last level with fewer (or more)
+         ! writes than levels means a level was skipped or repeated, so the
+         ! buffer would flush stale/zeroed slices.
+         if (ppser_kbuffers(idx)%filled /= k_size) then
+            write (*, '(a,a,a,i0,a,i0,a)') &
+               'preserf: k-buffer for "', trim(fieldname), &
+               '" reached the last level with ', ppser_kbuffers(idx)%filled, &
+               ' of ', k_size, ' slices written (a level was skipped or repeated)'
+            error stop 1
+         end if
+         call kbuff_flush(s, sp, idx)
+      end if
    end subroutine kbuff_accumulate
 
    !> Read-mode counterpart: ensure the full stored field is loaded into the

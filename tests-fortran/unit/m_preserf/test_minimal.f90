@@ -1013,6 +1013,68 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: option OK'
                stop
             end block
+         else if (scenario == 'tracers-bad-dup') then
+            ! Registering the same tracer name twice must abort.
+            block
+               real(real64), target :: q(3)
+               q = 1.0_real64
+               call ppser_initialize(out_dir, 'ftbd', 'w')
+               call ppser_register_tracer('q_v', q, stype='tens')
+               call ppser_register_tracer('q_v', q, stype='tens')
+               call abort_unexpected('tracers-bad-dup')
+            end block
+         else if (scenario == 'tracers-bad-namelen') then
+            ! A tracer name longer than the fixed-length registry component
+            ! must abort rather than silently truncate.
+            block
+               real(real64), target :: q(3)
+               q = 1.0_real64
+               call ppser_initialize(out_dir, 'ftbl', 'w')
+               call ppser_register_tracer( &
+                  'this_tracer_name_is_deliberately_far_longer_than_'// &
+                  'sixty_four_characters_for_the_test', q)
+               call abort_unexpected('tracers-bad-namelen')
+            end block
+         else if (scenario == 'tracers-bad-name') then
+            ! Writing a tracer that was never registered must abort.
+            block
+               real(real64), target :: q(3)
+               q = 1.0_real64
+               call ppser_initialize(out_dir, 'ftbn', 'w')
+               call ppser_register_tracer('q_v', q, stype='tens')
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_write_tracer_by_name('nope')
+               call abort_unexpected('tracers-bad-name')
+            end block
+         else if (scenario == 'tracers-bad-idx') then
+            ! An out-of-range tracer index must abort.
+            block
+               real(real64), target :: q(3)
+               q = 1.0_real64
+               call ppser_initialize(out_dir, 'ftbi', 'w')
+               call ppser_register_tracer('q_v', q, stype='tens')
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_write_tracer_by_idx(5)
+               call abort_unexpected('tracers-bad-idx')
+            end block
+         else if (scenario == 'kbuff-bad-shape') then
+            ! Two fs_write_kbuff calls for the same field with different
+            ! slice shapes must abort.
+            block
+               real(real64) :: s1(3), s2(4)
+               s1 = 1.0_real64
+               s2 = 2.0_real64
+               call ppser_initialize(out_dir, 'fkbs', 'w')
+               call fs_register_field(ppser_serializer, 'f', 'double', &
+                                      ppser_reallength, 3, 2, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'f', s1, &
+                                   k=1, k_size=2, mode=ppser_get_mode())
+               call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'f', s2, &
+                                   k=2, k_size=2, mode=ppser_get_mode())
+               call abort_unexpected('kbuff-bad-shape')
+            end block
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &

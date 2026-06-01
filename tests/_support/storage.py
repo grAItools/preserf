@@ -377,6 +377,14 @@ def read_dump(url: str) -> SerialboxDump:
         if "_tracers" in root.groups:
             tracers_grp = root.groups["_tracers"]
             for tname, var in tracers_grp.variables.items():
+                # A name cannot be both a registered field and a tracer: the
+                # savepoint read path routes a variable by which registry it
+                # is in, so an overlap would be ambiguous.
+                if tname in dump.field_map:
+                    raise ValueError(
+                        f"{url}: '{tname}' is registered as both a field "
+                        "(/_fields) and a tracer (/_tracers)"
+                    )
                 missing_attrs = _RESERVED_TRACER_REGISTRY - set(var.ncattrs())
                 if missing_attrs:
                     raise ValueError(

@@ -334,3 +334,59 @@ set_tests_properties(preserf_fortran_option PROPERTIES
     PASS_REGULAR_EXPRESSION "preserf-fortran: option OK"
     TIMEOUT 60
 )
+
+# Slice C negative scenarios: each must abort with its specific message.
+add_test(
+    NAME preserf_fortran_tracers_bad_dup
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracers-bad-dup
+)
+set_tests_properties(preserf_fortran_tracers_bad_dup PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "is already registered"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME preserf_fortran_tracers_bad_namelen
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracers-bad-namelen
+)
+set_tests_properties(preserf_fortran_tracers_bad_namelen PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "exceeds 64 characters"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME preserf_fortran_tracers_bad_name
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracers-bad-name
+)
+set_tests_properties(preserf_fortran_tracers_bad_name PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "is not registered"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME preserf_fortran_tracers_bad_idx
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracers-bad-idx
+)
+set_tests_properties(preserf_fortran_tracers_bad_idx PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "is out of range"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME preserf_fortran_kbuff_bad_shape
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" kbuff-bad-shape
+)
+set_tests_properties(preserf_fortran_kbuff_bad_shape PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "inconsistent slice shape"
+    TIMEOUT 60
+)
