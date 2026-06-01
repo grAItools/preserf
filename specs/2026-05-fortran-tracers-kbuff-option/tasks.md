@@ -1,7 +1,8 @@
 # Slice C tasks: Tracers, k-buffer, OPTION
 
-Tracks the phased plan in `plan.md` (and the folded-in ADR per
-`/root/.claude/plans/...`). Tick as each lands.
+Tracks the phased plan in [`plan.md`](plan.md); the C-0 ADR is folded in as
+Phase 0 and lands as [`docs/adr/0003-tracer-storage.md`](../../docs/adr/0003-tracer-storage.md).
+Tick as each lands.
 
 ## Phase 0 — ADR 0003 + storage mapping
 
