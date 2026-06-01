@@ -901,23 +901,26 @@ contains
                        idx, is_new)
       if (is_new) ppser_kbuffers(idx)%buffer = 0.0_real64
 
+      ! Levels must be written exactly once each, in ascending order
+      ! (k = 1, 2, ..., k_size) — the contract pp_ser emits via `do k=1,ke`.
+      ! `filled` counts the levels written so far, so the next call must
+      ! supply level filled+1. Rejecting anything else catches a repeated or
+      ! skipped level (which a count-only check at k_size would miss, e.g.
+      ! 1,1,3 makes three calls yet never writes level 2) before the buffer
+      ! flushes stale/zeroed slices.
+      if (k /= ppser_kbuffers(idx)%filled + 1) then
+         write (*, '(a,a,a,i0,a,i0,a)') &
+            'preserf: fs_write_kbuff for "', trim(fieldname), &
+            '" expected level ', ppser_kbuffers(idx)%filled + 1, &
+            ' but got ', k, ' (levels must be written once each, in order)'
+         error stop 1
+      end if
+
       off = (k - 1)*slice_size
       ppser_kbuffers(idx)%buffer(off + 1:off + slice_size) = flat_slice
       ppser_kbuffers(idx)%filled = ppser_kbuffers(idx)%filled + 1
 
-      if (k == k_size) then
-         ! Completeness guard: reaching the last level with fewer (or more)
-         ! writes than levels means a level was skipped or repeated, so the
-         ! buffer would flush stale/zeroed slices.
-         if (ppser_kbuffers(idx)%filled /= k_size) then
-            write (*, '(a,a,a,i0,a,i0,a)') &
-               'preserf: k-buffer for "', trim(fieldname), &
-               '" reached the last level with ', ppser_kbuffers(idx)%filled, &
-               ' of ', k_size, ' slices written (a level was skipped or repeated)'
-            error stop 1
-         end if
-         call kbuff_flush(s, sp, idx)
-      end if
+      if (k == k_size) call kbuff_flush(s, sp, idx)
    end subroutine kbuff_accumulate
 
    !> Read-mode counterpart: ensure the full stored field is loaded into the

@@ -715,6 +715,12 @@ contains
          call preserf_check_nf_with_msg(ncerr, 'nf90_close')
          s%ncid = -1
          s%fields_grpid = -1
+         ! `/_tracers` is created lazily per session (fs_RegisterAllTracers),
+         ! so this id MUST be cleared on close — otherwise a later
+         ! write-mode ppser_initialize in the same process would see a stale
+         ! non-(-1) id, skip the lazy create, and write tracer descriptors
+         ! against a group from the previous (closed) file.
+         s%tracers_grpid = -1
          s%savepoints_grpid = -1
          s%next_sp_index = 0
          s%writable = .true.
@@ -793,6 +799,10 @@ contains
       ! `/_tracers` is created lazily by fs_RegisterAllTracers the first
       ! time a tracer is registered (ADR 0003 §1, storage_mapping.md §4a),
       ! not here — so a field-only store carries no empty tracer group.
+      ! Clear the id for this fresh write session so the lazy create fires
+      ! (belt-and-braces with the reset in preserf_close_serializer).
+      s%tracers_grpid = -1
+
       ncerr = nf90_def_grp(s%ncid, 'savepoints', s%savepoints_grpid)
       call preserf_check_nf_with_msg(ncerr, 'def_grp /savepoints')
    end subroutine preserf_create_skeleton_groups

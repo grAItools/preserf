@@ -352,6 +352,17 @@ set_tests_properties(preserf_fortran_tracer_tl_overwrite PROPERTIES
 
 # Slice C negative scenarios: each must abort with its specific message.
 add_test(
+    NAME preserf_fortran_tracers_multi_session
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracers-multi-session
+)
+set_tests_properties(preserf_fortran_tracers_multi_session PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: tracers-multi-session OK"
+    TIMEOUT 60
+)
+
+add_test(
     NAME preserf_fortran_tracers_bad_dup
     COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
             "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracers-bad-dup
@@ -414,6 +425,17 @@ add_test(
 set_tests_properties(preserf_fortran_kbuff_bad_namelen PROPERTIES
     FIXTURES_REQUIRED preserf_fortran_output_dir
     PASS_REGULAR_EXPRESSION "exceeds 64 characters"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME preserf_fortran_kbuff_bad_order
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" kbuff-bad-order
+)
+set_tests_properties(preserf_fortran_kbuff_bad_order PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "expected level 2 but got 3"
     TIMEOUT 60
 )
 

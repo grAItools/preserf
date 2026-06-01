@@ -1034,6 +1034,34 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: tracer-tl-overwrite OK'
                stop
             end block
+         else if (scenario == 'tracers-multi-session') then
+            ! Regression: tracers_grpid must be cleared on close so a
+            ! second write-mode session lazily re-creates /_tracers in the
+            ! new file instead of reusing a stale group id from the first
+            ! (closed) file. Without the reset the second
+            ! fs_RegisterAllTracers writes a descriptor against the stale
+            ! grpid and aborts; reaching OK proves the reset works.
+            block
+               real(real64), target :: q(3)
+               integer :: i
+               do i = 1, 3
+                  q(i) = real(i, real64)
+               end do
+               call ppser_initialize(out_dir, 'fms_a', 'w')
+               call ppser_register_tracer('q_v', q, stype='tens')
+               call fs_RegisterAllTracers()
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+               call ppser_finalize()
+               call ppser_initialize(out_dir, 'fms_b', 'w')
+               call ppser_register_tracer('q_v', q, stype='tens')
+               call fs_RegisterAllTracers()
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: tracers-multi-session OK'
+               stop
+            end block
          else if (scenario == 'tracers-bad-dup') then
             ! Registering the same tracer name twice must abort.
             block
@@ -1105,6 +1133,24 @@ program test_minimal
                                    'far_longer_than_sixty_four_characters', s, &
                                    k=1, k_size=2, mode=ppser_get_mode())
                call abort_unexpected('kbuff-bad-namelen')
+            end block
+         else if (scenario == 'kbuff-bad-order') then
+            ! Levels must be written once each in order 1..k_size. Skipping
+            ! level 2 (writing k=1 then k=3) must abort rather than flush a
+            ! buffer with a stale/zeroed slice.
+            block
+               real(real64) :: s(2)
+               s = 1.0_real64
+               call ppser_initialize(out_dir, 'fkbo', 'w')
+               call fs_register_field(ppser_serializer, 'f', 'double', &
+                                      ppser_reallength, 2, 3, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'f', s, &
+                                   k=1, k_size=3, mode=ppser_get_mode())
+               call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'f', s, &
+                                   k=3, k_size=3, mode=ppser_get_mode())
+               call abort_unexpected('kbuff-bad-order')
             end block
          else if (scenario == 'kbuff-bad-shape') then
             ! Two fs_write_kbuff calls for the same field with different
