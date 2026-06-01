@@ -137,10 +137,13 @@ module utils_preserf
    ! then writes one `/_tracers/<name>` descriptor per entry, and the
    ! `ppser_write_tracer_*` entry points resolve the data from here.
    !
-   ! v1.0 stores real(real64) tracer data only (TypeID 5), flattened into
-   ! `buffer` with the Fortran shape kept in `fshape(1:rank)`; the write
-   ! path reshapes it back per rank. Extending to other dtypes is a
-   ! template-stanza change, not new logic (ADR 0004).
+   ! v1.0 binds real(real64) tracer data. The registry holds a *pointer*
+   ! to the host's array (rank-specific component, one set per rank) rather
+   ! than a copy, so a read-mode `!$SER TRACER` can read the stored field
+   ! back into the host's array. The host array MUST have the TARGET
+   ! attribute and outlive the run (F2008 12.5.2.4: a pointer associated
+   ! with a TARGET dummy stays associated with the TARGET actual after
+   ! return). Extending to other dtypes is a template-stanza change.
    integer, parameter, public :: PPSER_MAX_TRACERS = 256
    integer, parameter, public :: PPSER_TRACER_NAME_LEN = 64
    integer, parameter, public :: PPSER_TRACER_STYPE_LEN = 16
@@ -153,7 +156,10 @@ module utils_preserf
       integer(int32) :: type_id = PPSER_TRACER_TID_FLOAT64
       integer :: rank = 0
       integer :: fshape(4) = 0
-      real(real64), allocatable :: buffer(:)
+      real(real64), pointer :: d1(:) => null()
+      real(real64), pointer :: d2(:, :) => null()
+      real(real64), pointer :: d3(:, :, :) => null()
+      real(real64), pointer :: d4(:, :, :, :) => null()
    end type t_tracer_entry
 
    type(t_tracer_entry), public, save :: ppser_tracers(PPSER_MAX_TRACERS)
@@ -475,12 +481,16 @@ contains
    !> Deallocates each entry's data buffer to release the flattened copy.
    subroutine ppser_reset_tracers()
       integer :: i
+      ! Only nullify — the registry does not own the pointed-to host arrays.
       do i = 1, ppser_tracer_count
-         if (allocated(ppser_tracers(i)%buffer)) deallocate (ppser_tracers(i)%buffer)
          ppser_tracers(i)%name = ''
          ppser_tracers(i)%stype = ''
          ppser_tracers(i)%rank = 0
          ppser_tracers(i)%fshape = 0
+         nullify (ppser_tracers(i)%d1)
+         nullify (ppser_tracers(i)%d2)
+         nullify (ppser_tracers(i)%d3)
+         nullify (ppser_tracers(i)%d4)
       end do
       ppser_tracer_count = 0
    end subroutine ppser_reset_tracers

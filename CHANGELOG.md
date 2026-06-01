@@ -26,9 +26,12 @@ embedded in each spec's Problem section.
   `/_fields`; the write entry points emit each tracer as an ordinary
   savepoint variable (byte-identical to a `!$SER DATA` field) with the
   integer timelevel as an optional `timelevel` attribute. One snapshot per
-  `(savepoint, tracer)`, last-wins (`storage_mapping.md` §4a). v1.0 stores
-  `real(real64)` tracers (ranks 1–4); read mode validates the descriptors.
-  A native `tracers` / `tracers-roundtrip` ctest plus a
+  `(savepoint, tracer)`, last-wins (`storage_mapping.md` §4a). The registry
+  keeps a pointer to the host's `TARGET` array (not a copy), so a read-mode
+  `!$SER TRACER` reads the stored field back into the same array; read mode
+  also resolves-and-validates the `/_tracers` descriptors. v1.0 binds
+  `real(real64)` tracers (ranks 1–4). A native `tracers` / `tracers-roundtrip`
+  (write + Fortran read-back) ctest plus a
   `test_fortran_wire_compat.py` scenario assert the descriptors, per-entry-
   point data placement, the timelevel attribute, and axis-order through the
   Python reference reader.
@@ -38,11 +41,12 @@ embedded in each spec's Problem section.
   the helper buffers each slice and, on the last level (`k == k_size`),
   assembles the full `(slice_shape…, k_size)` field and writes it through
   the field path, so the on-disk variable is byte-identical to a `!$SER
-  DATA` write (`storage_mapping.md` §6, ADR 0003 §5). v1.0 buffers
-  `real(real64)` slices of rank 1–3 (fields rank 2–4) in write mode; read
-  mode is a no-op (the assembled field is recoverable via `fs_read_field`).
-  A native `kbuff` ctest plus a `test_fortran_wire_compat.py` scenario
-  assert the assembled fields against the per-level accumulation.
+  DATA` write (`storage_mapping.md` §6, ADR 0003 §5). Read mode is the
+  mirror: the stored field is loaded once and each level is copied back into
+  the caller's slice (`data` is `intent(inout)`). v1.0 buffers
+  `real(real64)` slices of rank 1–3 (fields rank 2–4). A native `kbuff` ctest
+  (write + read-back) plus a `test_fortran_wire_compat.py` scenario assert
+  the assembled fields against the per-level accumulation.
 - Runtime options (Slice C, Phase 3 — `!$SER OPTION`): `fs_Option` exposes
   a single fixed keyword, `verbosity` (ADR 0003 §4) — Fortran cannot accept
   an arbitrary `key=value` dummy, so the preprocessor now rejects any other

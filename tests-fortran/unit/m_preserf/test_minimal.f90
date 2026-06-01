@@ -821,7 +821,9 @@ program test_minimal
             ! The Python wire-compat test reads back the descriptors,
             ! data, and the optional timelevel attribute.
             block
-               real(real64) :: qv(3), qc(2, 3), qr(2, 2, 2)
+               ! TARGET: ppser_register_tracer keeps a pointer to these
+               ! arrays so a read-mode TRACER can read back into them.
+               real(real64), target :: qv(3), qc(2, 3), qr(2, 2, 2)
                integer :: i, j, k
                do i = 1, 3
                   qv(i) = real(10 + i, real64)
@@ -866,14 +868,16 @@ program test_minimal
                stop
             end block
          else if (scenario == 'tracers-roundtrip') then
-            ! Slice C Phase 1 read-mode: write a tracer store, finalize,
-            ! re-open read-only, re-register the same tracers, and call
-            ! fs_RegisterAllTracers — which in read mode resolves and
-            ! validates each /_tracers descriptor (type_id / dims / stype)
-            ! instead of creating it. Proves the read path does not attempt
-            ! a def_var on the read-only handle.
+            ! Slice C read-mode round-trip: write a tracer store, finalize,
+            ! re-open read-only, re-register the same tracers (bound to
+            ! freshly zeroed TARGET arrays), validate the descriptors via
+            ! fs_RegisterAllTracers, then read every tracer back with
+            ! ppser_write_tracer_all and assert the values match the
+            ! originals — proving symmetric Fortran read-back through the
+            ! registry pointers (no def_var on the read-only handle).
             block
-               real(real64) :: qv(3), qc(2, 3)
+               real(real64), target :: qv(3), qc(2, 3)
+               real(real64) :: qv0(3), qc0(2, 3)
                integer :: i, j
                do i = 1, 3
                   qv(i) = real(10 + i, real64)
@@ -883,6 +887,8 @@ program test_minimal
                      qc(i, j) = real(100*i + j, real64)
                   end do
                end do
+               qv0 = qv
+               qc0 = qc
                call ppser_initialize(out_dir, 'ftrt', 'w')
                call ppser_register_tracer('q_v', qv, stype='tens')
                call ppser_register_tracer('q_c', qc, stype='bd')
@@ -891,13 +897,21 @@ program test_minimal
                call ppser_write_tracer_all(stype='')
                call ppser_finalize()
                ! Re-open read-only. ppser_finalize cleared the registry, so
-               ! re-register the same tracers before validating.
+               ! re-register the same tracers bound to zeroed arrays.
+               qv = 0.0_real64
+               qc = 0.0_real64
                call ppser_initialize(out_dir, 'ftrt', 'r')
                if (ppser_get_mode() /= 1) error stop &
                   'tracers-roundtrip: read open should set mode 1'
                call ppser_register_tracer('q_v', qv, stype='tens')
                call ppser_register_tracer('q_c', qc, stype='bd')
                call fs_RegisterAllTracers()
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+               if (any(qv /= qv0)) error stop &
+                  'tracers-roundtrip: q_v did not read back to its written value'
+               if (any(qc /= qc0)) error stop &
+                  'tracers-roundtrip: q_c did not read back to its written value'
                call ppser_finalize()
                write (*, '(a)') 'preserf-fortran: tracers-roundtrip OK'
                stop
@@ -938,6 +952,35 @@ program test_minimal
                   call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'c', &
                                       cslice, k=kk, k_size=ke, &
                                       mode=ppser_get_mode())
+               end do
+               call ppser_finalize()
+
+               ! Read-back phase: re-open read-only and recover each level
+               ! through fs_write_kbuff (mode=read), proving symmetric
+               ! k-buffer read-back into the per-level slices.
+               call ppser_initialize(out_dir, 'fkbuff', 'r')
+               if (ppser_get_mode() /= 1) error stop &
+                  'kbuff: read open should set mode 1'
+               call fs_create_savepoint('step', ppser_savepoint)
+               do kk = 1, ke
+                  tslice = 0.0_real64
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 't', &
+                                      tslice, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+                  do j = 1, nj
+                     do i = 1, ni
+                        if (tslice(i, j) /= real(100*i + 10*j + kk, real64)) &
+                           error stop 'kbuff: t read-back mismatch'
+                     end do
+                  end do
+                  cslice = 0.0_real64
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'c', &
+                                      cslice, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+                  do i = 1, ni
+                     if (cslice(i) /= real(10*i + kk, real64)) &
+                        error stop 'kbuff: c read-back mismatch'
+                  end do
                end do
                call ppser_finalize()
                write (*, '(a)') 'preserf-fortran: kbuff OK'

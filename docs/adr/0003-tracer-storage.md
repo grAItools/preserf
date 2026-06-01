@@ -95,20 +95,25 @@ emitted by pp_ser — populates it:
 ppser_register_tracer(name, data, stype)
 ```
 
-records a name → (data, stype, dims, type_id) binding. `timelevel` is **not**
-a registration field: it is a per-write argument that selects nothing in the
-single-snapshot model (decision 2) and is recorded only as the data
-variable's `timelevel` attribute. Then:
+records a name → (data, stype, dims, type_id) binding. The registry keeps a
+**pointer** to the host's array (not a copy), so the array must have the
+`TARGET` attribute and outlive the run; this is what lets a read-mode
+`!$SER TRACER` read the stored field back into the same host array. `timelevel`
+is **not** a registration field: it is a per-write argument that selects
+nothing in the single-snapshot model (decision 2) and is recorded only as the
+data variable's `timelevel` attribute. Then:
 
 - `fs_RegisterAllTracers()` iterates the registry and writes a `/_tracers`
   descriptor (decision 1) for every entry, assigning `tracer_index` from
-  registration order.
+  registration order; in read mode it resolves-and-validates each descriptor
+  instead.
 - `ppser_write_tracer_by_name(name, stype, [timelevel])` resolves the entry
-  by name and writes its data to the current savepoint (decision 2),
-  attaching the `timelevel` attribute when supplied.
+  by name and **serializes** its data at the current savepoint (decision 2) —
+  writing in write mode (attaching the `timelevel` attribute when supplied),
+  reading the stored variable back into the host array in read mode.
 - `ppser_write_tracer_by_idx(idx, [idx2], stype, [timelevel])` resolves by
-  1-based index (a range `idx..idx2` writes each).
-- `ppser_write_tracer_all(stype, [timelevel])` writes every registered
+  1-based index (a range `idx..idx2` serializes each).
+- `ppser_write_tracer_all(stype, [timelevel])` serializes every registered
   tracer (filtered by `stype` when non-empty).
 
 **This is the central assumption of the slice.** Real Serialbox binds these
@@ -145,8 +150,10 @@ accumulates the level-`k` horizontal slice into a module-held buffer keyed by
 `(savepoint, field)` and writes the assembled field to the savepoint group
 when the last level arrives (`k == k_size`), then clears the buffer. The
 on-disk result is byte-identical to a plain `DATA` write of the same field
-(storage_mapping §6 already states this). Read mode follows the Slice A-1
-resolve-and-validate pattern. The exact accumulation/flush boundary is
+(storage_mapping §6 already states this). Read mode is the mirror: the full
+stored field is loaded into the buffer once (on the first level seen) and each
+`k` copies that level back into the caller's slice (`data` is `intent(inout)`).
+The exact accumulation/flush boundary is
 re-derived from Serialbox's Fortran `fs_write_kbuff` (the `vendor/pp_ser.py`
 port only emits the call; the buffering semantics live in the Fortran helper)
 and documented in a source comment.
