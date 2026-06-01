@@ -782,6 +782,15 @@ contains
       lo = idx
       hi = idx
       if (present(idx2)) hi = idx2
+      ! The preprocessor passes `$idx-idx2` ranges verbatim without
+      ! normalising order, so a descending range (idx2 < idx) would
+      ! silently skip the do-loop and write/read nothing. Fail loudly.
+      if (hi < lo) then
+         write (*, '(a,i0,a,i0,a)') &
+            'preserf: ppser_write_tracer_by_idx: descending index range (', &
+            lo, '..', hi, '); the upper bound must be >= the lower bound'
+         error stop 1
+      end if
       do i = lo, hi
          if (i < 1 .or. i > ppser_tracer_count) then
             write (*, '(a,i0,a,i0,a)') &
@@ -932,6 +941,15 @@ contains
       integer :: i, sr, free_slot
 
       sr = size(slice_shape)
+      ! Reject a field name that would silently truncate into the fixed-length
+      ! buffer-table component (which would then mismatch the on-disk variable
+      ! name and make the per-(savepoint,field) lookup inconsistent).
+      if (len_trim(fieldname) > PPSER_TRACER_NAME_LEN) then
+         write (*, '(a,a,a,i0,a)') &
+            'preserf: fs_write_kbuff field name "', trim(fieldname), &
+            '" exceeds ', PPSER_TRACER_NAME_LEN, ' characters'
+         error stop 1
+      end if
       free_slot = 0
       do i = 1, ppser_kbuff_count
          if (ppser_kbuffers(i)%grpid == grpid .and. &

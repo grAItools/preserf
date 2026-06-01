@@ -396,6 +396,28 @@ set_tests_properties(preserf_fortran_tracers_bad_idx PROPERTIES
 )
 
 add_test(
+    NAME preserf_fortran_tracers_bad_range
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracers-bad-range
+)
+set_tests_properties(preserf_fortran_tracers_bad_range PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "descending index range"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME preserf_fortran_kbuff_bad_namelen
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" kbuff-bad-namelen
+)
+set_tests_properties(preserf_fortran_kbuff_bad_namelen PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "exceeds 64 characters"
+    TIMEOUT 60
+)
+
+add_test(
     NAME preserf_fortran_kbuff_bad_shape
     COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
             "${CMAKE_CURRENT_BINARY_DIR}/test-output" kbuff-bad-shape

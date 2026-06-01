@@ -553,6 +553,7 @@ class Preprocessor:
             out += f"IF ({if_statement}) THEN\n"
         self._calls.add(_METHODS["option"])
         pairs = []
+        seen: set[str] = set()
         for key, value in zip(keys, values, strict=True):
             # The Fortran helper's fs_Option exposes a single fixed
             # keyword, `verbosity` (ADR 0003 §4): Fortran cannot accept an
@@ -567,6 +568,14 @@ class Preprocessor:
                         "option is 'verbosity'"
                     ),
                 )
+            # A repeated key would emit `fs_Option(verbosity=.., verbosity=..)`,
+            # which is invalid Fortran (duplicate keyword argument).
+            if key.lower() in seen:
+                raise self._error(
+                    directive=args[0],
+                    msg=f"duplicate OPTION key '{key}'",
+                )
+            seen.add(key.lower())
             if value.lower() == "off":
                 value = "0"
             elif value.lower() == "on":

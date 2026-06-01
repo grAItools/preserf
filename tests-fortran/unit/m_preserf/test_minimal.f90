@@ -1078,6 +1078,34 @@ program test_minimal
                call ppser_write_tracer_by_idx(5)
                call abort_unexpected('tracers-bad-idx')
             end block
+         else if (scenario == 'tracers-bad-range') then
+            ! A descending tracer index range (idx2 < idx) must abort rather
+            ! than silently write nothing.
+            block
+               real(real64), target :: q1(3), q2(3)
+               q1 = 1.0_real64
+               q2 = 2.0_real64
+               call ppser_initialize(out_dir, 'ftbr', 'w')
+               call ppser_register_tracer('q_v', q1, stype='tens')
+               call ppser_register_tracer('q_c', q2, stype='bd')
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_write_tracer_by_idx(2, 1)
+               call abort_unexpected('tracers-bad-range')
+            end block
+         else if (scenario == 'kbuff-bad-namelen') then
+            ! A k-buffer field name longer than the fixed-length table
+            ! component must abort rather than silently truncate.
+            block
+               real(real64) :: s(3)
+               s = 1.0_real64
+               call ppser_initialize(out_dir, 'fkbl', 'w')
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_kbuff(ppser_serializer, ppser_savepoint, &
+                                   'this_kbuff_field_name_is_deliberately_'// &
+                                   'far_longer_than_sixty_four_characters', s, &
+                                   k=1, k_size=2, mode=ppser_get_mode())
+               call abort_unexpected('kbuff-bad-namelen')
+            end block
          else if (scenario == 'kbuff-bad-shape') then
             ! Two fs_write_kbuff calls for the same field with different
             ! slice shapes — same total size (8) but transposed dims

@@ -430,8 +430,10 @@ def read_dump(url: str) -> SerialboxDump:
             dump.field_map[fname] = info
 
         # Tracer descriptors (Slice C / ADR 0003, storage_mapping.md §4a).
-        # `/_tracers` is optional: stores written before ADR 0003, and any
-        # run that registered no tracers, simply omit it.
+        # `/_tracers` is read defensively: preserf writers (this module and
+        # the Fortran helper) always create the group — empty when no tracer
+        # is registered — but stores written before ADR 0003 omit it
+        # entirely, so its absence is tolerated.
         if "_tracers" in root.groups:
             tracers_grp = root.groups["_tracers"]
             for tname, var in tracers_grp.variables.items():

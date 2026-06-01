@@ -287,6 +287,13 @@ def test_option_rejects_unknown_key() -> None:
         expand("!$SER OPTION precision=4\n")
 
 
+def test_option_rejects_duplicate_verbosity() -> None:
+    # A repeated key would emit `fs_Option(verbosity=.., verbosity=..)`,
+    # which is invalid Fortran (duplicate keyword argument).
+    with pytest.raises(DirectiveError, match="duplicate OPTION key 'verbosity'"):
+        expand("!$SER OPTION verbosity=1 verbosity=2\n")
+
+
 # --- DATA_KBUFF / tracers --------------------------------------------------
 
 
