@@ -276,3 +276,187 @@ set_tests_properties(preserf_fortran_read_bad_xtype PROPERTIES
     PASS_REGULAR_EXPRESSION "Registry / variable mismatch"
     TIMEOUT 60
 )
+
+# Slice C Phase 1: tracers. The 'tracers' scenario registers three real64
+# tracers and writes them through every TRACER entry point; the Python
+# cross-language test asserts the on-disk descriptors and data. The native
+# run confirms the writer completes.
+add_test(
+    NAME preserf_fortran_tracers
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracers
+)
+set_tests_properties(preserf_fortran_tracers PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: tracers OK"
+    TIMEOUT 60
+)
+
+# Slice C Phase 1 read-mode: re-open a tracer store read-only and validate
+# each /_tracers descriptor via fs_RegisterAllTracers (no def_var on the
+# read-only handle).
+add_test(
+    NAME preserf_fortran_tracers_roundtrip
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracers-roundtrip
+)
+set_tests_properties(preserf_fortran_tracers_roundtrip PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: tracers-roundtrip OK"
+    TIMEOUT 60
+)
+
+# Slice C Phase 2: DATA_KBUFF. The 'kbuff' scenario writes a 3-D and a 2-D
+# field one vertical level at a time via fs_write_kbuff; the Python
+# cross-language test asserts the assembled fields. The native run
+# confirms the buffer flush completes.
+add_test(
+    NAME preserf_fortran_kbuff
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" kbuff
+)
+set_tests_properties(preserf_fortran_kbuff PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: kbuff OK"
+    TIMEOUT 60
+)
+
+# Slice C Phase 3: OPTION. fs_Option(verbosity=2) sets the runtime knob and
+# records the _preserf_option_verbosity root attribute; the Python
+# cross-language test reads it back.
+add_test(
+    NAME preserf_fortran_option
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" option
+)
+set_tests_properties(preserf_fortran_option PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: option OK"
+    TIMEOUT 60
+)
+
+# Slice C: "last write wins" — a second tracer write omitting timelevel must
+# clear a timelevel set by an earlier write at the same savepoint. The
+# Python cross-language test asserts the attribute is absent; the native run
+# confirms the writer completes.
+add_test(
+    NAME preserf_fortran_tracer_tl_overwrite
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracer-tl-overwrite
+)
+set_tests_properties(preserf_fortran_tracer_tl_overwrite PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: tracer-tl-overwrite OK"
+    TIMEOUT 60
+)
+
+# Slice C negative scenarios: each must abort with its specific message.
+add_test(
+    NAME preserf_fortran_tracers_multi_session
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracers-multi-session
+)
+set_tests_properties(preserf_fortran_tracers_multi_session PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: tracers-multi-session OK"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME preserf_fortran_tracers_bad_dup
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracers-bad-dup
+)
+set_tests_properties(preserf_fortran_tracers_bad_dup PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "is already registered"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME preserf_fortran_tracers_bad_namelen
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracers-bad-namelen
+)
+set_tests_properties(preserf_fortran_tracers_bad_namelen PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "exceeds 64 characters"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME preserf_fortran_tracers_bad_name
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracers-bad-name
+)
+set_tests_properties(preserf_fortran_tracers_bad_name PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "is not registered"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME preserf_fortran_tracers_bad_idx
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracers-bad-idx
+)
+set_tests_properties(preserf_fortran_tracers_bad_idx PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "is out of range"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME preserf_fortran_tracers_bad_reorder
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracers-bad-reorder
+)
+set_tests_properties(preserf_fortran_tracers_bad_reorder PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "tracer_index mismatch"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME preserf_fortran_tracers_bad_range
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracers-bad-range
+)
+set_tests_properties(preserf_fortran_tracers_bad_range PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "descending index range"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME preserf_fortran_kbuff_bad_namelen
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" kbuff-bad-namelen
+)
+set_tests_properties(preserf_fortran_kbuff_bad_namelen PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "exceeds 64 characters"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME preserf_fortran_kbuff_bad_order
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" kbuff-bad-order
+)
+set_tests_properties(preserf_fortran_kbuff_bad_order PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "expected level 2 but got 3"
+    TIMEOUT 60
+)
+
+add_test(
+    NAME preserf_fortran_kbuff_bad_shape
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" kbuff-bad-shape
+)
+set_tests_properties(preserf_fortran_kbuff_bad_shape PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "inconsistent slice shape"
+    TIMEOUT 60
+)

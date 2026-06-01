@@ -177,6 +177,7 @@ def _write_metainfo_attrs(
 
 
 _RESERVED_FIELD_REGISTRY = frozenset({"type_id", "dims"})
+_RESERVED_TRACER_REGISTRY = frozenset({"type_id", "dims", "stype", "tracer_index"})
 _RESERVED_SAVEPOINT = frozenset({"name"})
 
 
@@ -224,11 +225,33 @@ def write_dump(dump: SerialboxDump, directory: Path, *, backend: str) -> str:
         root.setncattr("_preserf_singlefile", np.int8(1 if dump.singlefile else 0))
         root.setncattr("_preserf_archive", str(dump.archive))
         root.setncattr("_preserf_unique_id", np.int32(int(dump.unique_id)))
+        # `!$SER OPTION verbosity=` value (Slice C / ADR 0003 §4b); written
+        # only when set, kept symmetric with read_dump.
+        if dump.option_verbosity is not None:
+            root.setncattr(
+                "_preserf_option_verbosity", np.int32(int(dump.option_verbosity))
+            )
         _write_metainfo_attrs(root, dump.global_meta_info)
 
         fields_grp = root.createGroup("_fields")
         for fname, info in dump.field_map.items():
             _write_field_registry(fields_grp, fname, info)
+
+        # Tracer descriptors mirror /_fields (Slice C / ADR 0003 §4a). The
+        # `/_tracers` group is created lazily — only when a tracer is
+        # registered — matching the Fortran helper (fs_RegisterAllTracers),
+        # so a field-only store carries no empty tracer group; read_dump
+        # tolerates its absence. A name cannot be both a field and a tracer
+        # (read_dump rejects the overlap), so fail fast here.
+        overlap = set(dump.field_map) & set(dump.tracer_map)
+        if overlap:
+            raise ValueError(
+                f"name(s) registered as both field and tracer: {sorted(overlap)}"
+            )
+        if dump.tracer_map:
+            tracers_grp = root.createGroup("_tracers")
+            for pos, (tname, info) in enumerate(dump.tracer_map.items(), start=1):
+                _write_tracer_registry(tracers_grp, tname, info, dump, pos)
 
         savepoints_grp = root.createGroup("savepoints")
         for idx, sp in enumerate(dump.savepoints):
@@ -244,6 +267,26 @@ def _write_field_registry(parent: nc.Group, fname: str, info: FieldMetainfo) -> 
     var.setncattr("type_id", np.int32(int(info.type_id)))
     var.setncattr("dims", np.asarray(info.dims, dtype=np.int32))
     _write_metainfo_attrs(var, info.meta_info, reserved=_RESERVED_FIELD_REGISTRY)
+
+
+def _write_tracer_registry(
+    parent: nc.Group,
+    tname: str,
+    info: FieldMetainfo,
+    dump: SerialboxDump,
+    pos: int,
+) -> None:
+    """Write a /_tracers descriptor: like a field carrier plus the
+    tracer-specific `stype` and `tracer_index` attributes (storage_mapping
+    §4a). `pos` is the 1-based fallback index when the dump did not record
+    one explicitly."""
+    var = parent.createVariable(tname, "i4", ())
+    var[...] = np.int32(0)
+    var.setncattr("type_id", np.int32(int(info.type_id)))
+    var.setncattr("dims", np.asarray(info.dims, dtype=np.int32))
+    var.setncattr("stype", str(dump.tracer_stype.get(tname, "")))
+    var.setncattr("tracer_index", np.int32(int(dump.tracer_index.get(tname, pos))))
+    _write_metainfo_attrs(var, info.meta_info, reserved=_RESERVED_TRACER_REGISTRY)
 
 
 _SAVEPOINT_INDEX_LIMIT = 1_000_000  # see storage_mapping.md §5
@@ -281,6 +324,23 @@ def _write_savepoint(
             _write_field_variable(grp, fname, info, arr)
             field_id_pairs.extend([fname, str(fid)])
         grp.setncattr("_preserf_field_ids", field_id_pairs)
+
+    # Tracer snapshots for this savepoint (Slice C / ADR 0003 §4a): each
+    # lands as an ordinary savepoint variable named by the tracer, with the
+    # optional integer timelevel as an attribute. Tracers are NOT listed in
+    # `_preserf_field_ids` (that table is field-only).
+    for tname, by_sp in dump.tracer_data.items():
+        if idx not in by_sp:
+            continue
+        if tname not in dump.tracer_map:
+            raise ValueError(
+                f"savepoint #{idx} ('{sp.name}') has tracer data for '{tname}' "
+                "but no matching entry in dump.tracer_map"
+            )
+        _write_field_variable(grp, tname, dump.tracer_map[tname], by_sp[idx])
+        tl = dump.tracer_timelevel.get(tname, {}).get(idx)
+        if tl is not None:
+            grp.variables[tname].setncattr("timelevel", np.int32(int(tl)))
 
 
 def _write_field_variable(
@@ -342,6 +402,10 @@ def read_dump(url: str) -> SerialboxDump:
             dump.archive = str(root.getncattr("_preserf_archive"))
         if "_preserf_unique_id" in root_attrs:
             dump.unique_id = int(root.getncattr("_preserf_unique_id"))
+        # `!$SER OPTION verbosity=` value (Slice C / ADR 0003 §4b),
+        # present only when the option was set.
+        if "_preserf_option_verbosity" in root_attrs:
+            dump.option_verbosity = int(root.getncattr("_preserf_option_verbosity"))
 
         if "_fields" not in root.groups:
             raise ValueError(
@@ -365,6 +429,40 @@ def read_dump(url: str) -> SerialboxDump:
                 meta_info=_read_metainfo_attrs(var, reserved=_RESERVED_FIELD_REGISTRY),
             )
             dump.field_map[fname] = info
+
+        # Tracer descriptors (Slice C / ADR 0003, storage_mapping.md §4a).
+        # `/_tracers` is optional: preserf writers create it lazily, only
+        # when a tracer is registered, so a field-only store (and any store
+        # written before ADR 0003) simply omits it. Its absence is tolerated.
+        if "_tracers" in root.groups:
+            tracers_grp = root.groups["_tracers"]
+            for tname, var in tracers_grp.variables.items():
+                # A name cannot be both a registered field and a tracer: the
+                # savepoint read path routes a variable by which registry it
+                # is in, so an overlap would be ambiguous.
+                if tname in dump.field_map:
+                    raise ValueError(
+                        f"{url}: '{tname}' is registered as both a field "
+                        "(/_fields) and a tracer (/_tracers)"
+                    )
+                missing_attrs = _RESERVED_TRACER_REGISTRY - set(var.ncattrs())
+                if missing_attrs:
+                    raise ValueError(
+                        f"{url}: tracer registry '/_tracers/{tname}' is missing "
+                        f"required attribute(s) {sorted(missing_attrs)}"
+                    )
+                tid = TypeID(int(var.getncattr("type_id")))
+                dims_attr = var.getncattr("dims")
+                dims = [int(d) for d in np.atleast_1d(dims_attr).tolist()]
+                dump.tracer_map[tname] = FieldMetainfo(
+                    type_id=tid,
+                    dims=dims,
+                    meta_info=_read_metainfo_attrs(
+                        var, reserved=_RESERVED_TRACER_REGISTRY
+                    ),
+                )
+                dump.tracer_stype[tname] = str(var.getncattr("stype"))
+                dump.tracer_index[tname] = int(var.getncattr("tracer_index"))
 
         # Build savepoints in index order; group names are sorted lexically.
         if "savepoints" not in root.groups:
@@ -400,7 +498,9 @@ def read_dump(url: str) -> SerialboxDump:
                             f"duplicate entry for field '{fname_key}'"
                         )
                     id_map[fname_key] = int(flat[i + 1])
-                expected_fields = set(grp.variables.keys())
+                # Tracer variables are excluded from `_preserf_field_ids`
+                # (that table is field-only, ADR 0003 / storage_mapping §7).
+                expected_fields = {v for v in grp.variables if v not in dump.tracer_map}
                 mapped_fields = set(id_map.keys())
                 if mapped_fields != expected_fields:
                     missing = expected_fields - mapped_fields
@@ -411,20 +511,38 @@ def read_dump(url: str) -> SerialboxDump:
                         f"(missing={sorted(missing)}, extra={sorted(extra)})"
                     )
 
+            # One snapshot per (savepoint, tracer) is keyed by savepoint
+            # position; savepoints are appended in order, so the index of the
+            # one we're building now is the current length.
+            sp_index = len(dump.savepoints)
             for fname, var in grp.variables.items():
-                if fname not in dump.field_map:
+                if fname in dump.field_map:
+                    info = dump.field_map[fname]
+                    arr = np.asarray(var[...]).astype(info.element_dtype(), copy=False)
+                    if info.dims:
+                        arr = arr.reshape([int(d) for d in info.dims])
+                    fid = id_map.get(fname, len(dump.field_data.get(fname, {})))
+                    sp.fields[fname] = fid
+                    dump.field_data.setdefault(fname, {})[fid] = arr
+                elif fname in dump.tracer_map:
+                    info = dump.tracer_map[fname]
+                    arr = np.asarray(var[...]).astype(info.element_dtype(), copy=False)
+                    if info.dims:
+                        arr = arr.reshape([int(d) for d in info.dims])
+                    dump.tracer_data.setdefault(fname, {})[sp_index] = arr
+                    tl = (
+                        int(var.getncattr("timelevel"))
+                        if "timelevel" in var.ncattrs()
+                        else None
+                    )
+                    dump.tracer_timelevel.setdefault(fname, {})[sp_index] = tl
+                else:
                     raise ValueError(
                         f"{url}: savepoint '{name}' contains variable "
                         f"'{fname}' but no matching entry exists under "
-                        "'/_fields' (store is internally inconsistent)"
+                        "'/_fields' or '/_tracers' (store is internally "
+                        "inconsistent)"
                     )
-                info = dump.field_map[fname]
-                arr = np.asarray(var[...]).astype(info.element_dtype(), copy=False)
-                if info.dims:
-                    arr = arr.reshape([int(d) for d in info.dims])
-                fid = id_map.get(fname, len(dump.field_data.get(fname, {})))
-                sp.fields[fname] = fid
-                dump.field_data.setdefault(fname, {})[fid] = arr
             dump.savepoints.append(sp)
     finally:
         root.close()

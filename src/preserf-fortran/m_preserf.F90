@@ -19,12 +19,19 @@ module m_preserf
    use, intrinsic :: iso_fortran_env, only: int8, int32, int64, real32, real64
    use netcdf
    use utils_preserf, only: t_serializer, t_savepoint, &
-                            ppser_serializer, &
+                            ppser_serializer, ppser_savepoint, &
                             ppser_get_mode, &
                             preserf_check_nf_with_msg, &
                             preserf_logical_to_byte, &
                             PRESERF_SAVEPOINT_INDEX_LIMIT, &
-                            serialisation_enabled
+                            serialisation_enabled, &
+                            t_tracer_entry, ppser_tracers, &
+                            ppser_tracer_count, PPSER_MAX_TRACERS, &
+                            PPSER_TRACER_TID_FLOAT64, &
+                            PPSER_TRACER_NAME_LEN, PPSER_TRACER_STYPE_LEN, &
+                            t_kbuff_entry, ppser_kbuffers, &
+                            ppser_kbuff_count, PPSER_MAX_KBUFF, &
+                            ppser_verbosity
    implicit none
    private
 
@@ -49,6 +56,42 @@ module m_preserf
    public :: fs_enable_serialization
    public :: fs_disable_serialization
    public :: fs_serialization_status
+
+   ! Tracers (Slice C / ADR 0003). `ppser_register_tracer` is the
+   ! host-side registration entry point (not pp_ser-generated); the
+   ! `fs_RegisterAllTracers` and `ppser_write_tracer_*` names are what
+   ! pp_ser emits for REGISTERTRACERS / TRACER.
+   !
+   ! IMPORTANT: the `data` array passed to `ppser_register_tracer` MUST
+   ! have the TARGET attribute and outlive the run. The registry stores a
+   ! pointer to it (not a copy) so a read-mode `!$SER TRACER` can read the
+   ! stored field back into the same array (F2008 12.5.2.4). Passing a
+   ! non-TARGET array — or letting it go out of scope / be reallocated —
+   ! leaves a dangling pointer.
+   interface ppser_register_tracer
+      module procedure ppser_register_tracer_1d
+      module procedure ppser_register_tracer_2d
+      module procedure ppser_register_tracer_3d
+      module procedure ppser_register_tracer_4d
+   end interface
+   public :: ppser_register_tracer
+   public :: fs_RegisterAllTracers
+   public :: ppser_write_tracer_by_name
+   public :: ppser_write_tracer_by_idx
+   public :: ppser_write_tracer_all
+
+   ! DATA_KBUFF (Slice C / ADR 0003 §5). pp_ser emits one fs_write_kbuff
+   ! call per vertical level; the overloads differ by the slice's rank.
+   interface fs_write_kbuff
+      module procedure fs_write_kbuff_r8_1d
+      module procedure fs_write_kbuff_r8_2d
+      module procedure fs_write_kbuff_r8_3d
+   end interface
+   public :: fs_write_kbuff
+
+   ! OPTION (Slice C / ADR 0003 §4). The helper exposes a single fixed
+   ! keyword, `verbosity`; the preprocessor rejects any other OPTION key.
+   public :: fs_Option
 
    interface fs_add_savepoint_metainfo
       module procedure fs_add_savepoint_metainfo_l
@@ -369,6 +412,754 @@ contains
       savepoint%owner_ncid = ser%ncid
       ser%next_sp_index = ser%next_sp_index + 1
    end subroutine resolve_savepoint_on
+
+   ! ========================================================================
+   ! TRACERS (REGISTERTRACERS + TRACER, ADR 0003 / storage_mapping.md §4a)
+   !
+   ! pp_ser's tracer directives carry only a name/index + stype + an
+   ! integer timelevel, never the data. Host code / tests bind the data
+   ! up front via `ppser_register_tracer` (the built-in registry in
+   ! utils_preserf), which keeps a pointer to the host's TARGET array;
+   ! `fs_RegisterAllTracers` writes one `/_tracers/<name>` descriptor per
+   ! entry, and the `ppser_write_tracer_*` entry points serialize the
+   ! pointed-to array at the current savepoint as a variable named by the
+   ! tracer (byte-identical to a !$SER DATA field), with the integer
+   ! timelevel as an optional attribute.
+   !
+   ! Write mode writes the array; read / read-perturb mode reads the stored
+   ! variable back into the same host array (so a !$SER TRACER round-trips).
+   ! v1.0 binds real(real64) arrays of rank 1-4; fs_RegisterAllTracers also
+   ! resolves-and-validates the descriptors in read mode.
+   ! ========================================================================
+
+   ! Host-side registration overloads (real64, ranks 1-4). Each binds the
+   ! caller's TARGET array into the matching rank-specific pointer.
+#define PRESERF_SUB ppser_register_tracer_1d
+#define PRESERF_DIMS , dimension(:)
+#define PRESERF_RANK 1
+#define PRESERF_PTR d1
+#include "preserf_register_tracer.inc"
+#undef PRESERF_PTR
+#undef PRESERF_RANK
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB ppser_register_tracer_2d
+#define PRESERF_DIMS , dimension(:, :)
+#define PRESERF_RANK 2
+#define PRESERF_PTR d2
+#include "preserf_register_tracer.inc"
+#undef PRESERF_PTR
+#undef PRESERF_RANK
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB ppser_register_tracer_3d
+#define PRESERF_DIMS , dimension(:, :, :)
+#define PRESERF_RANK 3
+#define PRESERF_PTR d3
+#include "preserf_register_tracer.inc"
+#undef PRESERF_PTR
+#undef PRESERF_RANK
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB ppser_register_tracer_4d
+#define PRESERF_DIMS , dimension(:, :, :, :)
+#define PRESERF_RANK 4
+#define PRESERF_PTR d4
+#include "preserf_register_tracer.inc"
+#undef PRESERF_PTR
+#undef PRESERF_RANK
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+
+   ! Per-rank tracer write/read at the current savepoint (real64, ranks 1-4).
+#define PRESERF_SUB tracer_io_1d
+#define PRESERF_PTR d1
+#include "preserf_tracer_io.inc"
+#undef PRESERF_PTR
+#undef PRESERF_SUB
+#define PRESERF_SUB tracer_io_2d
+#define PRESERF_PTR d2
+#include "preserf_tracer_io.inc"
+#undef PRESERF_PTR
+#undef PRESERF_SUB
+#define PRESERF_SUB tracer_io_3d
+#define PRESERF_PTR d3
+#include "preserf_tracer_io.inc"
+#undef PRESERF_PTR
+#undef PRESERF_SUB
+#define PRESERF_SUB tracer_io_4d
+#define PRESERF_PTR d4
+#include "preserf_tracer_io.inc"
+#undef PRESERF_PTR
+#undef PRESERF_SUB
+
+   !> Claim and initialise a registry slot for a newly registered tracer,
+   !> returning its 1-based index. Rejects an unsupported rank, a duplicate
+   !> name (which would collide when fs_RegisterAllTracers defines the
+   !> `/_tracers/<name>` carrier) and a full registry. The caller binds the
+   !> rank-specific data pointer after this returns.
+   function register_tracer_slot(name, rank, fshape, stype) result(n)
+      character(len=*), intent(in) :: name
+      integer, intent(in) :: rank
+      integer, intent(in) :: fshape(:)
+      character(len=*), intent(in), optional :: stype
+      integer :: n
+
+      if (rank < 1 .or. rank > 4) then
+         write (*, '(a)') &
+            'preserf: ppser_register_tracer supports rank 1..4 only'
+         error stop 1
+      end if
+      ! Reject names / stypes that would silently truncate into the
+      ! fixed-length registry components (which would then mismatch the
+      ! on-disk variable name / stype attribute).
+      if (len_trim(name) > PPSER_TRACER_NAME_LEN) then
+         write (*, '(a,a,a,i0,a)') &
+            'preserf: tracer name "', trim(name), '" exceeds ', &
+            PPSER_TRACER_NAME_LEN, ' characters'
+         error stop 1
+      end if
+      if (present(stype)) then
+         if (len_trim(stype) > PPSER_TRACER_STYPE_LEN) then
+            write (*, '(a,a,a,i0,a)') &
+               'preserf: tracer stype "', trim(stype), '" exceeds ', &
+               PPSER_TRACER_STYPE_LEN, ' characters'
+            error stop 1
+         end if
+      end if
+      if (find_tracer(name) /= 0) then
+         write (*, '(a,a,a)') &
+            'preserf: tracer "', trim(name), '" is already registered'
+         error stop 1
+      end if
+      if (ppser_tracer_count >= PPSER_MAX_TRACERS) then
+         write (*, '(a,i0)') &
+            'preserf: tracer registry full; cap is ', PPSER_MAX_TRACERS
+         error stop 1
+      end if
+
+      ppser_tracer_count = ppser_tracer_count + 1
+      n = ppser_tracer_count
+      ppser_tracers(n)%name = name
+      ppser_tracers(n)%stype = ''
+      if (present(stype)) ppser_tracers(n)%stype = stype
+      ppser_tracers(n)%type_id = PPSER_TRACER_TID_FLOAT64
+      ppser_tracers(n)%rank = rank
+      ppser_tracers(n)%fshape = 0
+      ppser_tracers(n)%fshape(1:rank) = fshape
+   end function register_tracer_slot
+
+   !> 1-based index of the registry entry named `name`, or 0 if absent.
+   function find_tracer(name) result(idx)
+      character(len=*), intent(in) :: name
+      integer :: idx, i
+      idx = 0
+      do i = 1, ppser_tracer_count
+         if (trim(ppser_tracers(i)%name) == trim(name)) then
+            idx = i
+            return
+         end if
+      end do
+   end function find_tracer
+
+   !> The tracer's C-order dims (slowest-varying first), reversed from the
+   !> stored Fortran shape — the same convention `/_fields` uses (§1.1).
+   function tracer_c_order_dims(entry) result(cd)
+      type(t_tracer_entry), intent(in) :: entry
+      integer(int32), allocatable :: cd(:)
+      integer :: i, r
+      r = entry%rank
+      allocate (cd(r))
+      do i = 1, r
+         cd(i) = int(entry%fshape(r - i + 1), int32)
+      end do
+   end function tracer_c_order_dims
+
+   !> Register all tracers currently in the built-in registry (the
+   !> REGISTERTRACERS directive). In write mode this writes a
+   !> `/_tracers/<name>` descriptor per entry; in read mode it resolves
+   !> and validates that each registered tracer's descriptor is present
+   !> in the store and agrees on type_id / dims / stype.
+   subroutine fs_RegisterAllTracers()
+      integer :: i, ncerr
+
+      if (serialisation_enabled == 0) return
+      if (ppser_serializer%ncid == -1) then
+         write (*, '(a)') &
+            'preserf: fs_RegisterAllTracers called before ppser_initialize'
+         error stop 1
+      end if
+
+      if (ppser_get_mode() /= 0) then
+         if (ppser_tracer_count > 0 .and. ppser_serializer%tracers_grpid == -1) then
+            write (*, '(a)') &
+               'preserf: read-mode store has no /_tracers group but tracers '// &
+               'are registered'
+            error stop 1
+         end if
+         do i = 1, ppser_tracer_count
+            call validate_registered_tracer(ppser_serializer, ppser_tracers(i), i)
+         end do
+         return
+      end if
+
+      ! No registered tracers → no `/_tracers` group (lazy creation, ADR
+      ! 0003 §1): a field-only store carries no empty tracer group.
+      if (ppser_tracer_count == 0) return
+
+      ! Create `/_tracers` on first use. It is NOT part of the init-time
+      ! skeleton (unlike `/_fields` / `/savepoints`); netCDF-4 allows
+      ! defining a group at any time, as fs_create_savepoint already does.
+      if (ppser_serializer%tracers_grpid == -1) then
+         ncerr = nf90_def_grp(ppser_serializer%ncid, '_tracers', &
+                              ppser_serializer%tracers_grpid)
+         call preserf_check_nf_with_msg(ncerr, 'def_grp /_tracers')
+      end if
+
+      do i = 1, ppser_tracer_count
+         call write_tracer_descriptor(ppser_serializer%tracers_grpid, &
+                                      ppser_tracers(i), i)
+      end do
+   end subroutine fs_RegisterAllTracers
+
+   !> Write one `/_tracers/<name>` descriptor: a scalar NF90_INT carrier
+   !> (value 0) holding type_id, C-order dims, stype, and the 1-based
+   !> tracer_index — mirroring fs_register_field's `/_fields` carrier.
+   subroutine write_tracer_descriptor(grpid, entry, tracer_index)
+      integer, intent(in) :: grpid
+      type(t_tracer_entry), intent(in) :: entry
+      integer, intent(in) :: tracer_index
+      integer :: ncerr, varid
+      integer(int32) :: zero, tid, idx_attr
+      integer(int32), allocatable :: cdims(:)
+
+      zero = 0_int32
+      tid = entry%type_id
+      cdims = tracer_c_order_dims(entry)
+
+      ncerr = nf90_def_var(grpid, trim(entry%name), NF90_INT, varid)
+      call preserf_check_nf_with_msg(ncerr, &
+                                     'def_var /_tracers/'//trim(entry%name))
+      ncerr = nf90_put_att(grpid, varid, 'type_id', tid)
+      call preserf_check_nf_with_msg(ncerr, 'put_att tracer type_id')
+      ncerr = nf90_put_att(grpid, varid, 'dims', cdims)
+      call preserf_check_nf_with_msg(ncerr, 'put_att tracer dims')
+      ncerr = nf90_put_att(grpid, varid, 'stype', trim(entry%stype))
+      call preserf_check_nf_with_msg(ncerr, 'put_att tracer stype')
+      idx_attr = int(tracer_index, int32)
+      ncerr = nf90_put_att(grpid, varid, 'tracer_index', idx_attr)
+      call preserf_check_nf_with_msg(ncerr, 'put_att tracer_index')
+      ncerr = nf90_put_var(grpid, varid, zero)
+      call preserf_check_nf_with_msg(ncerr, &
+                                     'put_var (tracer descriptor placeholder)')
+   end subroutine write_tracer_descriptor
+
+   !> Read-mode counterpart to write_tracer_descriptor: confirm the
+   !> registered tracer's `/_tracers/<name>` carrier exists and agrees on
+   !> type_id, dims (C-order), stype, and its 1-based `tracer_index`.
+   !> Mirrors validate_registered_field. `expected_index` is the tracer's
+   !> position in the current run's registration order; checking it against
+   !> the stored value catches a read run that registers tracers in a
+   !> different order, which would otherwise make `ppser_write_tracer_by_idx`
+   !> resolve a different tracer than was written at that index.
+   subroutine validate_registered_tracer(s, entry, expected_index)
+      type(t_serializer), intent(in) :: s
+      type(t_tracer_entry), intent(in) :: entry
+      integer, intent(in) :: expected_index
+      integer :: ncerr, varid, attr_len, axis
+      integer(int32) :: stored_tid, stored_idx
+      integer(int32), allocatable :: stored_dims(:), cdims(:)
+      character(len=:), allocatable :: stored_stype
+
+      ncerr = nf90_inq_varid(s%tracers_grpid, trim(entry%name), varid)
+      if (ncerr == NF90_ENOTVAR) then
+         write (*, '(a,a,a)') &
+            'preserf: read-mode tracer "', trim(entry%name), &
+            '" is not present in the store /_tracers registry'
+         error stop 1
+      end if
+      call preserf_check_nf_with_msg(ncerr, &
+                                     'inq_varid /_tracers/'//trim(entry%name))
+
+      ncerr = nf90_get_att(s%tracers_grpid, varid, 'type_id', stored_tid)
+      call preserf_check_nf_with_msg(ncerr, 'get_att tracer type_id')
+      if (stored_tid /= entry%type_id) then
+         write (*, '(a,a,a,i0,a,i0)') &
+            'preserf: read-mode tracer "', trim(entry%name), &
+            '" type_id mismatch: store has ', stored_tid, &
+            ', run expects ', entry%type_id
+         error stop 1
+      end if
+
+      cdims = tracer_c_order_dims(entry)
+      ncerr = nf90_inquire_attribute(s%tracers_grpid, varid, 'dims', len=attr_len)
+      call preserf_check_nf_with_msg(ncerr, 'inquire_attribute tracer dims')
+      allocate (stored_dims(attr_len))
+      ncerr = nf90_get_att(s%tracers_grpid, varid, 'dims', stored_dims)
+      call preserf_check_nf_with_msg(ncerr, 'get_att tracer dims')
+      if (attr_len /= size(cdims)) then
+         write (*, '(a,a,a,i0,a,i0)') &
+            'preserf: read-mode tracer "', trim(entry%name), &
+            '" rank mismatch: store ', attr_len, ', run ', size(cdims)
+         error stop 1
+      end if
+      do axis = 1, attr_len
+         if (stored_dims(axis) /= cdims(axis)) then
+            write (*, '(a,a,a)') &
+               'preserf: read-mode tracer "', trim(entry%name), &
+               '" dims mismatch with registered shape'
+            error stop 1
+         end if
+      end do
+
+      ncerr = nf90_inquire_attribute(s%tracers_grpid, varid, 'stype', len=attr_len)
+      call preserf_check_nf_with_msg(ncerr, 'inquire_attribute tracer stype')
+      allocate (character(len=attr_len) :: stored_stype)
+      ncerr = nf90_get_att(s%tracers_grpid, varid, 'stype', stored_stype)
+      call preserf_check_nf_with_msg(ncerr, 'get_att tracer stype')
+      if (trim(stored_stype) /= trim(entry%stype)) then
+         write (*, '(a,a,a,a,a,a)') &
+            'preserf: read-mode tracer "', trim(entry%name), &
+            '" stype mismatch: store "', trim(stored_stype), &
+            '", run "', trim(entry%stype)
+         error stop 1
+      end if
+
+      ncerr = nf90_get_att(s%tracers_grpid, varid, 'tracer_index', stored_idx)
+      call preserf_check_nf_with_msg(ncerr, 'get_att tracer_index')
+      if (int(stored_idx) /= expected_index) then
+         write (*, '(a,a,a,i0,a,i0)') &
+            'preserf: read-mode tracer "', trim(entry%name), &
+            '" tracer_index mismatch: store has ', int(stored_idx), &
+            ', run registered it at position ', expected_index
+         error stop 1
+      end if
+   end subroutine validate_registered_tracer
+
+   !> Write (mode 0) or read (mode 1/2) the registry entry `idx` at the
+   !> current savepoint, dispatching on its stored rank to the matching
+   !> tracer_io_* overload, which moves data through the entry's
+   !> rank-specific pointer (so a read lands back in the host's array).
+   subroutine tracer_io_at_current_sp(idx, timelevel)
+      integer, intent(in) :: idx
+      integer, intent(in), optional :: timelevel
+      integer :: tl, grpid, mode
+      logical :: has_tl
+
+      call require_open(ppser_serializer, 'ppser_write_tracer')
+      call require_savepoint(ppser_savepoint, 'ppser_write_tracer')
+      call require_savepoint_owner(ppser_serializer, ppser_savepoint, &
+                                   'ppser_write_tracer')
+
+      has_tl = present(timelevel)
+      tl = 0
+      if (has_tl) tl = timelevel
+      grpid = ppser_savepoint%grpid
+      mode = ppser_get_mode()
+
+      select case (ppser_tracers(idx)%rank)
+      case (1)
+         call tracer_io_1d(grpid, ppser_tracers(idx), mode, tl, has_tl)
+      case (2)
+         call tracer_io_2d(grpid, ppser_tracers(idx), mode, tl, has_tl)
+      case (3)
+         call tracer_io_3d(grpid, ppser_tracers(idx), mode, tl, has_tl)
+      case (4)
+         call tracer_io_4d(grpid, ppser_tracers(idx), mode, tl, has_tl)
+      case default
+         write (*, '(a,i0)') &
+            'preserf: tracer has unsupported rank ', ppser_tracers(idx)%rank
+         error stop 1
+      end select
+   end subroutine tracer_io_at_current_sp
+
+   !> `!$SER TRACER <name>` — serialize the named tracer at the current
+   !> savepoint: write in write mode, read it back into the registered host
+   !> array in read mode. `stype` is accepted to match pp_ser's call shape
+   !> but is not needed here (it is fixed at registration time and recorded
+   !> on the `/_tracers` descriptor).
+   subroutine ppser_write_tracer_by_name(name, stype, timelevel)
+      character(len=*), intent(in) :: name
+      character(len=*), intent(in), optional :: stype
+      integer, intent(in), optional :: timelevel
+      integer :: idx
+
+      if (serialisation_enabled == 0) return
+      if (present(stype)) continue  ! accepted for call-shape compatibility
+      idx = find_tracer(name)
+      if (idx == 0) then
+         write (*, '(a,a,a)') &
+            'preserf: ppser_write_tracer_by_name: tracer "', trim(name), &
+            '" is not registered'
+         error stop 1
+      end if
+      call tracer_io_at_current_sp(idx, timelevel)
+   end subroutine ppser_write_tracer_by_name
+
+   !> `!$SER TRACER $idx` / `$idx-idx2` — serialize the tracer(s) at the
+   !> given 1-based registry index (or inclusive index range) at the current
+   !> savepoint (write or read per the runtime mode).
+   subroutine ppser_write_tracer_by_idx(idx, idx2, stype, timelevel)
+      integer, intent(in) :: idx
+      integer, intent(in), optional :: idx2
+      character(len=*), intent(in), optional :: stype
+      integer, intent(in), optional :: timelevel
+      integer :: lo, hi, i
+
+      if (serialisation_enabled == 0) return
+      if (present(stype)) continue  ! accepted for call-shape compatibility
+      lo = idx
+      hi = idx
+      if (present(idx2)) hi = idx2
+      ! The preprocessor passes `$idx-idx2` ranges verbatim without
+      ! normalising order, so a descending range (idx2 < idx) would
+      ! silently skip the do-loop and write/read nothing. Fail loudly.
+      if (hi < lo) then
+         write (*, '(a,i0,a,i0,a)') &
+            'preserf: ppser_write_tracer_by_idx: descending index range (', &
+            lo, '..', hi, '); the upper bound must be >= the lower bound'
+         error stop 1
+      end if
+      do i = lo, hi
+         if (i < 1 .or. i > ppser_tracer_count) then
+            write (*, '(a,i0,a,i0,a)') &
+               'preserf: ppser_write_tracer_by_idx: index ', i, &
+               ' is out of range (1..', ppser_tracer_count, ')'
+            error stop 1
+         end if
+         call tracer_io_at_current_sp(i, timelevel)
+      end do
+   end subroutine ppser_write_tracer_by_idx
+
+   !> `!$SER TRACER %all` — serialize every registered tracer at the current
+   !> savepoint, optionally filtered to a single stype (empty = no filter);
+   !> write or read per the runtime mode.
+   subroutine ppser_write_tracer_all(stype, timelevel)
+      character(len=*), intent(in), optional :: stype
+      integer, intent(in), optional :: timelevel
+      integer :: i
+      logical :: filter
+
+      if (serialisation_enabled == 0) return
+      filter = .false.
+      if (present(stype)) then
+         if (len_trim(stype) > 0) filter = .true.
+      end if
+      do i = 1, ppser_tracer_count
+         if (filter) then
+            if (trim(ppser_tracers(i)%stype) /= trim(stype)) cycle
+         end if
+         call tracer_io_at_current_sp(i, timelevel)
+      end do
+   end subroutine ppser_write_tracer_all
+
+   ! ========================================================================
+   ! DATA_KBUFF (ADR 0003 §5, storage_mapping.md §6)
+   !
+   ! Write mode buffers the per-level slices of a field and flushes the
+   ! assembled (slice_shape..., k_size) field on the last level via the
+   ! field write path, so the on-disk variable is identical to a !$SER DATA
+   ! write. Read mode loads the stored field once and copies each level
+   ! back into the caller's slice. One active buffer per (savepoint, field);
+   ! see utils_preserf for the table state.
+   ! ========================================================================
+
+   ! Per-slice-rank fs_write_kbuff overloads (real64 slices of rank 1-3).
+#define PRESERF_SUB fs_write_kbuff_r8_1d
+#define PRESERF_DIMS , dimension(:)
+#include "preserf_write_kbuff.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_kbuff_r8_2d
+#define PRESERF_DIMS , dimension(:, :)
+#include "preserf_write_kbuff.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_kbuff_r8_3d
+#define PRESERF_DIMS , dimension(:, :, :)
+#include "preserf_write_kbuff.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+
+   !> Abort if (k, k_size) is out of range for a fs_write_kbuff call.
+   subroutine kbuff_check_k(k, k_size)
+      integer, intent(in) :: k, k_size
+      if (k_size < 1) then
+         write (*, '(a,i0)') &
+            'preserf: fs_write_kbuff k_size must be >= 1; got ', k_size
+         error stop 1
+      end if
+      if (k < 1 .or. k > k_size) then
+         write (*, '(a,i0,a,i0)') &
+            'preserf: fs_write_kbuff k=', k, ' is out of range 1..', k_size
+         error stop 1
+      end if
+   end subroutine kbuff_check_k
+
+   !> Buffer the level-`k` slice of `fieldname` (write mode) and, on the
+   !> last level, assemble and write the full field. `flat_slice` is the
+   !> slice flattened column-major; placing level k at offset
+   !> (k-1)*slice_size reproduces the full field's column-major layout.
+   subroutine kbuff_accumulate(s, sp, fieldname, flat_slice, slice_shape, &
+                               k, k_size)
+      type(t_serializer), intent(inout) :: s
+      type(t_savepoint), intent(in) :: sp
+      character(len=*), intent(in) :: fieldname
+      real(real64), intent(in) :: flat_slice(:)
+      integer, intent(in) :: slice_shape(:)
+      integer, intent(in) :: k, k_size
+      integer :: idx, slice_size, off
+      logical :: is_new
+
+      call kbuff_check_k(k, k_size)
+      slice_size = size(flat_slice)
+      call kbuff_claim(sp%grpid, fieldname, slice_shape, slice_size, k_size, &
+                       idx, is_new)
+      if (is_new) ppser_kbuffers(idx)%buffer = 0.0_real64
+
+      ! Levels must be written exactly once each, in ascending order
+      ! (k = 1, 2, ..., k_size) — the contract pp_ser emits via `do k=1,ke`.
+      ! `filled` counts the levels written so far, so the next call must
+      ! supply level filled+1. Rejecting anything else catches a repeated or
+      ! skipped level (which a count-only check at k_size would miss, e.g.
+      ! 1,1,3 makes three calls yet never writes level 2) before the buffer
+      ! flushes stale/zeroed slices.
+      if (k /= ppser_kbuffers(idx)%filled + 1) then
+         write (*, '(a,a,a,i0,a,i0,a)') &
+            'preserf: fs_write_kbuff for "', trim(fieldname), &
+            '" expected level ', ppser_kbuffers(idx)%filled + 1, &
+            ' but got ', k, ' (levels must be written once each, in order)'
+         error stop 1
+      end if
+
+      off = (k - 1)*slice_size
+      ppser_kbuffers(idx)%buffer(off + 1:off + slice_size) = flat_slice
+      ppser_kbuffers(idx)%filled = ppser_kbuffers(idx)%filled + 1
+
+      if (k == k_size) call kbuff_flush(s, sp, idx)
+   end subroutine kbuff_accumulate
+
+   !> Read-mode counterpart: ensure the full stored field is loaded into the
+   !> buffer (once, on the first level seen) and return the slot index so the
+   !> caller can copy out level `k`.
+   function kbuff_load(grpid, fieldname, slice_shape, slice_size, k, k_size) &
+      result(idx)
+      integer, intent(in) :: grpid
+      character(len=*), intent(in) :: fieldname
+      integer, intent(in) :: slice_shape(:)
+      integer, intent(in) :: slice_size, k, k_size
+      integer :: idx
+      logical :: is_new
+
+      call kbuff_check_k(k, k_size)
+      call kbuff_claim(grpid, fieldname, slice_shape, slice_size, k_size, &
+                       idx, is_new)
+      if (is_new) call kbuff_load_full(grpid, fieldname, ppser_kbuffers(idx))
+   end function kbuff_load
+
+   !> Locate the active k-buffer for (grpid, fieldname), validating that a
+   !> resumed buffer agrees on slice shape and k_size; otherwise claim a free
+   !> slot (reusing one freed by a prior flush) and allocate its buffer.
+   !> `is_new` is true when a fresh slot was claimed (buffer contents are
+   !> then undefined — the caller initialises them).
+   subroutine kbuff_claim(grpid, fieldname, slice_shape, slice_size, k_size, &
+                          idx, is_new)
+      integer, intent(in) :: grpid
+      character(len=*), intent(in) :: fieldname
+      integer, intent(in) :: slice_shape(:)
+      integer, intent(in) :: slice_size, k_size
+      integer, intent(out) :: idx
+      logical, intent(out) :: is_new
+      integer :: i, sr, free_slot
+
+      sr = size(slice_shape)
+      ! Reject a field name that would silently truncate into the fixed-length
+      ! buffer-table component (which would then mismatch the on-disk variable
+      ! name and make the per-(savepoint,field) lookup inconsistent).
+      if (len_trim(fieldname) > PPSER_TRACER_NAME_LEN) then
+         write (*, '(a,a,a,i0,a)') &
+            'preserf: fs_write_kbuff field name "', trim(fieldname), &
+            '" exceeds ', PPSER_TRACER_NAME_LEN, ' characters'
+         error stop 1
+      end if
+      free_slot = 0
+      do i = 1, ppser_kbuff_count
+         if (ppser_kbuffers(i)%grpid == grpid .and. &
+             trim(ppser_kbuffers(i)%name) == trim(fieldname)) then
+            ! The rank check gates the fshape comparison: when full_rank
+            ! matches, the stored slice dims are fshape(1:sr) and can be
+            ! compared element-wise against this call's slice_shape (two
+            ! shapes with the same total size but different dims — e.g.
+            ! [10,20] vs [8,25] — must be rejected, not silently merged).
+            if (ppser_kbuffers(i)%k_size /= k_size .or. &
+                ppser_kbuffers(i)%full_rank /= sr + 1) then
+               write (*, '(a,a,a)') &
+                  'preserf: fs_write_kbuff for "', trim(fieldname), &
+                  '" has an inconsistent slice shape / k_size across levels'
+               error stop 1
+            end if
+            if (any(ppser_kbuffers(i)%fshape(1:sr) /= slice_shape)) then
+               write (*, '(a,a,a)') &
+                  'preserf: fs_write_kbuff for "', trim(fieldname), &
+                  '" has an inconsistent slice shape / k_size across levels'
+               error stop 1
+            end if
+            idx = i
+            is_new = .false.
+            return
+         end if
+         if (free_slot == 0 .and. ppser_kbuffers(i)%grpid == -1) free_slot = i
+      end do
+
+      if (free_slot /= 0) then
+         idx = free_slot
+      else
+         if (ppser_kbuff_count >= PPSER_MAX_KBUFF) then
+            write (*, '(a,i0)') &
+               'preserf: too many concurrent k-buffers; cap is ', PPSER_MAX_KBUFF
+            error stop 1
+         end if
+         ppser_kbuff_count = ppser_kbuff_count + 1
+         idx = ppser_kbuff_count
+      end if
+
+      if (sr < 1 .or. sr > 3) then
+         write (*, '(a)') &
+            'preserf: fs_write_kbuff supports slice rank 1..3 only'
+         error stop 1
+      end if
+      ppser_kbuffers(idx)%grpid = grpid
+      ppser_kbuffers(idx)%name = fieldname
+      ppser_kbuffers(idx)%full_rank = sr + 1
+      ppser_kbuffers(idx)%fshape = 0
+      ppser_kbuffers(idx)%fshape(1:sr) = slice_shape
+      ppser_kbuffers(idx)%fshape(sr + 1) = k_size
+      ppser_kbuffers(idx)%slice_size = slice_size
+      ppser_kbuffers(idx)%k_size = k_size
+      ppser_kbuffers(idx)%filled = 0
+      if (allocated(ppser_kbuffers(idx)%buffer)) &
+         deallocate (ppser_kbuffers(idx)%buffer)
+      allocate (ppser_kbuffers(idx)%buffer(slice_size*k_size))
+      is_new = .true.
+   end subroutine kbuff_claim
+
+   !> Read the full stored field for `entry` into its (column-major) buffer,
+   !> dispatching on the full field rank. Aborts if the variable is absent.
+   subroutine kbuff_load_full(grpid, fieldname, entry)
+      integer, intent(in) :: grpid
+      character(len=*), intent(in) :: fieldname
+      type(t_kbuff_entry), intent(inout) :: entry
+      integer :: ncerr, varid
+      real(real64), allocatable :: t2(:, :), t3(:, :, :), t4(:, :, :, :)
+
+      ncerr = nf90_inq_varid(grpid, trim(fieldname), varid)
+      if (ncerr == NF90_ENOTVAR) then
+         write (*, '(a,a,a)') &
+            'preserf: read-mode k-buffer field "', trim(fieldname), &
+            '" is not present at this savepoint'
+         error stop 1
+      end if
+      call preserf_check_nf_with_msg(ncerr, 'inq_varid kbuff '//trim(fieldname))
+
+      select case (entry%full_rank)
+      case (2)
+         allocate (t2(entry%fshape(1), entry%fshape(2)))
+         ncerr = nf90_get_var(grpid, varid, t2)
+         call preserf_check_nf_with_msg(ncerr, 'get_var kbuff '//trim(fieldname))
+         entry%buffer = reshape(t2, [size(t2)])
+      case (3)
+         allocate (t3(entry%fshape(1), entry%fshape(2), entry%fshape(3)))
+         ncerr = nf90_get_var(grpid, varid, t3)
+         call preserf_check_nf_with_msg(ncerr, 'get_var kbuff '//trim(fieldname))
+         entry%buffer = reshape(t3, [size(t3)])
+      case (4)
+         allocate (t4(entry%fshape(1), entry%fshape(2), entry%fshape(3), &
+                      entry%fshape(4)))
+         ncerr = nf90_get_var(grpid, varid, t4)
+         call preserf_check_nf_with_msg(ncerr, 'get_var kbuff '//trim(fieldname))
+         entry%buffer = reshape(t4, [size(t4)])
+      case default
+         write (*, '(a,i0)') &
+            'preserf: k-buffer has unsupported full rank ', entry%full_rank
+         error stop 1
+      end select
+   end subroutine kbuff_load_full
+
+   !> Release a k-buffer slot (free its buffer and mark it inactive).
+   subroutine kbuff_free(idx)
+      integer, intent(in) :: idx
+      if (allocated(ppser_kbuffers(idx)%buffer)) &
+         deallocate (ppser_kbuffers(idx)%buffer)
+      ppser_kbuffers(idx)%grpid = -1
+      ppser_kbuffers(idx)%name = ''
+      ppser_kbuffers(idx)%full_rank = 0
+      ppser_kbuffers(idx)%fshape = 0
+      ppser_kbuffers(idx)%slice_size = 0
+      ppser_kbuffers(idx)%k_size = 0
+      ppser_kbuffers(idx)%filled = 0
+   end subroutine kbuff_free
+
+   !> Reshape the completed buffer to the full field shape and write it via
+   !> fs_write_field (which validates the /_fields registration), then free
+   !> the slot. The reshape dispatches on the full field rank.
+   subroutine kbuff_flush(s, sp, idx)
+      type(t_serializer), intent(inout) :: s
+      type(t_savepoint), intent(in) :: sp
+      integer, intent(in) :: idx
+
+      select case (ppser_kbuffers(idx)%full_rank)
+      case (2)
+         call fs_write_field(s, sp, trim(ppser_kbuffers(idx)%name), &
+                             reshape(ppser_kbuffers(idx)%buffer, &
+                                     ppser_kbuffers(idx)%fshape(1:2)))
+      case (3)
+         call fs_write_field(s, sp, trim(ppser_kbuffers(idx)%name), &
+                             reshape(ppser_kbuffers(idx)%buffer, &
+                                     ppser_kbuffers(idx)%fshape(1:3)))
+      case (4)
+         call fs_write_field(s, sp, trim(ppser_kbuffers(idx)%name), &
+                             reshape(ppser_kbuffers(idx)%buffer, &
+                                     ppser_kbuffers(idx)%fshape(1:4)))
+      case default
+         write (*, '(a,i0)') &
+            'preserf: k-buffer has unsupported full rank ', &
+            ppser_kbuffers(idx)%full_rank
+         error stop 1
+      end select
+
+      call kbuff_free(idx)
+   end subroutine kbuff_flush
+
+   ! ========================================================================
+   ! OPTION (ADR 0003 §4, storage_mapping.md §4b)
+   !
+   ! fs_Option exposes a single fixed keyword, `verbosity` (the only key
+   ! the preprocessor lets through). It sets the module-level verbosity
+   ! state and, on a writable store, records the value as the reserved
+   ! `_preserf_option_verbosity` root attribute so it round-trips.
+   ! ========================================================================
+   subroutine fs_Option(verbosity)
+      integer, intent(in), optional :: verbosity
+      integer :: ncerr
+      integer(int32) :: v
+
+      if (serialisation_enabled == 0) return
+      if (.not. present(verbosity)) return
+
+      ppser_verbosity = verbosity
+
+      ! pp_ser emits OPTION outside the DATA-mode SELECT CASE, so it runs
+      ! in read mode too; only persist the attribute on a writable store
+      ! (a read-mode open is read-only). The runtime verbosity knob is
+      ! still updated above regardless of mode.
+      if (ppser_serializer%ncid /= -1 .and. ppser_serializer%writable) then
+         v = int(verbosity, int32)
+         ncerr = nf90_put_att(ppser_serializer%ncid, NF90_GLOBAL, &
+                              '_preserf_option_verbosity', v)
+         call preserf_check_nf_with_msg(ncerr, &
+                                        'put_att _preserf_option_verbosity')
+      end if
+   end subroutine fs_Option
 
    ! ========================================================================
    ! METAINFO — scalar overloads (savepoint)

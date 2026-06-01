@@ -117,6 +117,12 @@ def test_fortran_writes_python_reads(tmp_path: Path, fortran_binary: Path) -> No
                 f"/_fields/{fname} carrier must be NF90_INT"
             )
             assert fields_grp.variables[fname].getncattr("type_id") == 5
+        # `/_tracers` is created lazily (ADR 0003 §1): this hello-world store
+        # registers no tracer, so the group must be absent — not present-and-
+        # empty.
+        assert "_tracers" not in raw.groups, (
+            "field-only store must not carry an empty /_tracers group"
+        )
         # ON / OFF gate must have produced no side effects: the
         # fs_register_field call inside the disabled window targeted
         # `disabled_field` and the fs_add_serializer_metainfo call
@@ -302,6 +308,264 @@ def test_fortran_writes_nczarr_v2_python_reads(
     np.testing.assert_array_equal(
         u_py, np.array([501.0, 502.0, 503.0], dtype=np.float64)
     )
+
+
+def test_fortran_writes_tracers_python_reads(
+    tmp_path: Path, fortran_binary: Path
+) -> None:
+    """Slice C Phase 1: Fortran tracer writes round-trip through Python.
+
+    The ``tracers`` scenario registers three real64 tracers (rank 1/2/3),
+    writes their ``/_tracers`` descriptors via ``fs_RegisterAllTracers``,
+    and exercises every TRACER write entry point across five savepoints
+    (see ``test_minimal.f90``). This asserts the descriptors, the
+    per-savepoint data placement for each entry point, the optional
+    ``timelevel`` attribute, and axis-order — all decoded through the
+    Python reference reader (ADR 0003 / storage_mapping.md §4a).
+    """
+    out_dir = tmp_path / "fortran_out"
+    out_dir.mkdir()
+
+    result = subprocess.run(
+        [str(fortran_binary), str(out_dir), "tracers"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, (
+        f"Fortran binary exited {result.returncode}.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "preserf-fortran: tracers OK" in result.stdout
+
+    nc_path = out_dir / "ftracers.nc"
+
+    # Direct netCDF checks: read_dump() folds the descriptor attributes
+    # into its model, so assert the raw on-disk shape here — the /_tracers
+    # group is a sibling of /_fields, and the timelevel lands as an
+    # attribute on the savepoint data variable.
+    import netCDF4  # local import; netCDF4 is a dev-only dependency
+
+    raw = netCDF4.Dataset(str(nc_path), "r")
+    try:
+        assert "_tracers" in raw.groups, "store is missing the /_tracers group"
+        tracers_grp = raw.groups["_tracers"]
+        assert set(tracers_grp.variables) == {"q_v", "q_c", "q_r"}
+        # Carrier is the NF90_INT dummy scalar, like /_fields entries.
+        assert tracers_grp.variables["q_v"].dtype == np.dtype("int32")
+        assert int(tracers_grp.variables["q_v"].getncattr("tracer_index")) == 1
+        assert int(tracers_grp.variables["q_c"].getncattr("tracer_index")) == 2
+        assert int(tracers_grp.variables["q_r"].getncattr("tracer_index")) == 3
+        # timelevel attribute is present only where a @timelevel was given
+        # (sp_byname's q_v, value 2) and must be NF90_INT (int32).
+        sp0 = raw.groups["savepoints"].groups["sp_000000"]
+        tl = sp0.variables["q_v"].getncattr("timelevel")
+        assert tl == 2 and tl.dtype == np.dtype("int32")
+        # by_idx(2) at sp_000001 wrote only q_c, with no timelevel.
+        sp1 = raw.groups["savepoints"].groups["sp_000001"]
+        assert set(sp1.variables) == {"q_c"}
+        assert "timelevel" not in sp1.variables["q_c"].ncattrs()
+        # Tracer data variables are NF90_DOUBLE, like DATA fields.
+        assert sp0.variables["q_v"].dtype == np.dtype("float64")
+    finally:
+        raw.close()
+
+    dump = read_dump(str(nc_path))
+
+    # Descriptors: type_id, C-order dims, stype, tracer_index.
+    assert set(dump.tracer_map) == {"q_v", "q_c", "q_r"}
+    assert dump.tracer_map["q_v"].type_id == TypeID.Float64
+    assert dump.tracer_map["q_v"].dims == [3]
+    assert dump.tracer_map["q_c"].dims == [3, 2]  # Fortran (2,3) -> C-order
+    assert dump.tracer_map["q_r"].dims == [2, 2, 2]
+    assert dump.tracer_stype == {"q_v": "tens", "q_c": "bd", "q_r": ""}
+    assert dump.tracer_index == {"q_v": 1, "q_c": 2, "q_r": 3}
+
+    # Five savepoints in write order.
+    assert [sp.name for sp in dump.savepoints] == [
+        "sp_byname",
+        "sp_byidx",
+        "sp_byrange",
+        "sp_all",
+        "sp_tens",
+    ]
+    # Tracer data is NOT mixed into the field channel.
+    assert dump.field_data == {}
+
+    # Entry-point placement, keyed by savepoint index:
+    #   0 by_name('q_v')      -> only q_v
+    #   1 by_idx(2)           -> only q_c
+    #   2 by_idx(1, 3)        -> all three
+    #   3 all()               -> all three
+    #   4 all(stype='tens')   -> only q_v (the only 'tens' tracer)
+    assert sorted(dump.tracer_data["q_v"]) == [0, 2, 3, 4]
+    assert sorted(dump.tracer_data["q_c"]) == [1, 2, 3]
+    assert sorted(dump.tracer_data["q_r"]) == [2, 3]
+
+    # timelevel: only the by_name write at sp 0 carried one (=2).
+    assert dump.tracer_timelevel["q_v"][0] == 2
+    assert dump.tracer_timelevel["q_v"][2] is None
+    assert dump.tracer_timelevel["q_c"][1] is None
+
+    # Value + axis-order round-trip. q_v is rank-1 (no reversal); q_c and
+    # q_r reverse Fortran (i,j[,k]) -> numpy [.. ,j-1,i-1].
+    np.testing.assert_array_equal(
+        dump.tracer_data["q_v"][0], np.array([11.0, 12.0, 13.0])
+    )
+    qc = dump.tracer_data["q_c"][1]  # Fortran qc(i,j) = 100*i + j
+    assert qc.shape == (3, 2)
+    assert qc[0, 0] == 101  # qc(1,1)
+    assert qc[0, 1] == 201  # qc(2,1)
+    assert qc[2, 1] == 203  # qc(2,3)
+    qr = dump.tracer_data["q_r"][2]  # Fortran qr(i,j,k) = 100*i + 10*j + k
+    assert qr.shape == (2, 2, 2)
+    assert qr[0, 0, 0] == 111  # qr(1,1,1)
+    assert qr[1, 1, 1] == 222  # qr(2,2,2)
+
+
+def test_fortran_tracer_timelevel_last_write_wins(
+    tmp_path: Path, fortran_binary: Path
+) -> None:
+    """A later tracer write that omits @timelevel clears an earlier one.
+
+    The ``tracer-tl-overwrite`` scenario writes q_v twice at one savepoint —
+    first ``timelevel=2`` then with no timelevel. Per ADR 0003 §2 (last write
+    wins), the on-disk variable must carry no ``timelevel`` attribute.
+    """
+    out_dir = tmp_path / "fortran_out"
+    out_dir.mkdir()
+
+    result = subprocess.run(
+        [str(fortran_binary), str(out_dir), "tracer-tl-overwrite"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, (
+        f"Fortran binary exited {result.returncode}.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "preserf-fortran: tracer-tl-overwrite OK" in result.stdout
+
+    import netCDF4  # local import; netCDF4 is a dev-only dependency
+
+    raw = netCDF4.Dataset(str(out_dir / "ftltl.nc"), "r")
+    try:
+        q_v = raw.groups["savepoints"].groups["sp_000000"].variables["q_v"]
+        assert "timelevel" not in q_v.ncattrs(), (
+            "a final tracer write without @timelevel must clear the attribute "
+            "left by an earlier write (last-write-wins)"
+        )
+        np.testing.assert_array_equal(np.asarray(q_v[...]), np.array([1.0, 2.0, 3.0]))
+    finally:
+        raw.close()
+
+
+def test_fortran_writes_kbuff_python_reads(
+    tmp_path: Path, fortran_binary: Path
+) -> None:
+    """Slice C Phase 2: DATA_KBUFF assembled fields round-trip through Python.
+
+    The ``kbuff`` scenario writes two fields one vertical level at a time
+    via ``fs_write_kbuff`` — a 3-D ``t(i,j,k)`` from 2-D slices and a 2-D
+    ``c(i,k)`` from 1-D slices. The helper buffers each slice and flushes
+    the full field on the last level, producing an on-disk variable
+    identical to a ``!$SER DATA`` write (ADR 0003 §5, storage_mapping §6).
+    This asserts the assembled fields match the per-level accumulation.
+    """
+    out_dir = tmp_path / "fortran_out"
+    out_dir.mkdir()
+
+    result = subprocess.run(
+        [str(fortran_binary), str(out_dir), "kbuff"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, (
+        f"Fortran binary exited {result.returncode}.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "preserf-fortran: kbuff OK" in result.stdout
+
+    nc_path = out_dir / "fkbuff.nc"
+    dump = read_dump(str(nc_path))
+
+    # The k-buffered fields register and land exactly like DATA fields:
+    #   t: Fortran (ni=3, nj=2, ke=4) -> C-order dims [4, 2, 3]
+    #   c: Fortran (ni=3, ke=4)       -> C-order dims [4, 3]
+    assert set(dump.field_map) == {"t", "c"}
+    assert dump.field_map["t"].type_id == TypeID.Float64
+    assert dump.field_map["t"].dims == [4, 2, 3]
+    assert dump.field_map["c"].dims == [4, 3]
+    assert len(dump.savepoints) == 1
+
+    # Assembled values: the scenario fills t(i,j,k) = 100i + 10j + k from
+    # 2-D slices and c(i,k) = 10i + k from 1-D slices, one level per call.
+    # preserf reverses axes on disk, so numpy sees t[k-1, j-1, i-1].
+    t = dump.field_data["t"][0]
+    c = dump.field_data["c"][0]
+    assert t.shape == (4, 2, 3)
+    assert c.shape == (4, 3)
+    expected_t = np.array(
+        [
+            [[100 * i + 10 * j + k for i in range(1, 4)] for j in range(1, 3)]
+            for k in range(1, 5)
+        ],
+        dtype=np.float64,
+    )
+    expected_c = np.array(
+        [[10 * i + k for i in range(1, 4)] for k in range(1, 5)], dtype=np.float64
+    )
+    np.testing.assert_array_equal(t, expected_t)
+    np.testing.assert_array_equal(c, expected_c)
+
+
+def test_fortran_writes_option_python_reads(
+    tmp_path: Path, fortran_binary: Path
+) -> None:
+    """Slice C Phase 3: an OPTION value round-trips through Python.
+
+    The ``option`` scenario calls ``fs_Option(verbosity=2)`` on a writable
+    store; the helper records it as the reserved root attribute
+    ``_preserf_option_verbosity`` (ADR 0003 §4, storage_mapping §4b). This
+    asserts the value is decoded by the Python reference reader.
+    """
+    out_dir = tmp_path / "fortran_out"
+    out_dir.mkdir()
+
+    result = subprocess.run(
+        [str(fortran_binary), str(out_dir), "option"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, (
+        f"Fortran binary exited {result.returncode}.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "preserf-fortran: option OK" in result.stdout
+
+    nc_path = out_dir / "foption.nc"
+
+    # The option lands in the reserved `_preserf_*` namespace as NF90_INT.
+    import netCDF4  # local import; netCDF4 is a dev-only dependency
+
+    raw = netCDF4.Dataset(str(nc_path), "r")
+    try:
+        v = raw.getncattr("_preserf_option_verbosity")
+        assert v == 2 and v.dtype == np.dtype("int32"), (
+            f"_preserf_option_verbosity on disk is {v.dtype}, expected int32"
+        )
+    finally:
+        raw.close()
+
+    dump = read_dump(str(nc_path))
+    assert dump.option_verbosity == 2
 
 
 def test_fortran_bad_reference_path_keeps_target(

@@ -178,6 +178,27 @@ def _assert_dumps_equal(a: SerialboxDump, b: SerialboxDump) -> None:
                 arr_a, arr_b, err_msg=f"field {fname}[{fid}] data"
             )
 
+    # Tracers + OPTION (Slice C / ADR 0003).
+    assert set(a.tracer_map.keys()) == set(b.tracer_map.keys()), "tracer_map keys"
+    for tname, ta in a.tracer_map.items():
+        tb = b.tracer_map[tname]
+        assert ta.type_id == tb.type_id, f"tracer {tname} type"
+        assert ta.dims == tb.dims, f"tracer {tname} dims"
+    assert a.tracer_stype == b.tracer_stype, "tracer_stype"
+    assert a.tracer_index == b.tracer_index, "tracer_index"
+    assert a.tracer_timelevel == b.tracer_timelevel, "tracer_timelevel"
+    assert a.option_verbosity == b.option_verbosity, "option_verbosity"
+    assert set(a.tracer_data.keys()) == set(b.tracer_data.keys()), "tracer_data keys"
+    for tname, by_sp_a in a.tracer_data.items():
+        by_sp_b = b.tracer_data[tname]
+        assert set(by_sp_a.keys()) == set(by_sp_b.keys()), f"tracer {tname} sps"
+        for spi, arr_a in by_sp_a.items():
+            arr_b = by_sp_b[spi]
+            assert arr_a.dtype == arr_b.dtype, f"tracer {tname}[{spi}] dtype"
+            np.testing.assert_array_equal(
+                arr_a, arr_b, err_msg=f"tracer {tname}[{spi}] data"
+            )
+
 
 # ---------------------------------------------------------------------------
 # Tests
@@ -191,6 +212,50 @@ def test_round_trip(tmp_path: Path, backend: str) -> None:
     url = write_dump(original, tmp_path / backend, backend=backend)
     reconstructed = read_dump(url)
     _assert_dumps_equal(original, reconstructed)
+
+
+def _make_tracer_dump() -> SerialboxDump:
+    """A dump exercising the write side of tracers + OPTION (Slice C)."""
+    dump = SerialboxDump(prefix="trc")
+    dump.option_verbosity = 1
+    dump.tracer_map = {
+        "q_v": FieldMetainfo(type_id=TypeID.Float64, dims=[3]),
+        "q_c": FieldMetainfo(type_id=TypeID.Float64, dims=[2, 3]),
+    }
+    dump.tracer_stype = {"q_v": "tens", "q_c": "bd"}
+    dump.tracer_index = {"q_v": 1, "q_c": 2}
+    qv = np.array([11.0, 12.0, 13.0], dtype=np.float64)
+    qc = np.arange(6, dtype=np.float64).reshape(2, 3)
+    dump.tracer_data = {"q_v": {0: qv}, "q_c": {0: qc}}
+    # q_v carried a @timelevel (=2); q_c did not (None) — both must
+    # round-trip, including the explicit-None case.
+    dump.tracer_timelevel = {"q_v": {0: 2}, "q_c": {0: None}}
+    dump.savepoints = [Savepoint(name="step")]
+    return dump
+
+
+@pytest.mark.parametrize("backend", ["netcdf4", "nczarr-v2"])
+def test_round_trip_tracers_and_option(tmp_path: Path, backend: str) -> None:
+    """Tracer descriptors/data, timelevel, and OPTION round-trip through
+    the Python reference writer and reader symmetrically."""
+    original = _make_tracer_dump()
+    url = write_dump(original, tmp_path / backend, backend=backend)
+    reconstructed = read_dump(url)
+    _assert_dumps_equal(original, reconstructed)
+
+
+def test_write_dump_rejects_field_tracer_name_overlap(tmp_path: Path) -> None:
+    """A name registered as both a field and a tracer is rejected on write.
+
+    read_dump() refuses such a store, so write_dump() must fail fast rather
+    than produce an unreadable one (symmetry, Slice C review)."""
+    dump = SerialboxDump(prefix="clash")
+    dump.field_map = {"x": FieldMetainfo(type_id=TypeID.Float64, dims=[2])}
+    dump.tracer_map = {"x": FieldMetainfo(type_id=TypeID.Float64, dims=[2])}
+    dump.tracer_stype = {"x": ""}
+    dump.tracer_index = {"x": 1}
+    with pytest.raises(ValueError, match="both field and tracer"):
+        write_dump(dump, tmp_path / "clash", backend="netcdf4")
 
 
 def test_serialbox_disk_round_trip(tmp_path: Path) -> None:

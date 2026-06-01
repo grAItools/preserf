@@ -29,6 +29,7 @@ module utils_preserf
    type, public :: t_serializer
       integer :: ncid = -1
       integer :: fields_grpid = -1
+      integer :: tracers_grpid = -1
       integer :: savepoints_grpid = -1
       integer :: next_sp_index = 0
       logical :: writable = .true.
@@ -111,6 +112,12 @@ module utils_preserf
    ! subsequent fs_* call in the same process.
    integer, save, public :: serialisation_enabled = 1
 
+   ! Verbosity level set by `!$SER OPTION verbosity=` via fs_Option
+   ! (ADR 0003 §4). A runtime knob with no on-disk effect beyond the
+   ! `_preserf_option_verbosity` round-trip attribute the helper records;
+   ! reset to 0 on every fresh ppser_initialize.
+   integer, save, public :: ppser_verbosity = 0
+
    ! Schema version written into _preserf_schema_version. Must match
    ! tests/_support/storage.py SCHEMA_VERSION.
    integer(int32), parameter, public :: PRESERF_SCHEMA_VERSION = 1
@@ -119,10 +126,78 @@ module utils_preserf
    integer, parameter, public :: PRESERF_SAVEPOINT_INDEX_LIMIT = 1000000
 
    ! -------------------------------------------------------------------------
+   ! Tracer registry (ADR 0003 §3, storage_mapping.md §4a)
+   ! -------------------------------------------------------------------------
+   !
+   ! pp_ser's tracer directives carry only a name/index + stype + an
+   ! integer timelevel — never the data array (real Serialbox resolves
+   ! it from the host model's tracer module). preserf has no host model,
+   ! so the helper owns a small built-in registry that host code / tests
+   ! populate via `ppser_register_tracer` (m_preserf). `fs_RegisterAllTracers`
+   ! then writes one `/_tracers/<name>` descriptor per entry, and the
+   ! `ppser_write_tracer_*` entry points resolve the data from here.
+   !
+   ! v1.0 binds real(real64) tracer data. The registry holds a *pointer*
+   ! to the host's array (rank-specific component, one set per rank) rather
+   ! than a copy, so a read-mode `!$SER TRACER` can read the stored field
+   ! back into the host's array. The host array MUST have the TARGET
+   ! attribute and outlive the run (F2008 12.5.2.4: a pointer associated
+   ! with a TARGET dummy stays associated with the TARGET actual after
+   ! return). Extending to other dtypes is a template-stanza change.
+   integer, parameter, public :: PPSER_MAX_TRACERS = 256
+   integer, parameter, public :: PPSER_TRACER_NAME_LEN = 64
+   integer, parameter, public :: PPSER_TRACER_STYPE_LEN = 16
+   ! Serialbox TypeID for real(real64); mirrors TID_FLOAT64 in m_preserf.
+   integer(int32), parameter, public :: PPSER_TRACER_TID_FLOAT64 = 5
+
+   type, public :: t_tracer_entry
+      character(len=PPSER_TRACER_NAME_LEN) :: name = ''
+      character(len=PPSER_TRACER_STYPE_LEN) :: stype = ''
+      integer(int32) :: type_id = PPSER_TRACER_TID_FLOAT64
+      integer :: rank = 0
+      integer :: fshape(4) = 0
+      real(real64), pointer :: d1(:) => null()
+      real(real64), pointer :: d2(:, :) => null()
+      real(real64), pointer :: d3(:, :, :) => null()
+      real(real64), pointer :: d4(:, :, :, :) => null()
+   end type t_tracer_entry
+
+   type(t_tracer_entry), public, save :: ppser_tracers(PPSER_MAX_TRACERS)
+   integer, public, save :: ppser_tracer_count = 0
+
+   ! -------------------------------------------------------------------------
+   ! k-buffer table (DATA_KBUFF, ADR 0003 §5, storage_mapping.md §6)
+   ! -------------------------------------------------------------------------
+   !
+   ! `fs_write_kbuff` is called once per vertical level `k` with the
+   ! horizontal slice at that level; the helper buffers each slice and, on
+   ! the last level (k == k_size), assembles the full field and writes it
+   ! like a !$SER DATA field. One active buffer per (savepoint group, field
+   ! name); a slot is freed on flush. v1.0 buffers real(real64) slices of
+   ! rank 1-3 (full fields rank 2-4). `fshape` is the full field's Fortran
+   ! shape: the slice shape followed by k_size.
+   integer, parameter, public :: PPSER_MAX_KBUFF = 64
+
+   type, public :: t_kbuff_entry
+      integer :: grpid = -1
+      character(len=PPSER_TRACER_NAME_LEN) :: name = ''
+      integer :: full_rank = 0
+      integer :: fshape(4) = 0
+      integer :: slice_size = 0
+      integer :: k_size = 0
+      integer :: filled = 0
+      real(real64), allocatable :: buffer(:)
+   end type t_kbuff_entry
+
+   type(t_kbuff_entry), public, save :: ppser_kbuffers(PPSER_MAX_KBUFF)
+   integer, public, save :: ppser_kbuff_count = 0
+
+   ! -------------------------------------------------------------------------
    ! Public procedures
    ! -------------------------------------------------------------------------
    public :: ppser_initialize, ppser_finalize
    public :: ppser_get_mode, ppser_set_mode
+   public :: ppser_reset_tracers, ppser_reset_kbuffers
    public :: preserf_check_nf, preserf_check_nf_with_msg
    public :: preserf_writer_version
    public :: preserf_logical_to_byte
@@ -365,6 +440,16 @@ contains
       ! otherwise leave every subsequent fs_* call in this process a
       ! silent no-op even after a fresh INIT.
       serialisation_enabled = 1
+
+      ! Start the tracer registry empty (ADR 0003 §3). It is module SAVE
+      ! state, so a tracer registered before a prior finalize would
+      ! otherwise carry into this session and get re-emitted.
+      call ppser_reset_tracers()
+      call ppser_reset_kbuffers()
+
+      ! Verbosity is a runtime knob; start each session at the default so
+      ! a prior `!$SER OPTION verbosity=` does not stick across a re-init.
+      ppser_verbosity = 0
    end subroutine ppser_initialize
 
    !> Close the dataset(s) opened by ppser_initialize.
@@ -375,6 +460,8 @@ contains
       ppser_savepoint%idx = -1
       ppser_savepoint%owner_ncid = -1
       ppser_mode_state = 0
+      call ppser_reset_tracers()
+      call ppser_reset_kbuffers()
       ! Also restore the ON/OFF gate to its default. ppser_initialize
       ! re-sets this on every fresh session as belt-and-braces, but
       ! resetting here too means an explicit finalize + later code
@@ -387,6 +474,48 @@ contains
       integer :: m
       m = ppser_mode_state
    end function ppser_get_mode
+
+   !> Empty the built-in tracer registry (ADR 0003 §3). Called on every
+   !> fresh `ppser_initialize` and on `ppser_finalize` so a tracer
+   !> registered in a previous session does not leak into the next one.
+   !> Only nullifies the data pointers and clears metadata — the registry
+   !> holds pointers to caller-owned TARGET arrays and owns no storage to
+   !> release.
+   subroutine ppser_reset_tracers()
+      integer :: i
+      ! Only nullify — the registry does not own the pointed-to host arrays.
+      do i = 1, ppser_tracer_count
+         ppser_tracers(i)%name = ''
+         ppser_tracers(i)%stype = ''
+         ppser_tracers(i)%rank = 0
+         ppser_tracers(i)%fshape = 0
+         nullify (ppser_tracers(i)%d1)
+         nullify (ppser_tracers(i)%d2)
+         nullify (ppser_tracers(i)%d3)
+         nullify (ppser_tracers(i)%d4)
+      end do
+      ppser_tracer_count = 0
+   end subroutine ppser_reset_tracers
+
+   !> Drop every active k-buffer (DATA_KBUFF, ADR 0003 §5). Called on a
+   !> fresh `ppser_initialize` and on `ppser_finalize`; a buffer still
+   !> active here means a k-loop was left incomplete, so releasing it
+   !> avoids leaking the partial accumulation into the next session.
+   subroutine ppser_reset_kbuffers()
+      integer :: i
+      do i = 1, ppser_kbuff_count
+         if (allocated(ppser_kbuffers(i)%buffer)) &
+            deallocate (ppser_kbuffers(i)%buffer)
+         ppser_kbuffers(i)%grpid = -1
+         ppser_kbuffers(i)%name = ''
+         ppser_kbuffers(i)%full_rank = 0
+         ppser_kbuffers(i)%fshape = 0
+         ppser_kbuffers(i)%slice_size = 0
+         ppser_kbuffers(i)%k_size = 0
+         ppser_kbuffers(i)%filled = 0
+      end do
+      ppser_kbuff_count = 0
+   end subroutine ppser_reset_kbuffers
 
    !> Set the runtime DATA mode. Only 0 (write), 1 (read), and 2
    !> (read-perturb) are accepted; pp_ser-generated SELECT CASE blocks
@@ -586,6 +715,12 @@ contains
          call preserf_check_nf_with_msg(ncerr, 'nf90_close')
          s%ncid = -1
          s%fields_grpid = -1
+         ! `/_tracers` is created lazily per session (fs_RegisterAllTracers),
+         ! so this id MUST be cleared on close — otherwise a later
+         ! write-mode ppser_initialize in the same process would see a stale
+         ! non-(-1) id, skip the lazy create, and write tracer descriptors
+         ! against a group from the previous (closed) file.
+         s%tracers_grpid = -1
          s%savepoints_grpid = -1
          s%next_sp_index = 0
          s%writable = .true.
@@ -661,6 +796,13 @@ contains
       ncerr = nf90_def_grp(s%ncid, '_fields', s%fields_grpid)
       call preserf_check_nf_with_msg(ncerr, 'def_grp /_fields')
 
+      ! `/_tracers` is created lazily by fs_RegisterAllTracers the first
+      ! time a tracer is registered (ADR 0003 §1, storage_mapping.md §4a),
+      ! not here — so a field-only store carries no empty tracer group.
+      ! Clear the id for this fresh write session so the lazy create fires
+      ! (belt-and-braces with the reset in preserf_close_serializer).
+      s%tracers_grpid = -1
+
       ncerr = nf90_def_grp(s%ncid, 'savepoints', s%savepoints_grpid)
       call preserf_check_nf_with_msg(ncerr, 'def_grp /savepoints')
    end subroutine preserf_create_skeleton_groups
@@ -671,6 +813,14 @@ contains
 
       ncerr = nf90_inq_ncid(s%ncid, '_fields', s%fields_grpid)
       call preserf_check_nf_with_msg(ncerr, 'inq_ncid /_fields')
+
+      ! `/_tracers` is resolved leniently: stores written before ADR 0003
+      ! have no such group, and a field-only run must still open them. Any
+      ! lookup failure (the common one being "group not found") leaves
+      ! tracers_grpid = -1, which the tracer read path treats as "no
+      ! tracers registered".
+      ncerr = nf90_inq_ncid(s%ncid, '_tracers', s%tracers_grpid)
+      if (ncerr /= NF90_NOERR) s%tracers_grpid = -1
 
       ncerr = nf90_inq_ncid(s%ncid, 'savepoints', s%savepoints_grpid)
       call preserf_check_nf_with_msg(ncerr, 'inq_ncid /savepoints')

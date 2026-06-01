@@ -274,6 +274,26 @@ def test_option_rejects_positional() -> None:
         expand("!$SER OPTION foo\n")
 
 
+def test_option_verbosity_numeric_passthrough() -> None:
+    # A numeric verbosity is emitted verbatim (only on/off are mapped).
+    assert "call fs_Option(verbosity=3)" in expand("!$SER OPTION verbosity=3\n")
+
+
+def test_option_rejects_unknown_key() -> None:
+    # The Fortran helper's fs_Option exposes only `verbosity`; any other
+    # OPTION key would not compile, so the preprocessor rejects it
+    # (ADR 0003 §4).
+    with pytest.raises(DirectiveError, match="unsupported OPTION key 'precision'"):
+        expand("!$SER OPTION precision=4\n")
+
+
+def test_option_rejects_duplicate_verbosity() -> None:
+    # A repeated key would emit `fs_Option(verbosity=.., verbosity=..)`,
+    # which is invalid Fortran (duplicate keyword argument).
+    with pytest.raises(DirectiveError, match="duplicate OPTION key 'verbosity'"):
+        expand("!$SER OPTION verbosity=1 verbosity=2\n")
+
+
 # --- DATA_KBUFF / tracers --------------------------------------------------
 
 

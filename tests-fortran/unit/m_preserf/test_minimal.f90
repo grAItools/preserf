@@ -808,6 +808,392 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: wire-matrix OK'
                stop
             end block
+         else if (scenario == 'tracers') then
+            ! Slice C Phase 1: tracers. Register three real64 tracers of
+            ! rank 1/2/3 in the built-in registry, write their /_tracers
+            ! descriptors via fs_RegisterAllTracers, then exercise all four
+            ! TRACER write entry points across distinct savepoints:
+            !   sp_000000  by_name('q_v', timelevel=2)  -> {q_v}
+            !   sp_000001  by_idx(2)                     -> {q_c}
+            !   sp_000002  by_idx(1, 3)                  -> {q_v,q_c,q_r}
+            !   sp_000003  all()                         -> {q_v,q_c,q_r}
+            !   sp_000004  all(stype='tens')             -> {q_v}
+            ! The Python wire-compat test reads back the descriptors,
+            ! data, and the optional timelevel attribute.
+            block
+               ! TARGET: ppser_register_tracer keeps a pointer to these
+               ! arrays so a read-mode TRACER can read back into them.
+               real(real64), target :: qv(3), qc(2, 3), qr(2, 2, 2)
+               integer :: i, j, k
+               do i = 1, 3
+                  qv(i) = real(10 + i, real64)
+               end do
+               do j = 1, 3
+                  do i = 1, 2
+                     qc(i, j) = real(100*i + j, real64)
+                  end do
+               end do
+               do k = 1, 2
+                  do j = 1, 2
+                     do i = 1, 2
+                        qr(i, j, k) = real(100*i + 10*j + k, real64)
+                     end do
+                  end do
+               end do
+
+               call ppser_initialize(out_dir, 'ftracers', 'w')
+               ! Registration order fixes tracer_index: q_v=1, q_c=2, q_r=3.
+               call ppser_register_tracer('q_v', qv, stype='tens')
+               call ppser_register_tracer('q_c', qc, stype='bd')
+               call ppser_register_tracer('q_r', qr)
+               call fs_RegisterAllTracers()
+
+               call fs_create_savepoint('sp_byname', ppser_savepoint)
+               call ppser_write_tracer_by_name('q_v', stype='tens', timelevel=2)
+
+               call fs_create_savepoint('sp_byidx', ppser_savepoint)
+               call ppser_write_tracer_by_idx(2, stype='bd')
+
+               call fs_create_savepoint('sp_byrange', ppser_savepoint)
+               call ppser_write_tracer_by_idx(1, 3, stype='')
+
+               call fs_create_savepoint('sp_all', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+
+               call fs_create_savepoint('sp_tens', ppser_savepoint)
+               call ppser_write_tracer_all(stype='tens')
+
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: tracers OK'
+               stop
+            end block
+         else if (scenario == 'tracers-roundtrip') then
+            ! Slice C read-mode round-trip: write a tracer store, finalize,
+            ! re-open read-only, re-register the same tracers (bound to
+            ! freshly zeroed TARGET arrays), validate the descriptors via
+            ! fs_RegisterAllTracers, then read every tracer back with
+            ! ppser_write_tracer_all and assert the values match the
+            ! originals — proving symmetric Fortran read-back through the
+            ! registry pointers (no def_var on the read-only handle).
+            block
+               real(real64), target :: qv(3), qc(2, 3)
+               real(real64) :: qv0(3), qc0(2, 3)
+               integer :: i, j
+               do i = 1, 3
+                  qv(i) = real(10 + i, real64)
+               end do
+               do j = 1, 3
+                  do i = 1, 2
+                     qc(i, j) = real(100*i + j, real64)
+                  end do
+               end do
+               qv0 = qv
+               qc0 = qc
+               call ppser_initialize(out_dir, 'ftrt', 'w')
+               call ppser_register_tracer('q_v', qv, stype='tens')
+               call ppser_register_tracer('q_c', qc, stype='bd')
+               call fs_RegisterAllTracers()
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+               call ppser_finalize()
+               ! Re-open read-only. ppser_finalize cleared the registry, so
+               ! re-register the same tracers bound to zeroed arrays.
+               qv = 0.0_real64
+               qc = 0.0_real64
+               call ppser_initialize(out_dir, 'ftrt', 'r')
+               if (ppser_get_mode() /= 1) error stop &
+                  'tracers-roundtrip: read open should set mode 1'
+               call ppser_register_tracer('q_v', qv, stype='tens')
+               call ppser_register_tracer('q_c', qc, stype='bd')
+               call fs_RegisterAllTracers()
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+               if (any(qv /= qv0)) error stop &
+                  'tracers-roundtrip: q_v did not read back to its written value'
+               if (any(qc /= qc0)) error stop &
+                  'tracers-roundtrip: q_c did not read back to its written value'
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: tracers-roundtrip OK'
+               stop
+            end block
+         else if (scenario == 'kbuff') then
+            ! Slice C Phase 2: DATA_KBUFF. Write two fields one vertical
+            ! level at a time through fs_write_kbuff — a 3-D field t(i,j,k)
+            ! from 2-D (i,j) slices and a 2-D field c(i,k) from 1-D (i)
+            ! slices. The helper buffers each slice and flushes the full
+            ! field on the last level (k == k_size); the on-disk variable
+            ! is byte-identical to a !$SER DATA write. The Python
+            ! wire-compat test asserts the assembled fields.
+            block
+               integer, parameter :: ni = 3, nj = 2, ke = 4
+               real(real64) :: tslice(ni, nj), cslice(ni)
+               integer :: i, j, kk
+               call ppser_initialize(out_dir, 'fkbuff', 'w')
+               call fs_register_field(ppser_serializer, 't', 'double', &
+                                      ppser_reallength, ni, nj, ke, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'c', 'double', &
+                                      ppser_reallength, ni, ke, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               ! Emit each level in a k-loop, as pp_ser-generated code does.
+               do kk = 1, ke
+                  do j = 1, nj
+                     do i = 1, ni
+                        tslice(i, j) = real(100*i + 10*j + kk, real64)
+                     end do
+                  end do
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 't', &
+                                      tslice, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+                  do i = 1, ni
+                     cslice(i) = real(10*i + kk, real64)
+                  end do
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'c', &
+                                      cslice, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+               end do
+               call ppser_finalize()
+
+               ! Read-back phase: re-open read-only and recover each level
+               ! through fs_write_kbuff (mode=read), proving symmetric
+               ! k-buffer read-back into the per-level slices.
+               call ppser_initialize(out_dir, 'fkbuff', 'r')
+               if (ppser_get_mode() /= 1) error stop &
+                  'kbuff: read open should set mode 1'
+               call fs_create_savepoint('step', ppser_savepoint)
+               do kk = 1, ke
+                  tslice = 0.0_real64
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 't', &
+                                      tslice, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+                  do j = 1, nj
+                     do i = 1, ni
+                        if (tslice(i, j) /= real(100*i + 10*j + kk, real64)) &
+                           error stop 'kbuff: t read-back mismatch'
+                     end do
+                  end do
+                  cslice = 0.0_real64
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'c', &
+                                      cslice, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+                  do i = 1, ni
+                     if (cslice(i) /= real(10*i + kk, real64)) &
+                        error stop 'kbuff: c read-back mismatch'
+                  end do
+               end do
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: kbuff OK'
+               stop
+            end block
+         else if (scenario == 'option') then
+            ! Slice C Phase 3: OPTION. fs_Option(verbosity=N) sets the
+            ! module verbosity knob and records the reserved
+            ! _preserf_option_verbosity root attribute on the writable
+            ! store. The Python wire-compat test reads the value back.
+            block
+               real(real64) :: uo(3)
+               integer :: i
+               do i = 1, 3
+                  uo(i) = real(i, real64)
+               end do
+               call ppser_initialize(out_dir, 'foption', 'w')
+               if (ppser_verbosity /= 0) error stop &
+                  'option: verbosity should default to 0 on fresh init'
+               call fs_Option(verbosity=2)
+               if (ppser_verbosity /= 2) error stop &
+                  'option: fs_Option(verbosity=2) did not update ppser_verbosity'
+               ! A minimal field write so the store is a complete sample.
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', uo)
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: option OK'
+               stop
+            end block
+         else if (scenario == 'tracer-tl-overwrite') then
+            ! "Last write wins": write q_v twice at one savepoint, first
+            ! with timelevel=2 then without. The final variable must carry
+            ! no timelevel attribute. The Python wire-compat test asserts
+            ! the attribute is absent.
+            block
+               real(real64), target :: q(3)
+               integer :: i
+               do i = 1, 3
+                  q(i) = real(i, real64)
+               end do
+               call ppser_initialize(out_dir, 'ftltl', 'w')
+               call ppser_register_tracer('q_v', q, stype='tens')
+               call fs_RegisterAllTracers()
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_write_tracer_by_name('q_v', stype='tens', timelevel=2)
+               call ppser_write_tracer_by_name('q_v', stype='tens')
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: tracer-tl-overwrite OK'
+               stop
+            end block
+         else if (scenario == 'tracers-multi-session') then
+            ! Regression: tracers_grpid must be cleared on close so a
+            ! second write-mode session lazily re-creates /_tracers in the
+            ! new file instead of reusing a stale group id from the first
+            ! (closed) file. Without the reset the second
+            ! fs_RegisterAllTracers writes a descriptor against the stale
+            ! grpid and aborts; reaching OK proves the reset works.
+            block
+               real(real64), target :: q(3)
+               integer :: i
+               do i = 1, 3
+                  q(i) = real(i, real64)
+               end do
+               call ppser_initialize(out_dir, 'fms_a', 'w')
+               call ppser_register_tracer('q_v', q, stype='tens')
+               call fs_RegisterAllTracers()
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+               call ppser_finalize()
+               call ppser_initialize(out_dir, 'fms_b', 'w')
+               call ppser_register_tracer('q_v', q, stype='tens')
+               call fs_RegisterAllTracers()
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: tracers-multi-session OK'
+               stop
+            end block
+         else if (scenario == 'tracers-bad-dup') then
+            ! Registering the same tracer name twice must abort.
+            block
+               real(real64), target :: q(3)
+               q = 1.0_real64
+               call ppser_initialize(out_dir, 'ftbd', 'w')
+               call ppser_register_tracer('q_v', q, stype='tens')
+               call ppser_register_tracer('q_v', q, stype='tens')
+               call abort_unexpected('tracers-bad-dup')
+            end block
+         else if (scenario == 'tracers-bad-namelen') then
+            ! A tracer name longer than the fixed-length registry component
+            ! must abort rather than silently truncate.
+            block
+               real(real64), target :: q(3)
+               q = 1.0_real64
+               call ppser_initialize(out_dir, 'ftbl', 'w')
+               call ppser_register_tracer( &
+                  'this_tracer_name_is_deliberately_far_longer_than_'// &
+                  'sixty_four_characters_for_the_test', q)
+               call abort_unexpected('tracers-bad-namelen')
+            end block
+         else if (scenario == 'tracers-bad-name') then
+            ! Writing a tracer that was never registered must abort.
+            block
+               real(real64), target :: q(3)
+               q = 1.0_real64
+               call ppser_initialize(out_dir, 'ftbn', 'w')
+               call ppser_register_tracer('q_v', q, stype='tens')
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_write_tracer_by_name('nope')
+               call abort_unexpected('tracers-bad-name')
+            end block
+         else if (scenario == 'tracers-bad-idx') then
+            ! An out-of-range tracer index must abort.
+            block
+               real(real64), target :: q(3)
+               q = 1.0_real64
+               call ppser_initialize(out_dir, 'ftbi', 'w')
+               call ppser_register_tracer('q_v', q, stype='tens')
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_write_tracer_by_idx(5)
+               call abort_unexpected('tracers-bad-idx')
+            end block
+         else if (scenario == 'tracers-bad-reorder') then
+            ! Read-mode registration order must match the write order: a
+            ! tracer registered at a different position than its stored
+            ! tracer_index must abort (else by_idx resolves the wrong one).
+            block
+               real(real64), target :: q1(3), q2(3)
+               q1 = 1.0_real64
+               q2 = 2.0_real64
+               call ppser_initialize(out_dir, 'ftbo', 'w')
+               call ppser_register_tracer('q_v', q1, stype='tens')
+               call ppser_register_tracer('q_c', q2, stype='bd')
+               call fs_RegisterAllTracers()
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+               call ppser_finalize()
+               ! Re-open read-only and register in the REVERSE order.
+               call ppser_initialize(out_dir, 'ftbo', 'r')
+               call ppser_register_tracer('q_c', q2, stype='bd')
+               call ppser_register_tracer('q_v', q1, stype='tens')
+               call fs_RegisterAllTracers()
+               call abort_unexpected('tracers-bad-reorder')
+            end block
+         else if (scenario == 'tracers-bad-range') then
+            ! A descending tracer index range (idx2 < idx) must abort rather
+            ! than silently write nothing.
+            block
+               real(real64), target :: q1(3), q2(3)
+               q1 = 1.0_real64
+               q2 = 2.0_real64
+               call ppser_initialize(out_dir, 'ftbr', 'w')
+               call ppser_register_tracer('q_v', q1, stype='tens')
+               call ppser_register_tracer('q_c', q2, stype='bd')
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_write_tracer_by_idx(2, 1)
+               call abort_unexpected('tracers-bad-range')
+            end block
+         else if (scenario == 'kbuff-bad-namelen') then
+            ! A k-buffer field name longer than the fixed-length table
+            ! component must abort rather than silently truncate.
+            block
+               real(real64) :: s(3)
+               s = 1.0_real64
+               call ppser_initialize(out_dir, 'fkbl', 'w')
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_kbuff(ppser_serializer, ppser_savepoint, &
+                                   'this_kbuff_field_name_is_deliberately_'// &
+                                   'far_longer_than_sixty_four_characters', s, &
+                                   k=1, k_size=2, mode=ppser_get_mode())
+               call abort_unexpected('kbuff-bad-namelen')
+            end block
+         else if (scenario == 'kbuff-bad-order') then
+            ! Levels must be written once each in order 1..k_size. Skipping
+            ! level 2 (writing k=1 then k=3) must abort rather than flush a
+            ! buffer with a stale/zeroed slice.
+            block
+               real(real64) :: s(2)
+               s = 1.0_real64
+               call ppser_initialize(out_dir, 'fkbo', 'w')
+               call fs_register_field(ppser_serializer, 'f', 'double', &
+                                      ppser_reallength, 2, 3, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'f', s, &
+                                   k=1, k_size=3, mode=ppser_get_mode())
+               call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'f', s, &
+                                   k=3, k_size=3, mode=ppser_get_mode())
+               call abort_unexpected('kbuff-bad-order')
+            end block
+         else if (scenario == 'kbuff-bad-shape') then
+            ! Two fs_write_kbuff calls for the same field with different
+            ! slice shapes — same total size (8) but transposed dims
+            ! [2,4] vs [4,2] — must abort (regression for the per-dim
+            ! shape check, which a size-only check would miss).
+            block
+               real(real64) :: s1(2, 4), s2(4, 2)
+               s1 = 1.0_real64
+               s2 = 2.0_real64
+               call ppser_initialize(out_dir, 'fkbs', 'w')
+               call fs_register_field(ppser_serializer, 'f', 'double', &
+                                      ppser_reallength, 2, 4, 3, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'f', s1, &
+                                   k=1, k_size=3, mode=ppser_get_mode())
+               call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'f', s2, &
+                                   k=2, k_size=3, mode=ppser_get_mode())
+               call abort_unexpected('kbuff-bad-shape')
+            end block
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &

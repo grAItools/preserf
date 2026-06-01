@@ -243,6 +243,24 @@ class SerialboxDump:
     archive: str = "Binary"
     unique_id: int = 0
 
+    # `!$SER OPTION verbosity=` value (Slice C / ADR 0003 §4), recorded by
+    # the Fortran helper as the reserved `_preserf_option_verbosity` root
+    # attribute. None when the option was never set.
+    option_verbosity: int | None = None
+
+    # ---- Tracers (Slice C / ADR 0003, storage_mapping.md §4a) ----
+    # Tracer descriptors mirror /_fields entries (type_id + dims via
+    # FieldMetainfo); tracer_stype / tracer_index carry the two extra
+    # /_tracers attributes. Per-savepoint tracer snapshots are keyed by
+    # savepoint index (one snapshot per (savepoint, tracer), last-wins per
+    # ADR 0003 §2); tracer_timelevel records the optional integer timelevel
+    # from `!$SER TRACER ...@<tl>` (None when the write carried none).
+    tracer_map: dict[str, FieldMetainfo] = field(default_factory=dict)
+    tracer_stype: dict[str, str] = field(default_factory=dict)
+    tracer_index: dict[str, int] = field(default_factory=dict)
+    tracer_data: dict[str, dict[int, np.ndarray]] = field(default_factory=dict)
+    tracer_timelevel: dict[str, dict[int, int | None]] = field(default_factory=dict)
+
     # ---- I/O ----
 
     @classmethod

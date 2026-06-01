@@ -14,6 +14,48 @@ embedded in each spec's Problem section.
 
 ### Added
 
+- Tracers (Slice C, Phase 1 — `!$SER REGISTERTRACERS` / `!$SER TRACER`):
+  the Fortran helper gains `fs_RegisterAllTracers`,
+  `ppser_write_tracer_by_name` / `_by_idx` / `_all`, and a host-side
+  `ppser_register_tracer` that binds tracer data to a small built-in
+  registry (the directive surface carries only a name/index + stype +
+  integer timelevel, never the data — see
+  [ADR 0003](docs/adr/0003-tracer-storage.md)). `fs_RegisterAllTracers`
+  writes one `/_tracers/<name>` descriptor per registered tracer
+  (`type_id`, C-order `dims`, `stype`, `tracer_index`), mirroring
+  `/_fields`; the write entry points emit each tracer as an ordinary
+  savepoint variable (byte-identical to a `!$SER DATA` field) with the
+  integer timelevel as an optional `timelevel` attribute. One snapshot per
+  `(savepoint, tracer)`, last-wins (`storage_mapping.md` §4a). The registry
+  keeps a pointer to the host's `TARGET` array (not a copy), so a read-mode
+  `!$SER TRACER` reads the stored field back into the same array; read mode
+  also resolves-and-validates the `/_tracers` descriptors. v1.0 binds
+  `real(real64)` tracers (ranks 1–4). A native `tracers` / `tracers-roundtrip`
+  (write + Fortran read-back) ctest plus a
+  `test_fortran_wire_compat.py` scenario assert the descriptors, per-entry-
+  point data placement, the timelevel attribute, and axis-order through the
+  Python reference reader.
+- k-buffer serialization (Slice C, Phase 2 — `!$SER DATA_KBUFF`):
+  `fs_write_kbuff(serializer, savepoint, name, data, k, k_size, mode)` is
+  called once per vertical level with the horizontal slice at that level;
+  the helper buffers each slice and, on the last level (`k == k_size`),
+  assembles the full `(slice_shape…, k_size)` field and writes it through
+  the field path, so the on-disk variable is byte-identical to a `!$SER
+  DATA` write (`storage_mapping.md` §6, ADR 0003 §5). Read mode is the
+  mirror: the stored field is loaded once and each level is copied back into
+  the caller's slice (`data` is `intent(inout)`). v1.0 buffers
+  `real(real64)` slices of rank 1–3 (fields rank 2–4). A native `kbuff` ctest
+  (write + read-back) plus a `test_fortran_wire_compat.py` scenario assert
+  the assembled fields against the per-level accumulation.
+- Runtime options (Slice C, Phase 3 — `!$SER OPTION`): `fs_Option` exposes
+  a single fixed keyword, `verbosity` (ADR 0003 §4) — Fortran cannot accept
+  an arbitrary `key=value` dummy, so the preprocessor now rejects any other
+  OPTION key with a clear directive error (was: passed through verbatim).
+  `fs_Option(verbosity=N)` sets a module-level verbosity knob and records
+  the value as the reserved `_preserf_option_verbosity` root attribute so it
+  round-trips (`storage_mapping.md` §4b); the `on`/`off` → `1`/`0` mapping is
+  unchanged. With this, Slice C (tracers + k-buffer + OPTION) and its
+  predecessor ADR (C-0) are complete.
 - Full numeric type-coverage matrix (Slice B): the Fortran helper's
   `fs_write_field` / `fs_read_field` overloads now cover every
   `{logical, int32, int64, real32, real64}` × `{0D, 1D, 2D, 3D, 4D}`
