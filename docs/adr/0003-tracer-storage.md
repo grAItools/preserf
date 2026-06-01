@@ -62,15 +62,27 @@ attributes; no new netCDF machinery is introduced.
 ### 2. Tracer data lands as ordinary savepoint variables
 
 A `!$SER TRACER` write at a savepoint produces a data variable inside
-`/savepoints/sp_NNNNNN/`, identical in shape and dtype to a `!$SER DATA`
-write (storage_mapping §6). The variable name is the tracer name, suffixed
-with the timelevel when a `@timelevel` is present, joined by an underscore:
-`q_v` with `@nnow` → `q_v_nnow`; no timelevel → `q_v`. This keeps the reader's
-data path unchanged — only descriptor discovery (`/_tracers`) is new.
+`/savepoints/sp_NNNNNN/`, **named by the tracer name** and identical in shape
+and dtype to a `!$SER DATA` write (storage_mapping §6). This keeps the
+reader's data path unchanged — only descriptor discovery (`/_tracers`) is new.
 
-`timelevel` is recorded **only** in the on-disk variable name, not as a
-descriptor attribute, because the same tracer at different timelevels is a
-distinct snapshot, not a distinct tracer.
+The optional `@timelevel` modifier reaches the helper at runtime as an
+**integer** (the directive emits `timelevel=<expr>` unquoted, so `@nnow`
+becomes the Fortran variable `nnow` evaluated to an integer index — it is
+_not_ a string and the literal `@`/`nnow` never reach disk). When a write
+carries a timelevel, it is recorded as an optional `timelevel` (`NF90_INT`)
+**attribute** on the data variable; absent otherwise.
+
+**One snapshot per `(savepoint, tracer)` — last write wins.** Because the
+variable name is the tracer name alone, writing the _same_ tracer at two
+timelevels in one savepoint (a legal but uncommon `!$SER TRACER q_v@nnow
+q_v@nnew`) overwrites: only the last snapshot and its `timelevel` attribute
+survive. This is an accepted v1.0 limitation — the `timelevel` attribute
+records _which_ level the retained snapshot came from, but multi-timelevel
+fan-out at a single savepoint is not preserved as distinct data. Encoding it
+would require either name disambiguation (`<name>_tl<n>`) or a per-timelevel
+sub-group; both were rejected for v1.0 (see Alternatives) in favour of keeping
+tracer data byte-identical to a field write.
 
 ### 3. A minimal built-in tracer registry supplies the data (load-bearing)
 
@@ -80,16 +92,20 @@ fixed-capacity **tracer registry** (module state in
 emitted by pp_ser — populates it:
 
 ```
-ppser_register_tracer(name, data, stype, timelevel)
+ppser_register_tracer(name, data, stype)
 ```
 
-records a name → (data, stype, timelevel, dims, type_id) binding. Then:
+records a name → (data, stype, dims, type_id) binding. `timelevel` is **not**
+a registration field: it is a per-write argument that selects nothing in the
+single-snapshot model (decision 2) and is recorded only as the data
+variable's `timelevel` attribute. Then:
 
 - `fs_RegisterAllTracers()` iterates the registry and writes a `/_tracers`
   descriptor (decision 1) for every entry, assigning `tracer_index` from
   registration order.
 - `ppser_write_tracer_by_name(name, stype, [timelevel])` resolves the entry
-  by name and writes its data to the current savepoint (decision 2).
+  by name and writes its data to the current savepoint (decision 2),
+  attaching the `timelevel` attribute when supplied.
 - `ppser_write_tracer_by_idx(idx, [idx2], stype, [timelevel])` resolves by
   1-based index (a range `idx..idx2` writes each).
 - `ppser_write_tracer_all(stype, [timelevel])` writes every registered
@@ -160,6 +176,20 @@ write. No existing attribute or layout changes meaning, so
   already notes k-buffer writes interact awkwardly with an unlimited leading
   dimension, and producing a variable identical to a `DATA` write keeps the
   reader path single.
+- **Encoding tracer timelevel to preserve multi-timelevel fan-out.** Two
+  variants were considered to keep distinct snapshots of the same tracer at
+  one savepoint: a name suffix (`<name>_tl<n>`, which the reader must parse
+  and strip), and a per-timelevel sub-group
+  (`/savepoints/sp_NNNNNN/_tracers/tl_NNNNNN/<name>`, which is collision-proof
+  and idiomatic but turns the flat savepoint group into a nested tree and
+  forces a new traversal in the reference reader plus a timelevel axis in the
+  in-memory model). Both were rejected for v1.0: the spec's tracer DoD asks
+  only for "at least one tracer write+read", the `@timelevel` fan-out at a
+  single savepoint is uncommon, and keeping tracer data byte-identical to a
+  field write (timelevel as a plain attribute) costs the least and reuses the
+  field reader path unchanged. If the fan-out case becomes required, the
+  sub-group variant is the preferred upgrade and is an additive,
+  no-version-bump schema change.
 
 ## Consequences
 
@@ -168,7 +198,11 @@ write. No existing attribute or layout changes meaning, so
   `docs/references/storage_mapping.md`.
 - The Python reference reader (`tests/_support/storage.py` `read_dump`) gains
   a `/_tracers` discovery path; tracer **data** needs no new read path since
-  it lands as ordinary savepoint variables.
+  it lands as ordinary savepoint variables (the optional `timelevel`
+  attribute is read alongside the variable).
+- Multi-timelevel fan-out of one tracer at a single savepoint is not
+  preserved (last-wins, decision 2); preserving it later is an additive
+  schema change (Alternatives), not a version bump.
 - preserf carries a built-in tracer registry that real Serialbox does not —
   a deliberate, documented divergence so the helper is self-contained. If a
   downstream user needs true host-framework binding, that is a future option

@@ -278,13 +278,25 @@ Attributes:
 | `tracer_index`             | `NF90_INT`        | yes  | 1-based position in registration order                      |
 
 Tracer **data** written at a savepoint lands as an ordinary savepoint
-variable (§6), named by the tracer name suffixed with the timelevel when a
-`@timelevel` was given, joined by an underscore: `q_v@nnow` → `q_v_nnow`; no
-timelevel → `q_v`. The timelevel is recorded **only** in this variable name,
-not as a descriptor attribute — the same tracer at different timelevels is a
-distinct snapshot, not a distinct tracer. Because tracer data uses the
-field-data layout unchanged, readers need no new data-read path — only
-`/_tracers` descriptor discovery.
+variable (§6) **named by the tracer name alone** (e.g. `q_v`) — identical in
+shape and dtype to a `!$SER DATA` field, so readers need no new data-read
+path, only `/_tracers` descriptor discovery.
+
+When the `!$SER TRACER` write carried a `@timelevel`, the variable gains an
+optional `timelevel` (`NF90_INT`) attribute recording the integer level the
+snapshot came from. (At runtime the directive's `@nnow` is emitted as the
+unquoted Fortran expression `timelevel=nnow`, so it reaches the helper as an
+integer index, not a string — the literal `@`/`nnow` never reach disk.) The
+attribute is absent when no timelevel was given; readers MUST tolerate its
+absence.
+
+Because the variable name is the tracer name alone, there is **one snapshot
+per `(savepoint, tracer)`: last write wins**. Writing the same tracer at two
+timelevels in one savepoint (`!$SER TRACER q_v@nnow q_v@nnew`) overwrites —
+only the last snapshot and its `timelevel` attribute survive. This is an
+accepted v1.0 limitation; preserving multi-timelevel fan-out as distinct data
+is a future additive change (ADR [0003](../adr/0003-tracer-storage.md) §2 and
+Alternatives).
 
 ---
 
