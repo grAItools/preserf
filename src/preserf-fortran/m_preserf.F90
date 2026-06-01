@@ -936,9 +936,19 @@ contains
       do i = 1, ppser_kbuff_count
          if (ppser_kbuffers(i)%grpid == grpid .and. &
              trim(ppser_kbuffers(i)%name) == trim(fieldname)) then
-            if (ppser_kbuffers(i)%slice_size /= slice_size .or. &
-                ppser_kbuffers(i)%k_size /= k_size .or. &
+            ! The rank check gates the fshape comparison: when full_rank
+            ! matches, the stored slice dims are fshape(1:sr) and can be
+            ! compared element-wise against this call's slice_shape (two
+            ! shapes with the same total size but different dims — e.g.
+            ! [10,20] vs [8,25] — must be rejected, not silently merged).
+            if (ppser_kbuffers(i)%k_size /= k_size .or. &
                 ppser_kbuffers(i)%full_rank /= sr + 1) then
+               write (*, '(a,a,a)') &
+                  'preserf: fs_write_kbuff for "', trim(fieldname), &
+                  '" has an inconsistent slice shape / k_size across levels'
+               error stop 1
+            end if
+            if (any(ppser_kbuffers(i)%fshape(1:sr) /= slice_shape)) then
                write (*, '(a,a,a)') &
                   'preserf: fs_write_kbuff for "', trim(fieldname), &
                   '" has an inconsistent slice shape / k_size across levels'

@@ -1059,20 +1059,22 @@ program test_minimal
             end block
          else if (scenario == 'kbuff-bad-shape') then
             ! Two fs_write_kbuff calls for the same field with different
-            ! slice shapes must abort.
+            ! slice shapes — same total size (8) but transposed dims
+            ! [2,4] vs [4,2] — must abort (regression for the per-dim
+            ! shape check, which a size-only check would miss).
             block
-               real(real64) :: s1(3), s2(4)
+               real(real64) :: s1(2, 4), s2(4, 2)
                s1 = 1.0_real64
                s2 = 2.0_real64
                call ppser_initialize(out_dir, 'fkbs', 'w')
                call fs_register_field(ppser_serializer, 'f', 'double', &
-                                      ppser_reallength, 3, 2, 0, 0, &
+                                      ppser_reallength, 2, 4, 3, 0, &
                                       0, 0, 0, 0, 0, 0, 0, 0)
                call fs_create_savepoint('step', ppser_savepoint)
                call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'f', s1, &
-                                   k=1, k_size=2, mode=ppser_get_mode())
+                                   k=1, k_size=3, mode=ppser_get_mode())
                call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'f', s2, &
-                                   k=2, k_size=2, mode=ppser_get_mode())
+                                   k=2, k_size=3, mode=ppser_get_mode())
                call abort_unexpected('kbuff-bad-shape')
             end block
          else

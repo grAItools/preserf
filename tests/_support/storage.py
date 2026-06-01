@@ -225,11 +225,25 @@ def write_dump(dump: SerialboxDump, directory: Path, *, backend: str) -> str:
         root.setncattr("_preserf_singlefile", np.int8(1 if dump.singlefile else 0))
         root.setncattr("_preserf_archive", str(dump.archive))
         root.setncattr("_preserf_unique_id", np.int32(int(dump.unique_id)))
+        # `!$SER OPTION verbosity=` value (Slice C / ADR 0003 §4b); written
+        # only when set, kept symmetric with read_dump.
+        if dump.option_verbosity is not None:
+            root.setncattr(
+                "_preserf_option_verbosity", np.int32(int(dump.option_verbosity))
+            )
         _write_metainfo_attrs(root, dump.global_meta_info)
 
         fields_grp = root.createGroup("_fields")
         for fname, info in dump.field_map.items():
             _write_field_registry(fields_grp, fname, info)
+
+        # Tracer descriptors mirror /_fields (Slice C / ADR 0003 §4a). The
+        # group is created only when tracers are registered, matching the
+        # Fortran helper and read_dump's optional `/_tracers` handling.
+        if dump.tracer_map:
+            tracers_grp = root.createGroup("_tracers")
+            for pos, (tname, info) in enumerate(dump.tracer_map.items(), start=1):
+                _write_tracer_registry(tracers_grp, tname, info, dump, pos)
 
         savepoints_grp = root.createGroup("savepoints")
         for idx, sp in enumerate(dump.savepoints):
@@ -245,6 +259,26 @@ def _write_field_registry(parent: nc.Group, fname: str, info: FieldMetainfo) -> 
     var.setncattr("type_id", np.int32(int(info.type_id)))
     var.setncattr("dims", np.asarray(info.dims, dtype=np.int32))
     _write_metainfo_attrs(var, info.meta_info, reserved=_RESERVED_FIELD_REGISTRY)
+
+
+def _write_tracer_registry(
+    parent: nc.Group,
+    tname: str,
+    info: FieldMetainfo,
+    dump: SerialboxDump,
+    pos: int,
+) -> None:
+    """Write a /_tracers descriptor: like a field carrier plus the
+    tracer-specific `stype` and `tracer_index` attributes (storage_mapping
+    §4a). `pos` is the 1-based fallback index when the dump did not record
+    one explicitly."""
+    var = parent.createVariable(tname, "i4", ())
+    var[...] = np.int32(0)
+    var.setncattr("type_id", np.int32(int(info.type_id)))
+    var.setncattr("dims", np.asarray(info.dims, dtype=np.int32))
+    var.setncattr("stype", str(dump.tracer_stype.get(tname, "")))
+    var.setncattr("tracer_index", np.int32(int(dump.tracer_index.get(tname, pos))))
+    _write_metainfo_attrs(var, info.meta_info, reserved=_RESERVED_TRACER_REGISTRY)
 
 
 _SAVEPOINT_INDEX_LIMIT = 1_000_000  # see storage_mapping.md §5
@@ -282,6 +316,23 @@ def _write_savepoint(
             _write_field_variable(grp, fname, info, arr)
             field_id_pairs.extend([fname, str(fid)])
         grp.setncattr("_preserf_field_ids", field_id_pairs)
+
+    # Tracer snapshots for this savepoint (Slice C / ADR 0003 §4a): each
+    # lands as an ordinary savepoint variable named by the tracer, with the
+    # optional integer timelevel as an attribute. Tracers are NOT listed in
+    # `_preserf_field_ids` (that table is field-only).
+    for tname, by_sp in dump.tracer_data.items():
+        if idx not in by_sp:
+            continue
+        if tname not in dump.tracer_map:
+            raise ValueError(
+                f"savepoint #{idx} ('{sp.name}') has tracer data for '{tname}' "
+                "but no matching entry in dump.tracer_map"
+            )
+        _write_field_variable(grp, tname, dump.tracer_map[tname], by_sp[idx])
+        tl = dump.tracer_timelevel.get(tname, {}).get(idx)
+        if tl is not None:
+            grp.variables[tname].setncattr("timelevel", np.int32(int(tl)))
 
 
 def _write_field_variable(
