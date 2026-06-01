@@ -418,6 +418,67 @@ def test_fortran_writes_tracers_python_reads(
     assert qr[1, 1, 1] == 222  # qr(2,2,2)
 
 
+def test_fortran_writes_kbuff_python_reads(
+    tmp_path: Path, fortran_binary: Path
+) -> None:
+    """Slice C Phase 2: DATA_KBUFF assembled fields round-trip through Python.
+
+    The ``kbuff`` scenario writes two fields one vertical level at a time
+    via ``fs_write_kbuff`` — a 3-D ``t(i,j,k)`` from 2-D slices and a 2-D
+    ``c(i,k)`` from 1-D slices. The helper buffers each slice and flushes
+    the full field on the last level, producing an on-disk variable
+    identical to a ``!$SER DATA`` write (ADR 0003 §5, storage_mapping §6).
+    This asserts the assembled fields match the per-level accumulation.
+    """
+    out_dir = tmp_path / "fortran_out"
+    out_dir.mkdir()
+
+    result = subprocess.run(
+        [str(fortran_binary), str(out_dir), "kbuff"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, (
+        f"Fortran binary exited {result.returncode}.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "preserf-fortran: kbuff OK" in result.stdout
+
+    nc_path = out_dir / "fkbuff.nc"
+    dump = read_dump(str(nc_path))
+
+    # The k-buffered fields register and land exactly like DATA fields:
+    #   t: Fortran (ni=3, nj=2, ke=4) -> C-order dims [4, 2, 3]
+    #   c: Fortran (ni=3, ke=4)       -> C-order dims [4, 3]
+    assert set(dump.field_map) == {"t", "c"}
+    assert dump.field_map["t"].type_id == TypeID.Float64
+    assert dump.field_map["t"].dims == [4, 2, 3]
+    assert dump.field_map["c"].dims == [4, 3]
+    assert len(dump.savepoints) == 1
+
+    # Assembled values: the scenario fills t(i,j,k) = 100i + 10j + k from
+    # 2-D slices and c(i,k) = 10i + k from 1-D slices, one level per call.
+    # preserf reverses axes on disk, so numpy sees t[k-1, j-1, i-1].
+    t = dump.field_data["t"][0]
+    c = dump.field_data["c"][0]
+    assert t.shape == (4, 2, 3)
+    assert c.shape == (4, 3)
+    expected_t = np.array(
+        [
+            [[100 * i + 10 * j + k for i in range(1, 4)] for j in range(1, 3)]
+            for k in range(1, 5)
+        ],
+        dtype=np.float64,
+    )
+    expected_c = np.array(
+        [[10 * i + k for i in range(1, 4)] for k in range(1, 5)], dtype=np.float64
+    )
+    np.testing.assert_array_equal(t, expected_t)
+    np.testing.assert_array_equal(c, expected_c)
+
+
 def test_fortran_bad_reference_path_keeps_target(
     tmp_path: Path, fortran_binary: Path
 ) -> None:

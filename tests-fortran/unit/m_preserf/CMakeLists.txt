@@ -305,3 +305,18 @@ set_tests_properties(preserf_fortran_tracers_roundtrip PROPERTIES
     PASS_REGULAR_EXPRESSION "preserf-fortran: tracers-roundtrip OK"
     TIMEOUT 60
 )
+
+# Slice C Phase 2: DATA_KBUFF. The 'kbuff' scenario writes a 3-D and a 2-D
+# field one vertical level at a time via fs_write_kbuff; the Python
+# cross-language test asserts the assembled fields. The native run
+# confirms the buffer flush completes.
+add_test(
+    NAME preserf_fortran_kbuff
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" kbuff
+)
+set_tests_properties(preserf_fortran_kbuff PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: kbuff OK"
+    TIMEOUT 60
+)

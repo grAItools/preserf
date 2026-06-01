@@ -27,7 +27,9 @@ module m_preserf
                             serialisation_enabled, &
                             t_tracer_entry, ppser_tracers, &
                             ppser_tracer_count, PPSER_MAX_TRACERS, &
-                            PPSER_TRACER_TID_FLOAT64
+                            PPSER_TRACER_TID_FLOAT64, &
+                            t_kbuff_entry, ppser_kbuffers, &
+                            ppser_kbuff_count, PPSER_MAX_KBUFF
    implicit none
    private
 
@@ -68,6 +70,15 @@ module m_preserf
    public :: ppser_write_tracer_by_name
    public :: ppser_write_tracer_by_idx
    public :: ppser_write_tracer_all
+
+   ! DATA_KBUFF (Slice C / ADR 0003 §5). pp_ser emits one fs_write_kbuff
+   ! call per vertical level; the overloads differ by the slice's rank.
+   interface fs_write_kbuff
+      module procedure fs_write_kbuff_r8_1d
+      module procedure fs_write_kbuff_r8_2d
+      module procedure fs_write_kbuff_r8_3d
+   end interface
+   public :: fs_write_kbuff
 
    interface fs_add_savepoint_metainfo
       module procedure fs_add_savepoint_metainfo_l
@@ -763,6 +774,170 @@ contains
          call write_tracer_at_current_sp(i, timelevel)
       end do
    end subroutine ppser_write_tracer_all
+
+   ! ========================================================================
+   ! DATA_KBUFF (ADR 0003 §5, storage_mapping.md §6)
+   !
+   ! fs_write_kbuff buffers the per-level slices of a field and flushes the
+   ! assembled (slice_shape..., k_size) field on the last level via the
+   ! field write path, so the on-disk variable is identical to a !$SER DATA
+   ! write. One active buffer per (savepoint, field); see utils_preserf for
+   ! the table state.
+   ! ========================================================================
+
+   ! Per-slice-rank fs_write_kbuff overloads (real64 slices of rank 1-3).
+#define PRESERF_SUB fs_write_kbuff_r8_1d
+#define PRESERF_DIMS , dimension(:)
+#include "preserf_write_kbuff.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_kbuff_r8_2d
+#define PRESERF_DIMS , dimension(:, :)
+#include "preserf_write_kbuff.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_write_kbuff_r8_3d
+#define PRESERF_DIMS , dimension(:, :, :)
+#include "preserf_write_kbuff.inc"
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+
+   !> Buffer the level-`k` slice of `fieldname` and, on the last level,
+   !> assemble and write the full field. `flat_slice` is the slice
+   !> flattened column-major; placing level k at offset (k-1)*slice_size
+   !> reproduces the full field's column-major layout exactly.
+   subroutine kbuff_accumulate(s, sp, fieldname, flat_slice, slice_shape, &
+                               k, k_size)
+      type(t_serializer), intent(inout) :: s
+      type(t_savepoint), intent(in) :: sp
+      character(len=*), intent(in) :: fieldname
+      real(real64), intent(in) :: flat_slice(:)
+      integer, intent(in) :: slice_shape(:)
+      integer, intent(in) :: k, k_size
+      integer :: idx, slice_size, off
+
+      if (k_size < 1) then
+         write (*, '(a,i0)') &
+            'preserf: fs_write_kbuff k_size must be >= 1; got ', k_size
+         error stop 1
+      end if
+      if (k < 1 .or. k > k_size) then
+         write (*, '(a,i0,a,i0)') &
+            'preserf: fs_write_kbuff k=', k, ' is out of range 1..', k_size
+         error stop 1
+      end if
+
+      slice_size = size(flat_slice)
+      idx = kbuff_find_or_create(sp%grpid, fieldname, slice_shape, &
+                                 slice_size, k_size)
+
+      off = (k - 1)*slice_size
+      ppser_kbuffers(idx)%buffer(off + 1:off + slice_size) = flat_slice
+      ppser_kbuffers(idx)%filled = ppser_kbuffers(idx)%filled + 1
+
+      if (k == k_size) call kbuff_flush(s, sp, idx)
+   end subroutine kbuff_accumulate
+
+   !> Locate the active k-buffer for (grpid, fieldname), validating that a
+   !> resumed buffer agrees on slice shape and k_size; otherwise claim a
+   !> free slot (reusing one freed by a prior flush) and initialise it with
+   !> a zeroed buffer sized slice_size * k_size.
+   function kbuff_find_or_create(grpid, fieldname, slice_shape, slice_size, &
+                                 k_size) result(idx)
+      integer, intent(in) :: grpid
+      character(len=*), intent(in) :: fieldname
+      integer, intent(in) :: slice_shape(:)
+      integer, intent(in) :: slice_size, k_size
+      integer :: idx, i, sr, free_slot
+
+      sr = size(slice_shape)
+      free_slot = 0
+      do i = 1, ppser_kbuff_count
+         if (ppser_kbuffers(i)%grpid == grpid .and. &
+             trim(ppser_kbuffers(i)%name) == trim(fieldname)) then
+            if (ppser_kbuffers(i)%slice_size /= slice_size .or. &
+                ppser_kbuffers(i)%k_size /= k_size .or. &
+                ppser_kbuffers(i)%full_rank /= sr + 1) then
+               write (*, '(a,a,a)') &
+                  'preserf: fs_write_kbuff for "', trim(fieldname), &
+                  '" has an inconsistent slice shape / k_size across levels'
+               error stop 1
+            end if
+            idx = i
+            return
+         end if
+         if (free_slot == 0 .and. ppser_kbuffers(i)%grpid == -1) free_slot = i
+      end do
+
+      if (free_slot /= 0) then
+         idx = free_slot
+      else
+         if (ppser_kbuff_count >= PPSER_MAX_KBUFF) then
+            write (*, '(a,i0)') &
+               'preserf: too many concurrent k-buffers; cap is ', PPSER_MAX_KBUFF
+            error stop 1
+         end if
+         ppser_kbuff_count = ppser_kbuff_count + 1
+         idx = ppser_kbuff_count
+      end if
+
+      if (sr < 1 .or. sr > 3) then
+         write (*, '(a)') &
+            'preserf: fs_write_kbuff supports slice rank 1..3 only'
+         error stop 1
+      end if
+      ppser_kbuffers(idx)%grpid = grpid
+      ppser_kbuffers(idx)%name = fieldname
+      ppser_kbuffers(idx)%full_rank = sr + 1
+      ppser_kbuffers(idx)%fshape = 0
+      ppser_kbuffers(idx)%fshape(1:sr) = slice_shape
+      ppser_kbuffers(idx)%fshape(sr + 1) = k_size
+      ppser_kbuffers(idx)%slice_size = slice_size
+      ppser_kbuffers(idx)%k_size = k_size
+      ppser_kbuffers(idx)%filled = 0
+      if (allocated(ppser_kbuffers(idx)%buffer)) &
+         deallocate (ppser_kbuffers(idx)%buffer)
+      allocate (ppser_kbuffers(idx)%buffer(slice_size*k_size))
+      ppser_kbuffers(idx)%buffer = 0.0_real64
+   end function kbuff_find_or_create
+
+   !> Reshape the completed buffer to the full field shape and write it via
+   !> fs_write_field (which validates the /_fields registration), then free
+   !> the slot. The reshape dispatches on the full field rank.
+   subroutine kbuff_flush(s, sp, idx)
+      type(t_serializer), intent(inout) :: s
+      type(t_savepoint), intent(in) :: sp
+      integer, intent(in) :: idx
+
+      select case (ppser_kbuffers(idx)%full_rank)
+      case (2)
+         call fs_write_field(s, sp, trim(ppser_kbuffers(idx)%name), &
+                             reshape(ppser_kbuffers(idx)%buffer, &
+                                     ppser_kbuffers(idx)%fshape(1:2)))
+      case (3)
+         call fs_write_field(s, sp, trim(ppser_kbuffers(idx)%name), &
+                             reshape(ppser_kbuffers(idx)%buffer, &
+                                     ppser_kbuffers(idx)%fshape(1:3)))
+      case (4)
+         call fs_write_field(s, sp, trim(ppser_kbuffers(idx)%name), &
+                             reshape(ppser_kbuffers(idx)%buffer, &
+                                     ppser_kbuffers(idx)%fshape(1:4)))
+      case default
+         write (*, '(a,i0)') &
+            'preserf: k-buffer has unsupported full rank ', &
+            ppser_kbuffers(idx)%full_rank
+         error stop 1
+      end select
+
+      deallocate (ppser_kbuffers(idx)%buffer)
+      ppser_kbuffers(idx)%grpid = -1
+      ppser_kbuffers(idx)%name = ''
+      ppser_kbuffers(idx)%full_rank = 0
+      ppser_kbuffers(idx)%fshape = 0
+      ppser_kbuffers(idx)%slice_size = 0
+      ppser_kbuffers(idx)%k_size = 0
+      ppser_kbuffers(idx)%filled = 0
+   end subroutine kbuff_flush
 
    ! ========================================================================
    ! METAINFO — scalar overloads (savepoint)

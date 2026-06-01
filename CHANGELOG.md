@@ -31,8 +31,19 @@ embedded in each spec's Problem section.
   A native `tracers` / `tracers-roundtrip` ctest plus a
   `test_fortran_wire_compat.py` scenario assert the descriptors, per-entry-
   point data placement, the timelevel attribute, and axis-order through the
-  Python reference reader. `!$SER DATA_KBUFF` / `!$SER OPTION` (Slice C
-  Phases 2–3) are still pending.
+  Python reference reader.
+- k-buffer serialization (Slice C, Phase 2 — `!$SER DATA_KBUFF`):
+  `fs_write_kbuff(serializer, savepoint, name, data, k, k_size, mode)` is
+  called once per vertical level with the horizontal slice at that level;
+  the helper buffers each slice and, on the last level (`k == k_size`),
+  assembles the full `(slice_shape…, k_size)` field and writes it through
+  the field path, so the on-disk variable is byte-identical to a `!$SER
+  DATA` write (`storage_mapping.md` §6, ADR 0003 §5). v1.0 buffers
+  `real(real64)` slices of rank 1–3 (fields rank 2–4) in write mode; read
+  mode is a no-op (the assembled field is recoverable via `fs_read_field`).
+  A native `kbuff` ctest plus a `test_fortran_wire_compat.py` scenario
+  assert the assembled fields against the per-level accumulation. `!$SER
+  OPTION` (Slice C Phase 3) is still pending.
 - Full numeric type-coverage matrix (Slice B): the Fortran helper's
   `fs_write_field` / `fs_read_field` overloads now cover every
   `{logical, int32, int64, real32, real64}` × `{0D, 1D, 2D, 3D, 4D}`

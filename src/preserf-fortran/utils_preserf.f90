@@ -154,11 +154,38 @@ module utils_preserf
    integer, public, save :: ppser_tracer_count = 0
 
    ! -------------------------------------------------------------------------
+   ! k-buffer table (DATA_KBUFF, ADR 0003 §5, storage_mapping.md §6)
+   ! -------------------------------------------------------------------------
+   !
+   ! `fs_write_kbuff` is called once per vertical level `k` with the
+   ! horizontal slice at that level; the helper buffers each slice and, on
+   ! the last level (k == k_size), assembles the full field and writes it
+   ! like a !$SER DATA field. One active buffer per (savepoint group, field
+   ! name); a slot is freed on flush. v1.0 buffers real(real64) slices of
+   ! rank 1-3 (full fields rank 2-4). `fshape` is the full field's Fortran
+   ! shape: the slice shape followed by k_size.
+   integer, parameter, public :: PPSER_MAX_KBUFF = 64
+
+   type, public :: t_kbuff_entry
+      integer :: grpid = -1
+      character(len=PPSER_TRACER_NAME_LEN) :: name = ''
+      integer :: full_rank = 0
+      integer :: fshape(4) = 0
+      integer :: slice_size = 0
+      integer :: k_size = 0
+      integer :: filled = 0
+      real(real64), allocatable :: buffer(:)
+   end type t_kbuff_entry
+
+   type(t_kbuff_entry), public, save :: ppser_kbuffers(PPSER_MAX_KBUFF)
+   integer, public, save :: ppser_kbuff_count = 0
+
+   ! -------------------------------------------------------------------------
    ! Public procedures
    ! -------------------------------------------------------------------------
    public :: ppser_initialize, ppser_finalize
    public :: ppser_get_mode, ppser_set_mode
-   public :: ppser_reset_tracers
+   public :: ppser_reset_tracers, ppser_reset_kbuffers
    public :: preserf_check_nf, preserf_check_nf_with_msg
    public :: preserf_writer_version
    public :: preserf_logical_to_byte
@@ -406,6 +433,7 @@ contains
       ! state, so a tracer registered before a prior finalize would
       ! otherwise carry into this session and get re-emitted.
       call ppser_reset_tracers()
+      call ppser_reset_kbuffers()
    end subroutine ppser_initialize
 
    !> Close the dataset(s) opened by ppser_initialize.
@@ -417,6 +445,7 @@ contains
       ppser_savepoint%owner_ncid = -1
       ppser_mode_state = 0
       call ppser_reset_tracers()
+      call ppser_reset_kbuffers()
       ! Also restore the ON/OFF gate to its default. ppser_initialize
       ! re-sets this on every fresh session as belt-and-braces, but
       ! resetting here too means an explicit finalize + later code
@@ -445,6 +474,26 @@ contains
       end do
       ppser_tracer_count = 0
    end subroutine ppser_reset_tracers
+
+   !> Drop every active k-buffer (DATA_KBUFF, ADR 0003 §5). Called on a
+   !> fresh `ppser_initialize` and on `ppser_finalize`; a buffer still
+   !> active here means a k-loop was left incomplete, so releasing it
+   !> avoids leaking the partial accumulation into the next session.
+   subroutine ppser_reset_kbuffers()
+      integer :: i
+      do i = 1, ppser_kbuff_count
+         if (allocated(ppser_kbuffers(i)%buffer)) &
+            deallocate (ppser_kbuffers(i)%buffer)
+         ppser_kbuffers(i)%grpid = -1
+         ppser_kbuffers(i)%name = ''
+         ppser_kbuffers(i)%full_rank = 0
+         ppser_kbuffers(i)%fshape = 0
+         ppser_kbuffers(i)%slice_size = 0
+         ppser_kbuffers(i)%k_size = 0
+         ppser_kbuffers(i)%filled = 0
+      end do
+      ppser_kbuff_count = 0
+   end subroutine ppser_reset_kbuffers
 
    !> Set the runtime DATA mode. Only 0 (write), 1 (read), and 2
    !> (read-perturb) are accepted; pp_ser-generated SELECT CASE blocks

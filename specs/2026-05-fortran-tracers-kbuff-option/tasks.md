@@ -28,8 +28,11 @@ Tracks the phased plan in `plan.md` (and the folded-in ADR per
 
 ## Phase 2 — DATA_KBUFF (`fs_write_kbuff`)
 
-- [ ] `fs_write_kbuff` accumulate per-level, flush at `k == k_size`
-- [ ] Cross-language multi-step DATA_KBUFF test
+- [x] k-buffer table state + reset in `utils_preserf.f90`
+- [x] `fs_write_kbuff` (real64 slice ranks 1-3) via CPP template:
+      accumulate per-level, flush at `k == k_size` through `fs_write_field`
+- [x] Cross-language multi-step DATA_KBUFF test (`kbuff` scenario +
+      `test_fortran_writes_kbuff_python_reads`); native `kbuff` ctest
 
 ## Phase 3 — OPTION (`fs_Option`)
 

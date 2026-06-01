@@ -902,6 +902,47 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: tracers-roundtrip OK'
                stop
             end block
+         else if (scenario == 'kbuff') then
+            ! Slice C Phase 2: DATA_KBUFF. Write two fields one vertical
+            ! level at a time through fs_write_kbuff — a 3-D field t(i,j,k)
+            ! from 2-D (i,j) slices and a 2-D field c(i,k) from 1-D (i)
+            ! slices. The helper buffers each slice and flushes the full
+            ! field on the last level (k == k_size); the on-disk variable
+            ! is byte-identical to a !$SER DATA write. The Python
+            ! wire-compat test asserts the assembled fields.
+            block
+               integer, parameter :: ni = 3, nj = 2, ke = 4
+               real(real64) :: tslice(ni, nj), cslice(ni)
+               integer :: i, j, kk
+               call ppser_initialize(out_dir, 'fkbuff', 'w')
+               call fs_register_field(ppser_serializer, 't', 'double', &
+                                      ppser_reallength, ni, nj, ke, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'c', 'double', &
+                                      ppser_reallength, ni, ke, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               ! Emit each level in a k-loop, as pp_ser-generated code does.
+               do kk = 1, ke
+                  do j = 1, nj
+                     do i = 1, ni
+                        tslice(i, j) = real(100*i + 10*j + kk, real64)
+                     end do
+                  end do
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 't', &
+                                      tslice, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+                  do i = 1, ni
+                     cslice(i) = real(10*i + kk, real64)
+                  end do
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'c', &
+                                      cslice, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+               end do
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: kbuff OK'
+               stop
+            end block
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &
