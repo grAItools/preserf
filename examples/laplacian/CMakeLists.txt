@@ -1,7 +1,8 @@
 # preserf example: build the Laplacian program against the `preserf_fortran`
-# helper library. This file is self-contained: configuring and building it
+# helper library. Run from inside the `examples` pixi env (so the `preserf`
+# CLI and the Fortran/netcdf toolchain are on PATH): configuring and building
 # (`cmake -S . -B build && cmake --build build`) expands the `!$SER`
-# directives and compiles the result, with no prior `run.sh` step required.
+# directives and compiles the result — no prior `run.sh` step required.
 cmake_minimum_required(VERSION 3.20)
 project(preserf_example_laplacian LANGUAGES Fortran)
 
@@ -21,9 +22,10 @@ set(_input ${CMAKE_CURRENT_SOURCE_DIR}/laplacian.f90)
 set(_generated ${CMAKE_CURRENT_BINARY_DIR}/laplacian.F90)
 
 # Regenerate whenever the input OR the preprocessor implementation changes, so
-# an incremental build never compiles a stale expansion. CONFIGURE_DEPENDS
-# re-globs the CLI sources so a newly added module is picked up.
-file(GLOB _preserf_cli_sources CONFIGURE_DEPENDS
+# an incremental build never compiles a stale expansion. GLOB_RECURSE picks up
+# nested CLI modules (e.g. subpackages), and CONFIGURE_DEPENDS re-globs so a
+# newly added module is tracked without a manual reconfigure.
+file(GLOB_RECURSE _preserf_cli_sources CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/../../src/preserf/*.py)
 
 add_custom_command(

@@ -18,6 +18,17 @@ OUT="$DIR/out"
 
 mkdir -p "$OUT"
 
+# A build/ left over from a different checkout location (e.g. the repo was
+# moved or copied) carries a stale CMakeCache that makes reconfigure abort;
+# drop it so re-runs from a relocated tree just work.
+if [ -f "$BUILD/CMakeCache.txt" ]; then
+    cached_src="$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "$BUILD/CMakeCache.txt")"
+    if [ "$cached_src" != "$DIR" ]; then
+        echo "==> removing stale build cache (was configured for: $cached_src)"
+        rm -rf "$BUILD"
+    fi
+fi
+
 # 1. Configure + build. CMake expands the !$SER directives via the preserf CLI
 #    (the generated build/laplacian.F90 is left in place to read), then
 #    compiles it against the preserf_fortran helper.
