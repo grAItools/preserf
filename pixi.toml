@@ -24,9 +24,19 @@ mypy = ">=1.0"
 pytest = ">=8.0"
 ruff = ">=0.8"
 
+# Standalone examples under examples/ (not part of verify/CI). Adds the
+# plotting/reading deps and cmake on top of the default Fortran toolchain
+# and the editable `preserf` CLI.
+[feature.examples.dependencies]
+cmake = ">=3.20"
+netcdf4 = ">=1.7.4"
+numpy = ">=1.26"
+matplotlib = ">=3.8"
+
 [environments]
 default = { features = [], solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
+examples = { features = ["examples"], solve-group = "default" }
 
 [tasks]
 fmt-py = { cmd = ["ruff", "format", "src", "tests"], default-environment = "dev" }

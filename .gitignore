@@ -208,6 +208,9 @@ __marimo__/
 # pixi environments
 .pixi
 
+# Example run artifacts (build/ is already ignored above; ignore stores too)
+examples/*/out/
+
 
 # >>> ai-agent-harness (managed by copier) >>>
 # Personal overrides — never commit
