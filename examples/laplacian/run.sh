@@ -16,19 +16,16 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD="$DIR/build"
 OUT="$DIR/out"
 
-mkdir -p "$BUILD" "$OUT"
+mkdir -p "$OUT"
 
-# 1. Expand the !$SER directives. Done explicitly (rather than from CMake) so
-#    the generated Fortran is easy to open and read alongside the input.
-echo "==> preserf: expanding !\$SER directives"
-preserf "$DIR/laplacian.f90" -o "$BUILD/laplacian.F90"
-
-# 2. Configure + build against the preserf_fortran helper.
-echo "==> cmake: configuring and building"
+# 1. Configure + build. CMake expands the !$SER directives via the preserf CLI
+#    (the generated build/laplacian.F90 is left in place to read), then
+#    compiles it against the preserf_fortran helper.
+echo "==> cmake: configuring (expands !\$SER) and building"
 cmake -S "$DIR" -B "$BUILD"
 cmake --build "$BUILD"
 
-# 3. Run the binary; it writes the store into out/.
+# 2. Run the binary; it writes the store into out/.
 echo "==> run: computing Laplacian and serializing"
 "$BUILD/laplacian" "$OUT"
 

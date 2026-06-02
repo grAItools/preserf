@@ -1,11 +1,7 @@
-# preserf example: build the preprocessed Laplacian program against the
-# `preserf_fortran` helper library.
-#
-# Unlike the test tree, this CMakeLists compiles a *pre-generated* source:
-# `run.sh` runs the `preserf` CLI first (so users can read the expanded
-# `build/laplacian.F90`), then configures and builds this project. The
-# `.F90` (uppercase) extension makes the compiler run the C preprocessor,
-# which the generated `#ifdef SERIALIZE` guards require.
+# preserf example: build the Laplacian program against the `preserf_fortran`
+# helper library. This file is self-contained: configuring and building it
+# (`cmake -S . -B build && cmake --build build`) expands the `!$SER`
+# directives and compiles the result, with no prior `run.sh` step required.
 cmake_minimum_required(VERSION 3.20)
 project(preserf_example_laplacian LANGUAGES Fortran)
 
@@ -14,8 +10,29 @@ project(preserf_example_laplacian LANGUAGES Fortran)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../src/preserf-fortran
                  preserf_fortran)
 
-# run.sh writes the expanded source here before this project is configured.
+# Expand the !$SER directives at build time via the preserf CLI (mirrors the
+# e2e test tree). The generated `build/laplacian.F90` is left in place so it
+# can be read alongside the input. The `.F90` (uppercase) extension makes the
+# compiler run the C preprocessor, which the emitted `#ifdef SERIALIZE` guards
+# require.
+find_program(PRESERF_CLI preserf REQUIRED)
+
+set(_input ${CMAKE_CURRENT_SOURCE_DIR}/laplacian.f90)
 set(_generated ${CMAKE_CURRENT_BINARY_DIR}/laplacian.F90)
+
+# Regenerate whenever the input OR the preprocessor implementation changes, so
+# an incremental build never compiles a stale expansion. CONFIGURE_DEPENDS
+# re-globs the CLI sources so a newly added module is picked up.
+file(GLOB _preserf_cli_sources CONFIGURE_DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../src/preserf/*.py)
+
+add_custom_command(
+    OUTPUT ${_generated}
+    COMMAND ${PRESERF_CLI} ${_input} -o ${_generated}
+    DEPENDS ${_input} ${_preserf_cli_sources}
+    COMMENT "preserf: expanding !$SER directives in laplacian.f90"
+    VERBATIM
+)
 
 add_executable(laplacian ${_generated})
 target_link_libraries(laplacian PRIVATE preserf_fortran)

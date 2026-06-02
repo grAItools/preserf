@@ -56,8 +56,11 @@ following hold:
 
 1. Slices A-1, A-2, B, C-0, C, D (full), and E have landed on `main`.
 2. `tests/integration_tests/test_fortran_wire_compat.py` parametrises
-   over the full (rank × dtype × backend) matrix and passes in CI
-   with `PRESERF_REQUIRE_FORTRAN=1`.
+   over the full (rank × dtype) matrix plus a representative
+   cross-backend scenario, and passes in CI with
+   `PRESERF_REQUIRE_FORTRAN=1`. (A literal rank × dtype × backend
+   cross-product is deferred to v1.1 hardening — see the sign-off below
+   for the rationale.)
 3. The native Fortran test exercises at least one read-mode
    round-trip per shipped slice (A-1 read-back, A-2 perturb-read, B
    type matrix, C tracer write+read).

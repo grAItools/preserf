@@ -37,6 +37,7 @@ def main(argv: list[str]) -> int:
     url = argv[1] if len(argv) > 1 else str(DEFAULT_STORE)
 
     root = nc.Dataset(url, "r")
+    root.set_auto_mask(False)  # plain ndarrays, not masked arrays
     try:
         phi = read_field(root, "sp_000000", "phi")
         lap = read_field(root, "sp_000000", "lap")
@@ -64,9 +65,11 @@ def main(argv: list[str]) -> int:
     fig.suptitle("preserf example: Laplacian of sin(2x)cos(3y)")
     fig.tight_layout()
 
-    out_png = Path(url).with_suffix(".png")
-    if out_png.suffix != ".png":  # NCZarr URL: fall back to a sibling PNG
-        out_png = DEFAULT_STORE.with_suffix(".png")
+    # Write the PNG next to the store. Strip any "file://" scheme and NCZarr
+    # URL fragment (e.g. ".../laplacian.zarr#mode=nczarr,zarr2") first so the
+    # derived path is sane for both a plain .nc file and a zarr URL.
+    store_path = url.split("#", 1)[0].removeprefix("file://")
+    out_png = Path(store_path).with_suffix(".png")
     fig.savefig(out_png, dpi=120)
     print(f"Wrote {out_png}")
     return 0
