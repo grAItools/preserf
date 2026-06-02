@@ -19,18 +19,18 @@ and [#15](https://github.com/grAItools/preserf/pull/15); Slice B′
 
 ## Progress at a glance
 
-| Slice | Title                                                                        | Status        | Tracking PR(s) |
-| ----- | ---------------------------------------------------------------------------- | ------------- | -------------- |
-| A-1   | [Read-mode resolve-and-validate](2026-05-fortran-read-mode/)                 | shipped       | —              |
-| A-2   | [Read-perturb implementation](2026-05-fortran-read-perturb/)                 | shipped       | —              |
-| B     | [Full type-coverage matrix (numeric)](2026-05-fortran-type-coverage-matrix/) | shipped       | —              |
-| B′    | String data fields                                                           | deferred      | —              |
-| C-0   | ADR: tracer descriptor storage (`docs/adr/0003-tracer-storage.md`)           | shipped       | —              |
-| C     | [Tracers, k-buffer, OPTION](2026-05-fortran-tracers-kbuff-option/)           | shipped       | —              |
-| D     | [pp_ser.py port — open work](2026-05-preprocessor-port-open-work/)           | partial       | #6 (core)      |
-| E     | [Backend selector + NCZarr URL targets](2026-05-fortran-backend-selector/)   | shipped       | —              |
-| F     | CI for the Fortran build                                                     | shipped       | #14, #15       |
-| G     | [Append mode](2026-05-fortran-append-mode/)                                  | deferred-v1.0 | —              |
+| Slice | Title                                                                        | Status        | Tracking PR(s)                      |
+| ----- | ---------------------------------------------------------------------------- | ------------- | ----------------------------------- |
+| A-1   | [Read-mode resolve-and-validate](2026-05-fortran-read-mode/)                 | shipped       | —                                   |
+| A-2   | [Read-perturb implementation](2026-05-fortran-read-perturb/)                 | shipped       | —                                   |
+| B     | [Full type-coverage matrix (numeric)](2026-05-fortran-type-coverage-matrix/) | shipped       | —                                   |
+| B′    | String data fields                                                           | deferred      | —                                   |
+| C-0   | ADR: tracer descriptor storage (`docs/adr/0003-tracer-storage.md`)           | shipped       | —                                   |
+| C     | [Tracers, k-buffer, OPTION](2026-05-fortran-tracers-kbuff-option/)           | shipped       | —                                   |
+| D     | [pp_ser.py port — open work](2026-05-preprocessor-port-open-work/)           | shipped       | #6 (core); open work landed via #21 |
+| E     | [Backend selector + NCZarr URL targets](2026-05-fortran-backend-selector/)   | shipped       | —                                   |
+| F     | CI for the Fortran build                                                     | shipped       | #14, #15                            |
+| G     | [Append mode](2026-05-fortran-append-mode/)                                  | deferred-v1.0 | —                                   |
 
 Update this table on every slice-PR merge — single source of truth for
 "where are we", with per-spec detail in each linked dir.
@@ -73,6 +73,39 @@ Slice G (append mode); both are documented as low-priority today and
 should not block a v1.0 cut. If demand emerges, they ship as v1.1.
 B′ has no spec dir yet; G's spec exists so the work is captured but
 is marked deferred.
+
+### v1.0 DoD sign-off (2026-06-02)
+
+All five criteria are met; the release is ready to cut once the version
+label (`pyproject.toml`) and a `CHANGELOG.md` entry are added — those two
+steps are intentionally held back from this sign-off.
+
+1. **All slices landed** — ✅ A-1, A-2, B, C-0, C, D (full), E are all
+   `shipped` in the table above; only B′ and G remain, both deferred by
+   design. Slice D's open work landed via #21
+   (`ppser_initialize` widened + wired in
+   `src/preserf-fortran/utils_preserf.f90:308-453`).
+2. **Wire-compat matrix** — ✅ the 25-field `rank × dtype` matrix is
+   parametrised in
+   `tests/integration_tests/test_fortran_wire_compat.py:736-737`. The
+   `backend` axis is covered by the representative `backend-nczarr`
+   scenario (same file, ~L256-283): the helper is a single writer that
+   emits the same group-per-savepoint schema to both NetCDF4 and
+   NCZarr, so one full-matrix backend plus a representative cross-backend
+   scenario exercises the on-disk contract. A literal
+   `rank × dtype × backend` cross-product is a possible v1.1 hardening,
+   not a v1.0 blocker.
+3. **Native read-mode round-trip per slice** — ✅
+   `tests-fortran/unit/m_preserf/test_minimal.f90` exercises
+   `read-roundtrip` (A-1, L287), `perturb-roundtrip` (A-2, L333),
+   `type-matrix` / `wire-matrix` (B, L542/L696), and `tracers-roundtrip`
+   (C, L870).
+4. **No `error stop` stub** — ✅ every `error stop` in
+   `src/preserf-fortran/` is a genuine runtime-validation path
+   (unsupported rank, unsupported `nc_type`, schema-version mismatch);
+   no compile-only overload stub remains.
+5. **`_preserf_*` housekeeping round-trips** — ✅ asserted end-to-end by
+   `tests/integration_tests/test_preprocessor_e2e.py` (Slice D Phase 3).
 
 ## Out of scope (any release)
 

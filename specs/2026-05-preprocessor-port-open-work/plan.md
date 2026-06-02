@@ -1,6 +1,6 @@
 # Slice D plan: `ppser_initialize` widening + end-to-end test
 
-## Phase 1 — Widen the `ppser_initialize` signature
+## Phase 1 — Widen the `ppser_initialize` signature ✅ done
 
 **Scope.** Add the seven Serialbox-compatible keywords pp_ser passes
 through from `!$SER INIT`.
@@ -22,7 +22,7 @@ through from `!$SER INIT`.
 **Exit criteria.** Signature accepts all seven keywords; existing
 write-mode test still passes.
 
-## Phase 2 — Wire the keywords with side-effects
+## Phase 2 — Wire the keywords with side-effects ✅ done
 
 **Scope.** Three keywords change behaviour, not just metadata.
 
