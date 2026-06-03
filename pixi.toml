@@ -5,6 +5,7 @@ platforms = ["linux-64", "linux-aarch64", "osx-arm64"]
 [dependencies]
 fortran-compiler = "*"
 netcdf-fortran = ">=4.6.0"
+pkg-config = ">=0.29.2,<0.30"
 python = ">=3.12"
 
 [pypi-dependencies]
