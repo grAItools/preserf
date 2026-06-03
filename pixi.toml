@@ -41,21 +41,23 @@ dev = { features = ["dev"], solve-group = "default" }
 examples = { features = ["examples"], solve-group = "default" }
 
 [tasks]
-fmt-py = { cmd = ["ruff", "format", "src", "tests"], default-environment = "dev" }
-fmt-py-src = { cmd = ["ruff", "format"], default-environment = "dev" }
-fmt-f = { cmd = ["fprettify", "--recursive", "src/preserf-fortran"], default-environment = "dev" }
-fmt-f-src = { cmd = ["fprettify"], default-environment = "dev" }
-fmt = { depends-on = ["fmt-py", "fmt-f", "fmt-d"] }
-fmt-py-check = { cmd = ["ruff", "format", "--check", "src", "tests"], default-environment = "dev" }
-fmt-f-check = { cmd = ["python", "-c", "import subprocess,sys;r=subprocess.run(['fprettify','--diff','--recursive','src/preserf-fortran'],capture_output=True,text=True);sys.stdout.write(r.stdout);r.returncode and sys.stderr.write(r.stderr);sys.exit(1 if r.stdout.strip() or r.returncode else 0)"], default-environment = "dev" }
+build-fortran = { cmd = ["sh", "-c", "cmake -S tests-fortran -B build/preserf-fortran && cmake --build build/preserf-fortran"], default-environment = "dev" }
+clean-fortran = { cmd = ["rm", "-rf", "build/preserf-fortran"], default-environment = "dev" }
 fmt-d = { cmd = ["dprint", "fmt"], default-environment = "dev" }
 fmt-d-check = { cmd = ["dprint", "check"], default-environment = "dev" }
+fmt-f = { cmd = ["fprettify", "--recursive", "src/preserf-fortran"], default-environment = "dev" }
+fmt-f-src = { cmd = ["fprettify"], default-environment = "dev" }
+fmt-py = { cmd = ["ruff", "format", "src", "tests"], default-environment = "dev" }
+fmt-py-src = { cmd = ["ruff", "format"], default-environment = "dev" }
+fmt = { depends-on = ["fmt-py", "fmt-f", "fmt-d"] }
+fmt-f-check = { cmd = ["python", "-c", "import subprocess,sys;r=subprocess.run(['fprettify','--diff','--recursive','src/preserf-fortran'],capture_output=True,text=True);sys.stdout.write(r.stdout);r.returncode and sys.stderr.write(r.stderr);sys.exit(1 if r.stdout.strip() or r.returncode else 0)"], default-environment = "dev" }
+fmt-py-check = { cmd = ["ruff", "format", "--check", "src", "tests"], default-environment = "dev" }
 fmt-check = { depends-on = ["fmt-py-check", "fmt-f-check", "fmt-d-check"] }
 lint = { cmd = ["ruff", "check", "src", "tests"], default-environment = "dev" }
-test-all = { depends-on = ["test-py-with-fortran", "test-examples"] }
-test-py = { cmd = ["pytest"], default-environment = "dev" }
+test-fortran = { cmd = ["ctest", "--test-dir", "build/preserf-fortran", "--output-on-failure"], default-environment = "dev", depends-on = ["build-fortran"] }
 test-py-unit = { cmd = ["pytest", "tests/unit_tests"], default-environment = "dev" }
 test-py-integration = { cmd = ["pytest", "tests/integration_tests"], default-environment = "dev" }
+test-py = { cmd = ["pytest"], default-environment = "dev" }
 # Strict pytest run for the cross-language gate: serializes after
 # `test-fortran` (which itself depends on `build-fortran`), and sets
 # PRESERF_REQUIRE_FORTRAN=1 so the wire-compat integration test fails
@@ -65,10 +67,8 @@ test-py-integration = { cmd = ["pytest", "tests/integration_tests"], default-env
 # extra serialization to guarantee `pytest` doesn't start before the
 # Fortran binary exists.
 test-py-with-fortran = { cmd = ["pytest"], default-environment = "dev", env = { PRESERF_REQUIRE_FORTRAN = "1" }, depends-on = ["test-fortran"] }
+test-examples = { cmd = ["bash", "examples/run-all.sh"], default-environment = "examples" }
+test-all = { depends-on = ["test-py-with-fortran", "test-examples"] }
 typecheck = { cmd = ["mypy", "src"], default-environment = "dev" }
 verify = { depends-on = ["fmt-check", "lint", "typecheck", "test-py"] }
-build-fortran = { cmd = ["sh", "-c", "cmake -S tests-fortran -B build/preserf-fortran && cmake --build build/preserf-fortran"], default-environment = "dev" }
-test-fortran = { cmd = ["ctest", "--test-dir", "build/preserf-fortran", "--output-on-failure"], default-environment = "dev", depends-on = ["build-fortran"] }
-test-examples = { cmd = ["bash", "examples/run-all.sh"], default-environment = "examples" }
-clean-fortran = { cmd = ["rm", "-rf", "build/preserf-fortran"], default-environment = "dev" }
 # clean = { cmd = ["rm", "-rf", "build", "dist", "preserf.egg-info"] }
