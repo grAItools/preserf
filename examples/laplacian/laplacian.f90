@@ -48,9 +48,17 @@ program preserf_laplacian
    end if
 
    ! --- arg 2: number of Laplacian iterations (optional, default 3) ---
+   ! Use command_argument_count() to decide presence: a missing argument and a
+   ! genuine retrieval error both yield a positive status, so falling back on
+   ! any non-zero status would silently mask a real failure (e.g. a value
+   ! truncated into nsteps_arg, which reports status -1).
    nsteps = default_nsteps
-   call get_command_argument(2, value=nsteps_arg, status=arg_stat)
-   if (arg_stat == 0) then
+   if (command_argument_count() >= 2) then
+      call get_command_argument(2, value=nsteps_arg, status=arg_stat)
+      if (arg_stat /= 0) then
+         write (*, '(a)') 'preserf example: failed to read step-count argument'
+         error stop 1
+      end if
       read (nsteps_arg, *, iostat=arg_stat) nsteps
       if (arg_stat /= 0 .or. nsteps < 1) then
          write (*, '(a)') 'preserf example: invalid step count (expected a positive integer)'
