@@ -21,7 +21,7 @@ The source code is split into two main parts:
 
 ## Commands (prefer these over guessing)
 
-- `pixi run test-py` — fast Python unit tests
+- `pixi run test-py` — fast Python test suite (unit + integration; integration skips without the Fortran binary)
 - `pixi run test-all` — Python + Fortran ctest + examples (slow; not in `verify`)
 - `pixi run lint` — static checks
 - `pixi run fmt` — auto-format
