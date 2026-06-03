@@ -62,11 +62,13 @@ def laplacian(field: np.ndarray, h: float) -> np.ndarray:
 
 def read_steps(url: str) -> list[dict]:
     """Read every savepoint as an ordered list of {step, phi, lap} dicts."""
+    steps: list[dict] = []
     root = nc.Dataset(url, "r")
     root.set_auto_mask(False)  # plain ndarrays, not masked arrays
     try:
+        if "savepoints" not in root.groups:
+            raise SystemExit(f"no /savepoints group in {url}")
         sp_root = root.groups["savepoints"]
-        steps = []
         for name in sorted(sp_root.groups):  # sp_000000, sp_000001, ...
             grp = sp_root.groups[name]
             step = (
