@@ -45,7 +45,9 @@ This builds the `default` environment (the runtime deps plus the editable
 
 ## Verify the bootstrap
 
-Run the canonical verification gate (fmt-check + lint + typecheck + test):
+Run the canonical verification gate (fmt-check + lint + typecheck +
+`test-py-with-fortran`, which itself chains `test-fortran` →
+`build-fortran` and runs the full pytest suite strictly):
 
 ```sh
 pixi run verify
