@@ -3,15 +3,30 @@
 ## What the agent runs
 
 - **Pre-claim-done gate:** `pixi run verify` — fmt-check + lint +
-  typecheck + test. Also what the Claude Code `Stop` hook runs.
-- **Fast loop:** `pixi run test` (or `pixi run test-unit` for the Python
-  unit slice only) — currently completes in <1s and must stay <60s.
-- **Cross-language slice:** `pixi run test-integration` — requires the
+  typecheck + `test-py-with-fortran` (which chains `build-fortran` and
+  `test-fortran` and then runs pytest strictly, so a missing Fortran
+  binary fails the gate instead of silently skipping the wire-compat
+  test). Also what the Claude Code `Stop` hook runs. On a cold tree the
+  Fortran configure+build adds ~15s; warm runs settle at <6s.
+- **Fast loop:** `pixi run test-py` (or `pixi run test-py-unit` for the
+  Python unit slice only) — currently completes in <1s and must stay <60s.
+- **Cross-language slice:** `pixi run test-py-integration` — requires the
   Fortran binary to be built first (`pixi run build-fortran`). Skips
   cleanly without it by default; CI forces a hard failure via the env
   flag described below.
-- **Native Fortran:** `pixi run build-fortran` then
-  `pixi run test-fortran` (ctest).
+- **Native Fortran:** `pixi run test-fortran` (ctest; chains
+  `build-fortran` automatically).
+- **Strict pytest (no skips):** `pixi run test-py-with-fortran` — sets
+  `PRESERF_REQUIRE_FORTRAN=1` and serializes after `test-fortran`, so
+  the wire-compat test fails (instead of skipping) when the Fortran
+  binary is missing.
+- **Everything-at-once (slow, not in `verify`):** `pixi run test-all` —
+  `test-py-with-fortran` + every example under `examples/`. Pixi's
+  `depends-on` siblings may run in parallel, so `test-all` deliberately
+  chains through `test-py-with-fortran` (which itself depends on
+  `test-fortran`) rather than listing the build/ctest/pytest tasks as
+  parallel siblings — otherwise pytest could start before the Fortran
+  binary exists.
 
 ## Layering
 
@@ -46,13 +61,20 @@ format, used to validate the schema mapping).
 
 ## CI mode
 
-The "Run full verify gate" step in
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) exports
-`PRESERF_REQUIRE_FORTRAN=1` when invoking `pixi run verify`. With that
-flag set, the wire-compat fixture turns its `pytest.skip` into a hard
-`pytest.fail` — a broken Fortran build cannot let the suite pass by
-silently skipping the cross-language test. `xfail` is deliberately
-_not_ used because an xfailed test still lets the suite pass.
+`PRESERF_REQUIRE_FORTRAN=1` (set by the `test-py-with-fortran` task,
+which `verify` and `test-all` both depend on) turns the wire-compat
+fixture's `pytest.skip` into a hard `pytest.fail` — a broken Fortran
+build cannot let the suite pass by silently skipping the cross-language
+test. `xfail` is deliberately _not_ used because an xfailed test still
+lets the suite pass. CI also belt-and-suspenders the env var at the
+`Run full verify gate` step in
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
+
+CI also runs `pixi run test-examples` as its own step after `verify`,
+so every example under `examples/` is built and executed on every PR.
+This is deliberately a separate step (not part of `verify`) so the
+local `pixi run verify` loop stays fast while a broken example still
+breaks CI.
 
 ## Determinism
 
