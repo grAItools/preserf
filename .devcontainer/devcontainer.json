@@ -4,7 +4,7 @@
   "containerEnv": {
     "PATH": "${containerEnv:PATH}:/home/vscode/.pixi/bin"
   },
-  "postCreateCommand": "curl -fsSL https://pixi.sh/install.sh | bash && /home/vscode/.pixi/bin/pixi install --environment dev",
+  "postCreateCommand": "curl -fsSL https://pixi.sh/install.sh | bash && $HOME/.pixi/bin/pixi install --environment dev",
   "remoteUser": "vscode",
   "customizations": {
     "vscode": {
