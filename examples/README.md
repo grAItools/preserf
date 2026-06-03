@@ -13,13 +13,13 @@ Each example is a **self-contained subfolder** following the same shape:
 ├─ <example>.f90      # !$SER-annotated source (preprocessor input)
 ├─ CMakeLists.txt     # builds the generated .F90 against preserf_fortran
 ├─ run.sh             # preserf -> cmake build -> run
-└─ plot.py            # load the store and visualize it
+└─ verify.py          # load the store, check it, and visualize it
 ```
 
 ## Examples
 
-- [`laplacian/`](laplacian/) — Laplacian of a trigonometric field on a 100×100
-  periodic grid, serialized and plotted.
+- [`laplacian/`](laplacian/) — iterated Laplacian of a trigonometric field on a
+  100×100 periodic grid, serialized per step and cross-checked against numpy.
 
 ## Running
 
@@ -29,7 +29,7 @@ default Fortran/netcdf-fortran toolchain and the `preserf` CLI:
 
 ```sh
 pixi run -e examples bash examples/laplacian/run.sh
-pixi run -e examples python examples/laplacian/plot.py examples/laplacian/out/laplacian.nc
+pixi run -e examples python examples/laplacian/verify.py examples/laplacian/out/laplacian.nc
 ```
 
 These examples are **standalone documentation**. They are intentionally _not_

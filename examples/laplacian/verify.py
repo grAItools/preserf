@@ -15,7 +15,7 @@ It then plots the final-step Laplacian from Fortran, the same field recomputed
 in numpy, and their difference. Run inside the ``examples`` pixi environment
 (the store path argument defaults to ``out/laplacian.nc`` next to this file)::
 
-    pixi run -e examples python examples/laplacian/plot.py
+    pixi run -e examples python examples/laplacian/verify.py
 
 The argument is a local store as preserf emits it: a ``.nc`` file or a
 ``file://.../<prefix>.zarr#mode=nczarr,...`` NCZarr URL, so the same script

@@ -43,5 +43,5 @@ echo "==> run: iterating the Laplacian and serializing each step"
 
 echo
 echo "Store written to: $OUT/laplacian.nc"
-echo "Plot it with:"
-echo "  pixi run -e examples python $DIR/plot.py $OUT/laplacian.nc"
+echo "Verify and plot it with:"
+echo "  pixi run -e examples python $DIR/verify.py $OUT/laplacian.nc"

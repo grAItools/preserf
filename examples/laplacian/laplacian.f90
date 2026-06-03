@@ -4,13 +4,13 @@
 !> is fed through the `preserf` CLI by `run.sh` at build time. The generated
 !> Fortran is compiled against the `preserf_fortran` helper (see
 !> CMakeLists.txt), run, and its store is read back / verified / plotted by
-!> `plot.py`.
+!> `verify.py`.
 !>
 !> The initial field is phi(x,y) = sin(2x) * cos(3y) sampled on a 100x100 grid
 !> over the periodic domain [0, 2*pi)^2. A short time loop then applies the
 !> 5-point Laplacian repeatedly (the output of one step is the input of the
 !> next), dumping the input field `phi` and its Laplacian `lap` at every step.
-!> `plot.py` reloads the initial field, re-runs the same iteration in numpy,
+!> `verify.py` reloads the initial field, re-runs the same iteration in numpy,
 !> and checks that every dumped step matches.
 program preserf_laplacian
    use, intrinsic :: iso_fortran_env, only: real64

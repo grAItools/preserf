@@ -54,7 +54,7 @@ end do
   directives dump `phi` and `lap` into `/savepoints/sp_NNNNNN/{phi,lap}`, one
   savepoint group per step.
 
-## What `plot.py` does
+## What `verify.py` does
 
 1. Loads the **initial field** from the first dumped step.
 2. Re-runs the identical iterated Laplacian in numpy (`np.roll`-based periodic
@@ -70,7 +70,7 @@ end do
 
 ```sh
 pixi run -e examples bash examples/laplacian/run.sh
-pixi run -e examples python examples/laplacian/plot.py examples/laplacian/out/laplacian.nc
+pixi run -e examples python examples/laplacian/verify.py examples/laplacian/out/laplacian.nc
 ```
 
 `run.sh` writes three things under this folder:
@@ -81,5 +81,5 @@ pixi run -e examples python examples/laplacian/plot.py examples/laplacian/out/la
   `build/laplacian <outdir> [nsteps]` to change the iteration count.
 - `out/laplacian.nc` — the store, with one savepoint per step.
 
-`plot.py` prints the per-step verification and writes `out/laplacian.png` with
-the three-panel comparison.
+`verify.py` prints the per-step verification and writes `out/laplacian.png`
+with the three-panel comparison.
