@@ -1,10 +1,10 @@
 {
   "name": "preserf",
-  "image": "mcr.microsoft.com/devcontainers/base:debian-13",
+  "image": "mcr.microsoft.com/devcontainers/base:debian-12",
   "containerEnv": {
     "PATH": "${containerEnv:PATH}:/home/vscode/.pixi/bin"
   },
-  "postCreateCommand": "curl -fsSL https://pixi.sh/install.sh | bash && pixi install -e dev",
+  "postCreateCommand": "curl -fsSL https://pixi.sh/install.sh | bash && /home/vscode/.pixi/bin/pixi install --environment dev",
   "remoteUser": "vscode",
   "customizations": {
     "vscode": {
