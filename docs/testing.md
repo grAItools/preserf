@@ -4,9 +4,9 @@
 
 - **Pre-claim-done gate:** `pixi run verify` — fmt-check + lint +
   typecheck + test. Also what the Claude Code `Stop` hook runs.
-- **Fast loop:** `pixi run test` (or `pixi run test-unit` for the Python
-  unit slice only) — currently completes in <1s and must stay <60s.
-- **Cross-language slice:** `pixi run test-integration` — requires the
+- **Fast loop:** `pixi run test-py` (or `pixi run test-py-unit` for the
+  Python unit slice only) — currently completes in <1s and must stay <60s.
+- **Cross-language slice:** `pixi run test-py-integration` — requires the
   Fortran binary to be built first (`pixi run build-fortran`). Skips
   cleanly without it by default; CI forces a hard failure via the env
   flag described below.

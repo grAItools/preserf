@@ -50,13 +50,14 @@ fmt-d = { cmd = ["dprint", "fmt"], default-environment = "dev" }
 fmt-d-check = { cmd = ["dprint", "check"], default-environment = "dev" }
 fmt-check = { depends-on = ["fmt-py-check", "fmt-f-check", "fmt-d-check"] }
 lint = { cmd = ["ruff", "check", "src", "tests"], default-environment = "dev" }
-test = { cmd = ["pytest"], default-environment = "dev" }
-test-all = { cmd = ["pytest"], default-environment = "dev" }
-test-unit = { cmd = ["pytest", "tests/unit_tests"], default-environment = "dev" }
-test-integration = { cmd = ["pytest", "tests/integration_tests"], default-environment = "dev" }
+test = { depends-on = ["test-py", "test-fortran", "test-examples"] }
+test-py = { cmd = ["pytest"], default-environment = "dev" }
+test-py-unit = { cmd = ["pytest", "tests/unit_tests"], default-environment = "dev" }
+test-py-integration = { cmd = ["pytest", "tests/integration_tests"], default-environment = "dev" }
 typecheck = { cmd = ["mypy", "src"], default-environment = "dev" }
 verify = { depends-on = ["fmt-check", "lint", "typecheck", "test"] }
 build-fortran = { cmd = ["sh", "-c", "cmake -S tests-fortran -B build/preserf-fortran && cmake --build build/preserf-fortran"], default-environment = "dev" }
 test-fortran = { cmd = ["ctest", "--test-dir", "build/preserf-fortran", "--output-on-failure"], default-environment = "dev" }
+test-examples = { cmd = ["sh", "-c", "set -e; found=0; for d in examples/*/; do [ -f \"$d/run.sh\" ] || continue; found=1; echo \"==> $d\"; bash \"$d/run.sh\"; done; [ $found -eq 1 ] || { echo 'no examples with run.sh found' >&2; exit 1; }"], default-environment = "examples" }
 clean-fortran = { cmd = ["rm", "-rf", "build/preserf-fortran"], default-environment = "dev" }
 # clean = { cmd = ["rm", "-rf", "build", "dist", "preserf.egg-info"] }

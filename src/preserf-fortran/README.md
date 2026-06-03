@@ -126,7 +126,7 @@ store back with the Python reference reader at
 that every metadata attribute and the field data survives the round-trip:
 
 ```sh
-pixi run test-integration
+pixi run test-py-integration
 ```
 
 If the binary hasn't been built, the test is skipped.
