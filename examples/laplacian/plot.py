@@ -48,8 +48,11 @@ def laplacian(field: np.ndarray, h: float) -> np.ndarray:
 
     The store returns the field in ``[j, i]`` order (netcdf-fortran reverses
     the dimensions of ``phi(ie, je)``), so axis 1 is the ``i`` direction and
-    axis 0 is the ``j`` direction. Neighbour terms are summed E+W+N+S to match
-    the Fortran expression's rounding order.
+    axis 0 is the ``j`` direction. Neighbour terms are summed in the same
+    E+W+N+S order as the Fortran expression to stay numerically close, but
+    Fortran may reassociate or contract these operations (e.g. FMA), so the
+    results are compared with a tolerance (RTOL/ATOL) rather than assuming
+    bitwise-identical rounding.
     """
     return (
         np.roll(field, -1, axis=1)  # i+1 (E)
