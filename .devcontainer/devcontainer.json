@@ -1,10 +1,13 @@
 {
   "name": "preserf",
-  "image": "mcr.microsoft.com/devcontainers/base:debian-12",
-  "containerEnv": {
-    "PATH": "${containerEnv:PATH}:/home/vscode/.pixi/bin"
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
   },
-  "postCreateCommand": "curl -fsSL https://pixi.sh/install.sh | bash && $HOME/.pixi/bin/pixi install --environment dev",
+  "mounts": [
+    "source=${localWorkspaceFolderBasename}-pixi,target=${containerWorkspaceFolder}/.pixi,type=volume"
+  ],
+  "postCreateCommand": "sudo chown vscode .pixi && pixi install --environment dev",
   "remoteUser": "vscode",
   "customizations": {
     "vscode": {
