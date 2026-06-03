@@ -16,8 +16,10 @@ Then ``pixi run test-py`` (or ``pixi run test-py-integration``) will pick
 it up. For a single command that serializes build → pytest and treats a
 missing binary as a hard failure rather than a skip, use
 ``pixi run test-py-with-fortran`` (which sets ``PRESERF_REQUIRE_FORTRAN=1``
-and depends on ``test-fortran``). ``pixi run test-all`` runs that same
-strict path before the examples.
+and depends on ``test-fortran``). ``pixi run test-all`` includes that
+same strict path (alongside ``test-examples``; pixi may run sibling
+``depends-on`` tasks in parallel, so no ordering between the two is
+guaranteed — only that ``test-fortran`` runs before the strict pytest).
 
 In CI (and any environment that should treat a missing binary as a
 regression rather than a skip), set ``PRESERF_REQUIRE_FORTRAN=1`` — the
