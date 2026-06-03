@@ -93,13 +93,14 @@ def main(argv: list[str]) -> int:
     steps = read_steps(url)
 
     # Grid spacing from the field shape: i is axis 1 (columns) -> ie = ncols.
+    # The example uses a square domain (je == ie), so the same h applies to
+    # both directions; a non-square grid would need a separate hj.
     ie = steps[0]["phi"].shape[1]
     h = 2.0 * np.pi / ie
 
     # Reproduce the Fortran iteration in numpy, starting from the dumped
     # initial field, and check input + output at every step.
     phi_py = steps[0]["phi"].copy()
-    lap_py = phi_py  # set in the loop; final value used for the plot
     all_ok = True
     for s in steps:
         lap_py = laplacian(phi_py, h)
@@ -124,12 +125,16 @@ def main(argv: list[str]) -> int:
     python_final = lap_py
     diff = fortran_final - python_final
     vmax = np.abs(fortran_final).max()
+    # Symmetric, non-degenerate colour scale for the difference: it is ~0 when
+    # Fortran and numpy agree, so floor the limit to keep the panel readable.
+    dmax = np.abs(diff).max()
+    dlim = dmax if dmax > 0.0 else 1.0
 
     fig, axes = plt.subplots(1, 3, figsize=(14, 4.2))
     panels = (
         ("Fortran lap (final)", fortran_final, "RdBu_r", -vmax, vmax),
         ("numpy lap (final)", python_final, "RdBu_r", -vmax, vmax),
-        (f"difference (max|Δ|={np.abs(diff).max():.1e})", diff, "PuOr", None, None),
+        (f"difference (max|Δ|={dmax:.1e})", diff, "PuOr", -dlim, dlim),
     )
     for ax, (title, field, cmap, vmn, vmx) in zip(axes, panels, strict=True):
         # netCDF4 returns the field as [j, i]; plot it directly (no transpose)

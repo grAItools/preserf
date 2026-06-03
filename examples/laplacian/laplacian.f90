@@ -20,6 +20,9 @@ program preserf_laplacian
    ! halo convention). nboundlines = 0 keeps the field halo-free.
    integer, parameter :: ie = 100, je = 100, nboundlines = 0
    ! Number of Laplacian iterations when no count is given on the command line.
+   ! Each step amplifies the field magnitude by ~13x (the eigenvalue of this
+   ! field under the discrete Laplacian), so a large count eventually overflows
+   ! real64 (~nsteps > 270); the example is meant for small counts.
    integer, parameter :: default_nsteps = 3
    real(real64), parameter :: pi = acos(-1.0_real64)
    real(real64), parameter :: h = 2.0_real64*pi/real(ie, real64)
