@@ -4,9 +4,9 @@ This test runs the ``preserf_fortran_test_minimal`` binary built from
 ``tests-fortran/unit/m_preserf/test_minimal.f90`` and validates the
 resulting store via ``tests/_support/storage.py``. If the Fortran library
 hasn't been built the test is skipped by default — the Fortran build is
-intentionally not part of ``pixi run test-py`` because it depends on a
-toolchain (``gfortran`` + ``netcdf-fortran``) that not every local
-environment needs eagerly available.
+intentionally not part of ``pixi run test-py`` so the default Python
+test loop stays fast (sub-second) and doesn't reconfigure / rebuild
+``build/preserf-fortran/`` on every run.
 
 To build the binary locally::
 
