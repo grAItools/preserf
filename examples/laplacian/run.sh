@@ -8,8 +8,8 @@
 #
 # Produces:
 #   build/laplacian.F90   expanded source (the !$SER directives made explicit)
-#   build/laplacian       the compiled binary
-#   out/laplacian.nc      the serialized store
+#   build/laplacian       the compiled binary; run as `laplacian <outdir> [nsteps]`
+#   out/laplacian.nc      the serialized store, one savepoint per time step
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,8 +36,9 @@ echo "==> cmake: configuring (expands !\$SER) and building"
 cmake -S "$DIR" -B "$BUILD"
 cmake --build "$BUILD"
 
-# 2. Run the binary; it writes the store into out/.
-echo "==> run: computing Laplacian and serializing"
+# 2. Run the binary; it writes the store into out/. Pass a second argument
+#    (e.g. `"$BUILD/laplacian" "$OUT" 5`) to change the number of iterations.
+echo "==> run: iterating the Laplacian and serializing each step"
 "$BUILD/laplacian" "$OUT"
 
 echo

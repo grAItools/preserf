@@ -1,16 +1,25 @@
 #!/usr/bin/env python
-"""Load a preserf store and plot the Laplacian example fields.
+"""Verify and plot the iterated-Laplacian preserf store.
 
 Self-contained: reads the store with :mod:`netCDF4` directly (the documented
-``/savepoints/sp_NNNNNN/<name>`` layout) and renders ``phi`` and ``lap`` as
-side-by-side heatmaps. Run inside the ``examples`` pixi environment::
+``/savepoints/sp_NNNNNN/<name>`` layout). The store holds one savepoint per
+time step, each carrying the input field ``phi`` and its Laplacian ``lap``.
 
-    pixi run -e examples python examples/laplacian/plot.py examples/laplacian/out/laplacian.nc
+This script:
+
+1. loads the initial field from the first dumped step,
+2. re-runs the *same* iterated 5-point Laplacian in numpy, and
+3. checks at every step that the numpy input/output match the Fortran dump.
+
+It then plots the final-step Laplacian from Fortran, the same field recomputed
+in numpy, and their difference. Run inside the ``examples`` pixi environment
+(the store path argument defaults to ``out/laplacian.nc`` next to this file)::
+
+    pixi run -e examples python examples/laplacian/plot.py
 
 The argument is a local store as preserf emits it: a ``.nc`` file or a
 ``file://.../<prefix>.zarr#mode=nczarr,...`` NCZarr URL, so the same script
-works for either backend. It also reports ``max|lap - (-13*phi)| / max|phi|``,
-which should be small (O(h^2) discretization error) for this field.
+works for either backend.
 """
 
 from __future__ import annotations
@@ -27,52 +36,117 @@ import numpy as np
 
 DEFAULT_STORE = Path(__file__).resolve().parent / "out" / "laplacian.nc"
 
+# numpy and Fortran do the same float64 arithmetic, so the only divergence is
+# sub-ULP rounding (e.g. gfortran FMA contraction) amplified over a few
+# iterations — comfortably below this relative tolerance.
+RTOL = 1e-9
+ATOL = 1e-12
 
-def read_field(root: nc.Dataset, savepoint: str, name: str) -> np.ndarray:
-    """Return the field `name` from `/savepoints/<savepoint>` as an array."""
-    sp = root.groups["savepoints"].groups[savepoint]
-    return np.asarray(sp.variables[name][...])
+
+def laplacian(field: np.ndarray, h: float) -> np.ndarray:
+    """5-point Laplacian with periodic wrap, matching the Fortran stencil.
+
+    The store returns the field in ``[j, i]`` order (netcdf-fortran reverses
+    the dimensions of ``phi(ie, je)``), so axis 1 is the ``i`` direction and
+    axis 0 is the ``j`` direction. Neighbour terms are summed E+W+N+S to match
+    the Fortran expression's rounding order.
+    """
+    return (
+        np.roll(field, -1, axis=1)  # i+1 (E)
+        + np.roll(field, 1, axis=1)  # i-1 (W)
+        + np.roll(field, -1, axis=0)  # j+1 (N)
+        + np.roll(field, 1, axis=0)  # j-1 (S)
+        - 4.0 * field
+    ) / h**2
+
+
+def read_steps(url: str) -> list[dict]:
+    """Read every savepoint as an ordered list of {step, phi, lap} dicts."""
+    root = nc.Dataset(url, "r")
+    root.set_auto_mask(False)  # plain ndarrays, not masked arrays
+    try:
+        sp_root = root.groups["savepoints"]
+        steps = []
+        for name in sorted(sp_root.groups):  # sp_000000, sp_000001, ...
+            grp = sp_root.groups[name]
+            step = (
+                int(grp.getncattr("step"))
+                if "step" in grp.ncattrs()
+                else len(steps) + 1
+            )
+            steps.append(
+                {
+                    "step": step,
+                    "phi": np.asarray(grp.variables["phi"][...]),
+                    "lap": np.asarray(grp.variables["lap"][...]),
+                }
+            )
+    finally:
+        root.close()
+    if not steps:
+        raise SystemExit(f"no savepoints found in {url}")
+    return steps
 
 
 def main(argv: list[str]) -> int:
     url = argv[1] if len(argv) > 1 else str(DEFAULT_STORE)
+    steps = read_steps(url)
 
-    root = nc.Dataset(url, "r")
-    root.set_auto_mask(False)  # plain ndarrays, not masked arrays
-    try:
-        phi = read_field(root, "sp_000000", "phi")
-        lap = read_field(root, "sp_000000", "lap")
-    finally:
-        root.close()
+    # Grid spacing from the field shape: i is axis 1 (columns) -> ie = ncols.
+    ie = steps[0]["phi"].shape[1]
+    h = 2.0 * np.pi / ie
 
-    fields = (("phi", phi), ("lap", lap))
-
-    for label, field in fields:
+    # Reproduce the Fortran iteration in numpy, starting from the dumped
+    # initial field, and check input + output at every step.
+    phi_py = steps[0]["phi"].copy()
+    lap_py = phi_py  # set in the loop; final value used for the plot
+    all_ok = True
+    for s in steps:
+        lap_py = laplacian(phi_py, h)
+        in_ok = np.allclose(s["phi"], phi_py, rtol=RTOL, atol=ATOL)
+        out_ok = np.allclose(s["lap"], lap_py, rtol=RTOL, atol=ATOL)
+        in_err = np.abs(s["phi"] - phi_py).max()
+        out_err = np.abs(s["lap"] - lap_py).max()
         print(
-            f"{label}: shape={field.shape} "
-            f"min={field.min():.4g} max={field.max():.4g} mean={field.mean():.4g}"
+            f"step {s['step']}: input match={in_ok} (max|Δ|={in_err:.2e})  "
+            f"output match={out_ok} (max|Δ|={out_err:.2e})"
         )
+        all_ok = all_ok and in_ok and out_ok
+        phi_py = lap_py  # the operator is applied repeatedly
 
-    # Analytic check: continuous Laplacian of sin(2x)cos(3y) is -13*phi.
-    # max|phi| ~ 1 for this field, so no zero-divisor guard is needed.
-    rel_err = np.abs(lap - (-13.0 * phi)).max() / np.abs(phi).max()
-    print(f"max |lap - (-13*phi)| / max|phi| = {rel_err:.4g}  (expect O(h^2))")
+    if not all_ok:
+        print("MISMATCH: numpy and Fortran results diverged beyond tolerance")
+        return 1
+    print(f"OK: all {len(steps)} timesteps match between Fortran and numpy.")
 
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4.2))
-    for ax, (label, field) in zip(axes, fields, strict=True):
-        # netcdf-fortran stores phi(ie,je) so netCDF4 reads it back as [j, i];
-        # plot it directly (no transpose) to put i on the x-axis, j on the y-axis.
-        im = ax.imshow(field, origin="lower", cmap="RdBu_r", aspect="equal")
-        ax.set_title(label)
+    # Plot the final-step Laplacian from Fortran, from numpy, and the diff.
+    fortran_final = steps[-1]["lap"]
+    python_final = lap_py
+    diff = fortran_final - python_final
+    vmax = np.abs(fortran_final).max()
+
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4.2))
+    panels = (
+        ("Fortran lap (final)", fortran_final, "RdBu_r", -vmax, vmax),
+        ("numpy lap (final)", python_final, "RdBu_r", -vmax, vmax),
+        (f"difference (max|Δ|={np.abs(diff).max():.1e})", diff, "PuOr", None, None),
+    )
+    for ax, (title, field, cmap, vmn, vmx) in zip(axes, panels, strict=True):
+        # netCDF4 returns the field as [j, i]; plot it directly (no transpose)
+        # to put i on the x-axis and j on the y-axis.
+        im = ax.imshow(
+            field, origin="lower", cmap=cmap, aspect="equal", vmin=vmn, vmax=vmx
+        )
+        ax.set_title(title)
         ax.set_xlabel("i")
         ax.set_ylabel("j")
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    fig.suptitle("preserf example: Laplacian of sin(2x)cos(3y)")
+    fig.suptitle(f"preserf example: iterated Laplacian after {len(steps)} steps")
     fig.tight_layout()
 
     # Write the PNG next to the store. Strip any "file://" scheme and NCZarr
     # URL fragment (e.g. ".../laplacian.zarr#mode=nczarr,zarr2") first so the
-    # derived path is sane for both a plain .nc file and a zarr URL.
+    # derived path is sane for both a plain .nc file and a local zarr URL.
     store_path = url.split("#", 1)[0].removeprefix("file://")
     out_png = Path(store_path).with_suffix(".png")
     fig.savefig(out_png, dpi=120)
