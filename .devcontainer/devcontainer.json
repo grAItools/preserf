@@ -7,13 +7,23 @@
   "mounts": [
     "source=${localWorkspaceFolderBasename}-pixi,target=${containerWorkspaceFolder}/.pixi,type=volume"
   ],
-  "postCreateCommand": "sudo chown vscode .pixi && pixi install --environment dev",
+  "onCreateCommand": "sudo chown vscode .pixi",
+  "postStartCommand": "pixi install --environment dev",
   "remoteUser": "vscode",
   "customizations": {
     "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.pixi/envs/dev/bin/python"
+      },
       "extensions": [
         "ms-python.python",
-        "charliermarsh.ruff"
+        "ms-python.vscode-pylance",
+        "ms-python.mypy-type-checker",
+        "charliermarsh.ruff",
+        "fortran-lang.linter-gfortran",
+        "ms-vscode.cmake-tools",
+        "twxs.cmake",
+        "dprint.dprint"
       ]
     }
   }
