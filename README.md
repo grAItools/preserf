@@ -23,7 +23,7 @@ The repository contains two main pieces:
 - `pixi run test-all`: run the Python suite, the native Fortran ctest suite, and every example.
 - `pixi run lint`: run static checks.
 - `pixi run fmt`: apply formatting.
-- `pixi run verify`: run the full verification gate (fmt-check + lint + typecheck + Python tests).
+- `pixi run verify`: run the full verification gate (fmt-check + lint + typecheck + Python tests + Fortran build/ctest).
 
 ## Key documentation
 

@@ -25,10 +25,11 @@ pytest = ">=8.0"
 ruff = ">=0.8"
 
 # Standalone examples under examples/, exercised by `pixi run test-examples`
-# (which is part of `pixi run test-all`, but deliberately NOT part of
-# `pixi run verify` — the verify gate stays on the fast Python suite).
-# Adds the plotting/reading deps and cmake on top of the default Fortran
-# toolchain and the editable `preserf` CLI.
+# (which is part of `pixi run test-all` but deliberately NOT part of
+# `pixi run verify` — verify covers the strict Python+Fortran suite,
+# not the slower end-to-end example builds). Adds the plotting/reading
+# deps and cmake on top of the default Fortran toolchain and the
+# editable `preserf` CLI.
 [feature.examples.dependencies]
 cmake = ">=3.20"
 netcdf4 = ">=1.7.4"
@@ -70,5 +71,5 @@ test-py-with-fortran = { cmd = ["pytest"], default-environment = "dev", env = { 
 test-examples = { cmd = ["bash", "examples/run-all.sh"], default-environment = "examples" }
 test-all = { depends-on = ["test-py-with-fortran", "test-examples"] }
 typecheck = { cmd = ["mypy", "src"], default-environment = "dev" }
-verify = { depends-on = ["fmt-check", "lint", "typecheck", "test-py"] }
+verify = { depends-on = ["fmt-check", "lint", "typecheck", "test-py-with-fortran"] }
 # clean = { cmd = ["rm", "-rf", "build", "dist", "preserf.egg-info"] }

@@ -36,9 +36,10 @@ pixi run -e examples python examples/laplacian/verify.py examples/laplacian/out/
 These examples are **standalone documentation** but every example is
 also built and run on CI as its own step (see `.github/workflows/ci.yml`)
 so a broken example breaks the build. They are intentionally _not_
-wired into `pixi run verify`, which stays on the fast Python suite.
-To exercise every example in one shot locally, use
-`pixi run test-examples` (which also runs as part of `pixi run test-all`);
-it invokes `examples/run-all.sh`, which iterates each subfolder and runs
-its `run.sh`. Generated artifacts (`build/`, `out/`) are gitignored and
-can be cleared with each example's `clean.sh`.
+wired into `pixi run verify` — verify covers the strict
+Python+Fortran suite, not the end-to-end example builds. To exercise
+every example in one shot locally, use `pixi run test-examples` (which
+also runs as part of `pixi run test-all`); it invokes
+`examples/run-all.sh`, which iterates each subfolder and runs its
+`run.sh`. Generated artifacts (`build/`, `out/`) are gitignored and can
+be cleared with each example's `clean.sh`.
