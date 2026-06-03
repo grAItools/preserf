@@ -12,8 +12,17 @@
   flag described below.
 - **Native Fortran:** `pixi run test-fortran` (ctest; chains
   `build-fortran` automatically).
+- **Strict pytest (no skips):** `pixi run test-py-with-fortran` — sets
+  `PRESERF_REQUIRE_FORTRAN=1` and serializes after `test-fortran`, so
+  the wire-compat test fails (instead of skipping) when the Fortran
+  binary is missing.
 - **Everything-at-once (slow, not in `verify`):** `pixi run test-all` —
-  Python + Fortran ctest + every example under `examples/`.
+  `test-py-with-fortran` + every example under `examples/`. Pixi's
+  `depends-on` siblings may run in parallel, so `test-all` deliberately
+  chains through `test-py-with-fortran` (which itself depends on
+  `test-fortran`) rather than listing the build/ctest/pytest tasks as
+  parallel siblings — otherwise pytest could start before the Fortran
+  binary exists.
 
 ## Layering
 

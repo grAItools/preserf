@@ -52,10 +52,19 @@ fmt-d = { cmd = ["dprint", "fmt"], default-environment = "dev" }
 fmt-d-check = { cmd = ["dprint", "check"], default-environment = "dev" }
 fmt-check = { depends-on = ["fmt-py-check", "fmt-f-check", "fmt-d-check"] }
 lint = { cmd = ["ruff", "check", "src", "tests"], default-environment = "dev" }
-test-all = { depends-on = ["test-py", "test-fortran", "test-examples"] }
+test-all = { depends-on = ["test-py-with-fortran", "test-examples"] }
 test-py = { cmd = ["pytest"], default-environment = "dev" }
 test-py-unit = { cmd = ["pytest", "tests/unit_tests"], default-environment = "dev" }
 test-py-integration = { cmd = ["pytest", "tests/integration_tests"], default-environment = "dev" }
+# Strict pytest run for the cross-language gate: serializes after
+# `test-fortran` (which itself depends on `build-fortran`), and sets
+# PRESERF_REQUIRE_FORTRAN=1 so the wire-compat integration test fails
+# instead of skipping when the Fortran binary is missing. Pixi's
+# `depends-on` only orders a task's own deps before its `cmd`; siblings
+# under a single `depends-on` list may run in parallel, so we need this
+# extra serialization to guarantee `pytest` doesn't start before the
+# Fortran binary exists.
+test-py-with-fortran = { cmd = ["pytest"], default-environment = "dev", env = { PRESERF_REQUIRE_FORTRAN = "1" }, depends-on = ["test-fortran"] }
 typecheck = { cmd = ["mypy", "src"], default-environment = "dev" }
 verify = { depends-on = ["fmt-check", "lint", "typecheck", "test-py"] }
 build-fortran = { cmd = ["sh", "-c", "cmake -S tests-fortran -B build/preserf-fortran && cmake --build build/preserf-fortran"], default-environment = "dev" }

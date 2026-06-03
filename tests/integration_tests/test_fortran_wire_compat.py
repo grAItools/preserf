@@ -13,7 +13,11 @@ To build the binary locally::
     pixi run build-fortran
 
 Then ``pixi run test-py`` (or ``pixi run test-py-integration``) will pick
-it up. ``pixi run test-all`` chains the build automatically.
+it up. For a single command that serializes build → pytest and treats a
+missing binary as a hard failure rather than a skip, use
+``pixi run test-py-with-fortran`` (which sets ``PRESERF_REQUIRE_FORTRAN=1``
+and depends on ``test-fortran``). ``pixi run test-all`` runs that same
+strict path before the examples.
 
 In CI (and any environment that should treat a missing binary as a
 regression rather than a skip), set ``PRESERF_REQUIRE_FORTRAN=1`` — the

@@ -23,9 +23,8 @@ jobs:
           environments: dev examples
           cache: true
 
-      - name: Build Fortran helper
-        run: pixi run build-fortran
-
+      # `test-fortran` chains `build-fortran` via its `depends-on`, so no
+      # separate build step is needed.
       - name: Run native Fortran tests (ctest)
         run: pixi run test-fortran
 
