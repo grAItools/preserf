@@ -24,7 +24,8 @@ mypy = ">=1.0"
 pytest = ">=8.0"
 ruff = ">=0.8"
 
-# Standalone examples under examples/ (not part of verify/CI). Adds the
+# Standalone examples under examples/, run by `pixi run test-examples`
+# (which is part of `pixi run test` / `pixi run verify`). Adds the
 # plotting/reading deps and cmake on top of the default Fortran toolchain
 # and the editable `preserf` CLI.
 [feature.examples.dependencies]

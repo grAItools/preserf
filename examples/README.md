@@ -32,6 +32,8 @@ pixi run -e examples bash examples/laplacian/run.sh
 pixi run -e examples python examples/laplacian/verify.py examples/laplacian/out/laplacian.nc
 ```
 
-These examples are **standalone documentation**. They are intentionally _not_
-wired into `pixi run verify` or CI — run them by hand. Generated artifacts
-(`build/`, `out/`) are gitignored.
+These examples are **standalone documentation** but are also exercised by
+`pixi run test-examples` (which `pixi run verify` runs via `pixi run test`):
+`examples/run-all.sh` iterates every subfolder and invokes its `run.sh`, so
+a broken example breaks the verify gate. Generated artifacts (`build/`,
+`out/`) are gitignored.
