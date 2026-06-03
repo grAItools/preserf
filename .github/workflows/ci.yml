@@ -38,8 +38,8 @@ jobs:
           PRESERF_REQUIRE_FORTRAN: "1"
         run: pixi run verify
 
-      # Examples are deliberately not part of `pixi run verify` (the verify
-      # gate stays on the fast Python suite), but CI still exercises every
-      # example end-to-end so a broken example breaks the build.
+      # Examples are not part of `pixi run verify`, so CI exercises them
+      # as a dedicated step — a broken example breaks the build even
+      # though local `pixi run verify` skips this layer.
       - name: Run example end-to-end suite
         run: pixi run test-examples
