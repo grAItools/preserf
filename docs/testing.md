@@ -56,6 +56,12 @@ flag set, the wire-compat fixture turns its `pytest.skip` into a hard
 silently skipping the cross-language test. `xfail` is deliberately
 _not_ used because an xfailed test still lets the suite pass.
 
+CI also runs `pixi run test-examples` as its own step after `verify`,
+so every example under `examples/` is built and executed on every PR.
+This is deliberately a separate step (not part of `verify`) so the
+local `pixi run verify` loop stays fast while a broken example still
+breaks CI.
+
 ## Determinism
 
 - Time, randomness, and I/O are injectable: pytest tmpdir for the file

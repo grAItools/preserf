@@ -20,7 +20,7 @@ jobs:
       - name: Set up pixi
         uses: prefix-dev/setup-pixi@v0.9.6
         with:
-          environments: dev
+          environments: dev examples
           cache: true
 
       - name: Build Fortran helper
@@ -38,3 +38,9 @@ jobs:
         env:
           PRESERF_REQUIRE_FORTRAN: "1"
         run: pixi run verify
+
+      # Examples are deliberately not part of `pixi run verify` (the verify
+      # gate stays on the fast Python suite), but CI still exercises every
+      # example end-to-end so a broken example breaks the build.
+      - name: Run example end-to-end suite
+        run: pixi run test-examples
