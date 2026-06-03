@@ -37,4 +37,4 @@ description: |
   Stop hook maps any non-zero exit to 2 via `|| exit 2` — both mean "fix it".
 - On slow machines `pixi run verify` may exceed 60s. If that becomes
   routine, open an ADR to move slow suites to
-  `pixi run test-py` / CI.
+  `pixi run test-all` / CI.
