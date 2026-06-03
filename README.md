@@ -19,10 +19,11 @@ The repository contains two main pieces:
 
 ## Development commands
 
-- `pixi run test`: run the fast Python test suite.
+- `pixi run test-py`: run the fast Python test suite.
+- `pixi run test-all`: run the Python suite, the native Fortran ctest suite, and every example.
 - `pixi run lint`: run static checks.
 - `pixi run fmt`: apply formatting.
-- `pixi run verify`: run the full verification gate.
+- `pixi run verify`: run the full verification gate (fmt-check + lint + typecheck + Python tests).
 
 ## Key documentation
 

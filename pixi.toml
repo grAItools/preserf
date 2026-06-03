@@ -24,10 +24,11 @@ mypy = ">=1.0"
 pytest = ">=8.0"
 ruff = ">=0.8"
 
-# Standalone examples under examples/, run by `pixi run test-examples`
-# (which is part of `pixi run test` / `pixi run verify`). Adds the
-# plotting/reading deps and cmake on top of the default Fortran toolchain
-# and the editable `preserf` CLI.
+# Standalone examples under examples/, exercised by `pixi run test-examples`
+# (which is part of `pixi run test-all`, but deliberately NOT part of
+# `pixi run verify` — the verify gate stays on the fast Python suite).
+# Adds the plotting/reading deps and cmake on top of the default Fortran
+# toolchain and the editable `preserf` CLI.
 [feature.examples.dependencies]
 cmake = ">=3.20"
 netcdf4 = ">=1.7.4"
@@ -51,12 +52,12 @@ fmt-d = { cmd = ["dprint", "fmt"], default-environment = "dev" }
 fmt-d-check = { cmd = ["dprint", "check"], default-environment = "dev" }
 fmt-check = { depends-on = ["fmt-py-check", "fmt-f-check", "fmt-d-check"] }
 lint = { cmd = ["ruff", "check", "src", "tests"], default-environment = "dev" }
-test = { depends-on = ["test-py", "test-fortran", "test-examples"] }
+test-all = { depends-on = ["test-py", "test-fortran", "test-examples"] }
 test-py = { cmd = ["pytest"], default-environment = "dev" }
 test-py-unit = { cmd = ["pytest", "tests/unit_tests"], default-environment = "dev" }
 test-py-integration = { cmd = ["pytest", "tests/integration_tests"], default-environment = "dev" }
 typecheck = { cmd = ["mypy", "src"], default-environment = "dev" }
-verify = { depends-on = ["fmt-check", "lint", "typecheck", "test"] }
+verify = { depends-on = ["fmt-check", "lint", "typecheck", "test-py"] }
 build-fortran = { cmd = ["sh", "-c", "cmake -S tests-fortran -B build/preserf-fortran && cmake --build build/preserf-fortran"], default-environment = "dev" }
 test-fortran = { cmd = ["ctest", "--test-dir", "build/preserf-fortran", "--output-on-failure"], default-environment = "dev", depends-on = ["build-fortran"] }
 test-examples = { cmd = ["bash", "examples/run-all.sh"], default-environment = "examples" }

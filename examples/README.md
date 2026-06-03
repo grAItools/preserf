@@ -13,7 +13,8 @@ Each example is a **self-contained subfolder** following the same shape:
 ├─ <example>.f90      # !$SER-annotated source (preprocessor input)
 ├─ CMakeLists.txt     # builds the generated .F90 against preserf_fortran
 ├─ run.sh             # preserf -> cmake build -> run
-└─ verify.py          # load the store, check it, and visualize it
+├─ verify.py          # load the store, check it, and visualize it
+└─ clean.sh           # remove the build/ and out/ artifacts
 ```
 
 ## Examples
@@ -32,8 +33,10 @@ pixi run -e examples bash examples/laplacian/run.sh
 pixi run -e examples python examples/laplacian/verify.py examples/laplacian/out/laplacian.nc
 ```
 
-These examples are **standalone documentation** but are also exercised by
-`pixi run test-examples` (which `pixi run verify` runs via `pixi run test`):
-`examples/run-all.sh` iterates every subfolder and invokes its `run.sh`, so
-a broken example breaks the verify gate. Generated artifacts (`build/`,
-`out/`) are gitignored.
+These examples are **standalone documentation**. They are intentionally
+_not_ wired into `pixi run verify` or CI — the verify gate stays on the
+fast Python suite. To exercise every example in one shot, use
+`pixi run test-examples` (which also runs as part of `pixi run test-all`);
+it invokes `examples/run-all.sh`, which iterates each subfolder and runs
+its `run.sh`. Generated artifacts (`build/`, `out/`) are gitignored and
+can be cleared with each example's `clean.sh`.

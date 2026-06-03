@@ -3,15 +3,17 @@
 ## What the agent runs
 
 - **Pre-claim-done gate:** `pixi run verify` — fmt-check + lint +
-  typecheck + test. Also what the Claude Code `Stop` hook runs.
+  typecheck + `test-py`. Also what the Claude Code `Stop` hook runs.
 - **Fast loop:** `pixi run test-py` (or `pixi run test-py-unit` for the
   Python unit slice only) — currently completes in <1s and must stay <60s.
 - **Cross-language slice:** `pixi run test-py-integration` — requires the
   Fortran binary to be built first (`pixi run build-fortran`). Skips
   cleanly without it by default; CI forces a hard failure via the env
   flag described below.
-- **Native Fortran:** `pixi run build-fortran` then
-  `pixi run test-fortran` (ctest).
+- **Native Fortran:** `pixi run test-fortran` (ctest; chains
+  `build-fortran` automatically).
+- **Everything-at-once (slow, not in `verify`):** `pixi run test-all` —
+  Python + Fortran ctest + every example under `examples/`.
 
 ## Layering
 
