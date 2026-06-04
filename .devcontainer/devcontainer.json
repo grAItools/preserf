@@ -1,16 +1,29 @@
 {
   "name": "preserf",
-  "image": "mcr.microsoft.com/devcontainers/base:debian-13",
-  "containerEnv": {
-    "PATH": "${containerEnv:PATH}:/home/vscode/.pixi/bin"
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
   },
-  "postCreateCommand": "curl -fsSL https://pixi.sh/install.sh | bash && pixi install -e dev",
+  "mounts": [
+    "source=${localWorkspaceFolderBasename}-pixi,target=${containerWorkspaceFolder}/.pixi,type=volume"
+  ],
+  "onCreateCommand": "sudo chown -R vscode:vscode .pixi",
+  "postStartCommand": "pixi install --environment dev",
   "remoteUser": "vscode",
   "customizations": {
     "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.pixi/envs/dev/bin/python"
+      },
       "extensions": [
         "ms-python.python",
-        "charliermarsh.ruff"
+        "ms-python.vscode-pylance",
+        "ms-python.mypy-type-checker",
+        "charliermarsh.ruff",
+        "fortran-lang.linter-gfortran",
+        "ms-vscode.cmake-tools",
+        "twxs.cmake",
+        "dprint.dprint"
       ]
     }
   }
