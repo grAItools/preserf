@@ -4,4 +4,6 @@ FROM mcr.microsoft.com/devcontainers/base:bookworm
 # Fortran toolchain, NetCDF, and every dev tool from conda-forge.
 # Copy the official static binary into /usr/local/bin so it is on PATH for
 # every user with no curl-at-create-time and no PATH gymnastics.
+# Keep this tag in lockstep with `pixi-version` in .github/workflows/ci.yml
+# so CI and the devcontainer resolve `pixi.lock` with the same pixi.
 COPY --from=ghcr.io/prefix-dev/pixi:0.70.1 /usr/local/bin/pixi /usr/local/bin/pixi
