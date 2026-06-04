@@ -20,6 +20,9 @@ jobs:
       - name: Set up pixi
         # Keep pixi-version in lockstep with the pin in .devcontainer/Dockerfile
         # so CI and the devcontainer resolve `pixi.lock` with the same pixi.
+        # NOTE on tag format: this field is the GitHub release tag and takes a
+        # leading `v` (e.g. `v0.70.1`); the OCI image tag in the Dockerfile is
+        # the bare version (`0.70.1`). Bump both, but keep the formats distinct.
         uses: prefix-dev/setup-pixi@v0.9.6
         with:
           pixi-version: v0.70.1
