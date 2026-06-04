@@ -45,7 +45,9 @@ This builds the `default` environment (the runtime deps plus the editable
 
 ## Verify the bootstrap
 
-Run the canonical verification gate (fmt-check + lint + typecheck + test):
+Run the canonical verification gate (fmt-check + lint + typecheck +
+`test-py-with-fortran`, which chains `build-fortran` → `test-fortran` →
+strict pytest):
 
 ```sh
 pixi run verify
@@ -53,17 +55,21 @@ pixi run verify
 
 If it succeeds on a fresh clone, the Python side of the bootstrap worked.
 
-## Fortran helper (optional)
+## Fortran helper
 
 The Fortran helper modules under `src/preserf-fortran/` are built and
 tested through CMake/CTest, driven by pixi tasks:
 
 ```sh
-pixi run build-fortran     # cmake configure + build into build/preserf-fortran
-pixi run test-fortran      # ctest --output-on-failure
+pixi run test-fortran      # chains build-fortran, then ctest --output-on-failure
+pixi run build-fortran     # cmake configure + build into build/preserf-fortran (rarely needed standalone)
 ```
 
 The cross-language wire-compat test
 (`tests/integration_tests/test_fortran_wire_compat.py`) skips when the
-Fortran binary is absent, so `pixi run verify` passes without the Fortran
-build; run the two tasks above to exercise the full Python↔Fortran path.
+Fortran binary is absent, so a bare `pixi run test-py` stays green even
+on a clean tree. `pixi run verify`, however, goes through
+`test-py-with-fortran`, which chains `test-fortran` and sets
+`PRESERF_REQUIRE_FORTRAN=1` — so the verify gate forces the Fortran
+build/ctest and fails (rather than silently skipping) if the binary
+can't be built.

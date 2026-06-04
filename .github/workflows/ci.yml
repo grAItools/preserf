@@ -23,12 +23,11 @@ jobs:
         uses: prefix-dev/setup-pixi@v0.9.6
         with:
           pixi-version: v0.70.1
-          environments: dev
+          environments: dev examples
           cache: true
 
-      - name: Build Fortran helper
-        run: pixi run build-fortran
-
+      # `test-fortran` chains `build-fortran` via its `depends-on`, so no
+      # separate build step is needed.
       - name: Run native Fortran tests (ctest)
         run: pixi run test-fortran
 
@@ -41,3 +40,9 @@ jobs:
         env:
           PRESERF_REQUIRE_FORTRAN: "1"
         run: pixi run verify
+
+      # Examples are not part of `pixi run verify`, so CI exercises them
+      # as a dedicated step — a broken example breaks the build even
+      # though local `pixi run verify` skips this layer.
+      - name: Run example end-to-end suite
+        run: pixi run test-examples

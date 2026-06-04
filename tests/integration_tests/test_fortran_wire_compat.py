@@ -4,15 +4,22 @@ This test runs the ``preserf_fortran_test_minimal`` binary built from
 ``tests-fortran/unit/m_preserf/test_minimal.f90`` and validates the
 resulting store via ``tests/_support/storage.py``. If the Fortran library
 hasn't been built the test is skipped by default — the Fortran build is
-intentionally not part of ``pixi run test`` because it depends on a
-toolchain (``gfortran`` + ``netcdf-fortran``) that not every local
-environment needs eagerly available.
+intentionally not part of ``pixi run test-py`` so the default Python
+test loop stays fast (sub-second) and doesn't reconfigure / rebuild
+``build/preserf-fortran/`` on every run.
 
 To build the binary locally::
 
     pixi run build-fortran
 
-Then ``pixi run test`` (or ``pixi run test-integration``) will pick it up.
+Then ``pixi run test-py`` (or ``pixi run test-py-integration``) will pick
+it up. For a single command that serializes build → pytest and treats a
+missing binary as a hard failure rather than a skip, use
+``pixi run test-py-with-fortran`` (which sets ``PRESERF_REQUIRE_FORTRAN=1``
+and depends on ``test-fortran``). ``pixi run verify`` and
+``pixi run test-all`` both go through that strict path, so the verify
+gate fails (instead of skipping) when the Fortran binary is missing
+or broken.
 
 In CI (and any environment that should treat a missing binary as a
 regression rather than a skip), set ``PRESERF_REQUIRE_FORTRAN=1`` — the
