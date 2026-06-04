@@ -7,7 +7,7 @@
   "mounts": [
     "source=${localWorkspaceFolderBasename}-pixi,target=${containerWorkspaceFolder}/.pixi,type=volume"
   ],
-  "onCreateCommand": "sudo chown vscode .pixi",
+  "onCreateCommand": "sudo chown -R vscode:vscode .pixi",
   "postStartCommand": "pixi install --environment dev",
   "remoteUser": "vscode",
   "customizations": {
