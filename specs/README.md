@@ -14,6 +14,10 @@ rest (`.agents/commands/spec.md` deliberately does not pre-create them):
 - `scratch.md` — developer working notes; created during `/build` as needed,
   gitignored, cleared on completion.
 
+In practice a dir carries only the artifacts its work has reached, and the
+layout has evolved — most of the `2026-05-*` specs retain just
+`spec.md` + `plan.md`, so don't expect all four files in every dir.
+
 These dirs are produced and consumed by the four-phase loop
 `/spec` → `/plan` → `/build` → `/verify`; see `.agents/commands/` and
 [`AGENTS.md`](../AGENTS.md) for the full workflow.
