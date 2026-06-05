@@ -330,6 +330,86 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: read-roundtrip OK'
                stop
             end block
+         else if (scenario == 'init-default-mode') then
+            ! Issue #32: `mode` is optional on ppser_initialize for pp_ser /
+            ! Serialbox `!$SER INIT` drop-in compatibility — those call sites
+            ! never pass it (mode is selected via `!$SER MODE` ->
+            ! ppser_set_mode). Cover the three omitted-mode paths:
+            !   (a) no prior set_mode  -> default write (creates the store),
+            !   (b) ppser_set_mode(1)  -> read-only open, runtime mode stays 1,
+            !   (c) ppser_set_mode(2)  -> read-only open, read-perturb (2)
+            !       preserved (a blind 'r' -> 1 sync would clobber it).
+            block
+               real(real64) :: u_w(3), u_back(3), u_pert(3)
+               real(real64) :: dev
+               integer :: i
+               do i = 1, 3
+                  u_w(i) = 500.0_real64 + real(i, real64)
+               end do
+
+               ! (a) Omitted mode with the default runtime state writes.
+               call ppser_initialize(out_dir, 'fdefmode')
+               if (ppser_get_mode() /= 0) error stop &
+                  'init-default-mode: omitted mode should default to write (0)'
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u_w)
+               call ppser_finalize()
+
+               ! (b) `!$SER MODE read` before an INIT that omits mode opens
+               ! the store read-only and leaves the runtime mode at 1.
+               call ppser_set_mode(1)
+               call ppser_initialize(out_dir, 'fdefmode')
+               if (ppser_get_mode() /= 1) error stop &
+                  'init-default-mode: set_mode(1) + omitted mode should read (1)'
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', u_back)
+               do i = 1, 3
+                  if (u_back(i) /= 500.0_real64 + real(i, real64)) error stop &
+                     'init-default-mode: read-back mismatch under derived read mode'
+               end do
+               call ppser_finalize()
+
+               ! (c) read-perturb (2) must survive an INIT that omits mode:
+               ! the open is still read-only, and the runtime mode is left
+               ! at 2 rather than synced back to plain read. Beyond the state
+               ! check, exercise the perturb read end-to-end: a plain read
+               ! init without explicit reference args points
+               ! `ppser_serializer_ref` at the same store, which is the
+               ! serializer pp_ser-generated read-perturb DATA branches read
+               ! from. A scale-0.1 read through it must stay within
+               ! [orig*0.9, orig*1.1] and actually shift the data.
+               call ppser_set_mode(2)
+               call ppser_initialize(out_dir, 'fdefmode')
+               if (ppser_get_mode() /= 2) error stop &
+                  'init-default-mode: read-perturb (2) clobbered by omitted mode'
+               call fs_register_field(ppser_serializer_ref, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_read_field(ppser_serializer_ref, ppser_savepoint, 'u', &
+                                  u_pert, 0.1_real64)
+               dev = 0.0_real64
+               do i = 1, 3
+                  if (u_pert(i) < u_w(i)*0.9_real64 .or. &
+                      u_pert(i) > u_w(i)*1.1_real64) error stop &
+                     'init-default-mode: perturb read out of bounds under '// &
+                     'derived read-perturb mode'
+                  dev = dev + abs(u_pert(i) - u_w(i))
+               end do
+               if (dev <= 0.0_real64) error stop &
+                  'init-default-mode: scale 0.1 left data unchanged under '// &
+                  'derived read-perturb mode'
+               call ppser_finalize()
+
+               write (*, '(a)') 'preserf-fortran: init-default-mode OK'
+               stop
+            end block
          else if (scenario == 'perturb-roundtrip') then
             ! Slice A-2: the 5-arg fs_read_field applies symmetric
             ! multiplicative noise data*(1 + scale*(2*r-1)) for every

@@ -178,6 +178,16 @@ embedded in each spec's Problem section.
 
 ### Fixed
 
+- `ppser_initialize`'s `mode` argument is now **optional**, restoring
+  drop-in compatibility with pp_ser / Serialbox `!$SER INIT` call sites,
+  which never pass `mode` (Serialbox selects it separately via `!$SER MODE`
+  → `ppser_set_mode`). When `mode` is omitted, the open mode is derived
+  from the current runtime mode state: `1` (read) / `2` (read-perturb) open
+  read-only, `0` (write, the default when no mode was set) creates the
+  store; the omitted-mode path no longer overwrites the runtime mode, so a
+  prior read-perturb (`2`) survives. A new `init-default-mode` ctest
+  scenario covers all three paths
+  ([#32](https://github.com/grAItools/preserf/issues/32)).
 - `require_fits_int32` guard in `active_dims_c_order` / `put_halo_attr`
   closes a latent truncation on very large dim sizes / halo extents
   ([#16](https://github.com/grAItools/preserf/pull/16)).
