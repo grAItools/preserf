@@ -340,7 +340,8 @@ program test_minimal
             !   (c) ppser_set_mode(2)  -> read-only open, read-perturb (2)
             !       preserved (a blind 'r' -> 1 sync would clobber it).
             block
-               real(real64) :: u_w(3), u_back(3)
+               real(real64) :: u_w(3), u_back(3), u_pert(3)
+               real(real64) :: dev
                integer :: i
                do i = 1, 3
                   u_w(i) = 500.0_real64 + real(i, real64)
@@ -376,11 +377,34 @@ program test_minimal
 
                ! (c) read-perturb (2) must survive an INIT that omits mode:
                ! the open is still read-only, and the runtime mode is left
-               ! at 2 rather than synced back to plain read.
+               ! at 2 rather than synced back to plain read. Beyond the state
+               ! check, exercise the perturb read end-to-end: a plain read
+               ! init without explicit reference args points
+               ! `ppser_serializer_ref` at the same store, which is the
+               ! serializer pp_ser-generated read-perturb DATA branches read
+               ! from. A scale-0.1 read through it must stay within
+               ! [orig*0.9, orig*1.1] and actually shift the data.
                call ppser_set_mode(2)
                call ppser_initialize(out_dir, 'fdefmode')
                if (ppser_get_mode() /= 2) error stop &
                   'init-default-mode: read-perturb (2) clobbered by omitted mode'
+               call fs_register_field(ppser_serializer_ref, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_read_field(ppser_serializer_ref, ppser_savepoint, 'u', &
+                                  u_pert, 0.1_real64)
+               dev = 0.0_real64
+               do i = 1, 3
+                  if (u_pert(i) < u_w(i)*0.9_real64 .or. &
+                      u_pert(i) > u_w(i)*1.1_real64) error stop &
+                     'init-default-mode: perturb read out of bounds under '// &
+                     'derived read-perturb mode'
+                  dev = dev + abs(u_pert(i) - u_w(i))
+               end do
+               if (dev <= 0.0_real64) error stop &
+                  'init-default-mode: scale 0.1 left data unchanged under '// &
+                  'derived read-perturb mode'
                call ppser_finalize()
 
                write (*, '(a)') 'preserf-fortran: init-default-mode OK'
