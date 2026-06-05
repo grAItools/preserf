@@ -13,12 +13,13 @@ therefore provides the preprocessor but nothing to compile its output against.
 The only existing way to obtain the runtime is to clone the repository, and
 the only user-facing integration example is the hand-wired
 `examples/laplacian/CMakeLists.txt` (the in-repo `tests-fortran/` tree wires
-the runtime the same way for CI): a relative
-`add_subdirectory(../../src/preserf-fortran)`, a `find_program(preserf)`, an
-`add_custom_command` that runs the CLI to expand `.f90` → `.F90`, a
-`target_link_libraries(... preserf_fortran)`, and a `SERIALIZE` compile
-definition. Every downstream user must rediscover and re-assemble that
-recipe by hand against a path that only exists in a source checkout.
+the runtime the same way for CI). It stitches together, by hand, a relative
+`add_subdirectory` of `src/preserf-fortran`, a `find_program` lookup of the
+`preserf` CLI, an `add_custom_command` that runs that CLI to expand
+`.f90` → `.F90`, a `target_link_libraries(... preserf_fortran)`, and a
+`SERIALIZE` definition set via `target_compile_definitions`. Every downstream
+user must rediscover and re-assemble that recipe by hand against a path that
+only exists in a source checkout.
 
 ## Goal
 
