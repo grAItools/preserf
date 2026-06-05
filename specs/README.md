@@ -9,9 +9,10 @@ rest (`.agents/commands/spec.md` deliberately does not pre-create them):
   (per [`.agents/commands/spec.md`](../.agents/commands/spec.md)).
 - `plan.md` — numbered, phased plan with per-phase tests; added by `/plan`
   (per [`.agents/commands/plan.md`](../.agents/commands/plan.md)).
-- `tasks.md` — checkbox list the developer ticks off; added during `/build`.
-- `scratch.md` — agent working notes; gitignored, created as needed and
-  cleared on completion.
+- `tasks.md` — checkbox list mirrored from `plan.md`; added by `/plan`,
+  then ticked off by the developer during `/build`.
+- `scratch.md` — developer working notes; created during `/build` as needed,
+  gitignored, cleared on completion.
 
 These dirs are produced and consumed by the four-phase loop
 `/spec` → `/plan` → `/build` → `/verify`; see `.agents/commands/` and
