@@ -1,14 +1,17 @@
 # preserf specs
 
 Per-feature spec directories live under `specs/<YYYY-MM>-<slug>/`. Each
-captures one feature or change. Files per spec dir:
+captures one feature or change. The files in a spec dir accumulate as it moves
+through the workflow — only `spec.md` exists up front; the later phases add the
+rest (`.agents/commands/spec.md` deliberately does not pre-create them):
 
-- `spec.md` — WHAT and WHY, no implementation detail
+- `spec.md` — WHAT and WHY, no implementation detail; written by `/spec`
   (per [`.agents/commands/spec.md`](../.agents/commands/spec.md)).
-- `plan.md` — numbered, phased plan; each phase carries its own tests
+- `plan.md` — numbered, phased plan with per-phase tests; added by `/plan`
   (per [`.agents/commands/plan.md`](../.agents/commands/plan.md)).
-- `tasks.md` — checkbox list the developer ticks off during `/build`.
-- `scratch.md` — agent working notes; gitignored, cleared on completion.
+- `tasks.md` — checkbox list the developer ticks off; added during `/build`.
+- `scratch.md` — agent working notes; gitignored, created as needed and
+  cleared on completion.
 
 These dirs are produced and consumed by the four-phase loop
 `/spec` → `/plan` → `/build` → `/verify`; see `.agents/commands/` and

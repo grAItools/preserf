@@ -5,13 +5,15 @@
 `preserf` expands `!$SER` directives into explicit Fortran calls
 (`USE m_serialize`, `USE utils_ppser`, `fs_*` / `ppser_*`) that only
 compile against the Fortran runtime helper modules. Those modules live at
-`src/preserf-fortran/` and are **not shipped in the wheel** — the wheel
-bundles only `src/preserf` (`pyproject.toml`). A `pip install preserf` user
-therefore gets the preprocessor but nothing to compile its output against.
+`src/preserf-fortran/`, but the wheel bundles only `src/preserf`
+(`pyproject.toml`); because `pip` builds that same wheel even when it installs
+from an sdist, **no install path ships the runtime**. An installed `preserf`
+therefore provides the preprocessor but nothing to compile its output against.
 
 The only existing way to obtain the runtime is to clone the repository, and
-the only integration recipe is the hand-wired
-`examples/laplacian/CMakeLists.txt`: a relative
+the only user-facing integration example is the hand-wired
+`examples/laplacian/CMakeLists.txt` (the in-repo `tests-fortran/` tree wires
+the runtime the same way for CI): a relative
 `add_subdirectory(../../src/preserf-fortran)`, a `find_program(preserf)`, an
 `add_custom_command` that runs the CLI to expand `.f90` → `.F90`, a
 `target_link_libraries(... preserf_fortran)`, and a `SERIALIZE` compile
