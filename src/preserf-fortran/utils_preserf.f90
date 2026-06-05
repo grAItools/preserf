@@ -292,6 +292,16 @@ contains
    !> Append mode ('a') is reserved but currently rejected — see
    !> src/preserf-fortran/README.md follow-ups.
    !>
+   !> `mode` is **optional** for drop-in compatibility with pp_ser /
+   !> Serialbox `!$SER INIT` call sites, which never pass it: Serialbox
+   !> selects the mode separately via `!$SER MODE` → `ppser_set_mode`.
+   !> When `mode` is omitted, the open mode is derived from the current
+   !> runtime mode state a prior `ppser_set_mode` left behind — read /
+   !> read-perturb (1 / 2) open read-only, write (0, the default when no
+   !> mode was ever set) creates the store. When `mode` is given, it both
+   !> drives the open and resets the runtime DATA mode to match (see
+   !> below).
+   !>
    !> When mode is 'r', the schema-version attribute on the root group is
    !> validated. In 'r' mode, `ppser_serializer_ref` is also populated:
    !>   * If `directory_ref` AND `prefix_ref` are both supplied, the
@@ -312,7 +322,11 @@ contains
                                backend)
       character(len=*), intent(in) :: directory
       character(len=*), intent(in) :: prefix
-      character(len=*), intent(in) :: mode
+      ! Optional for pp_ser / Serialbox `!$SER INIT` compatibility: those
+      ! call sites never pass `mode` (it is set separately via `!$SER MODE`
+      ! → ppser_set_mode). When absent, `eff_mode` below is derived from the
+      ! current runtime mode state.
+      character(len=*), intent(in), optional :: mode
       character(len=*), intent(in), optional :: directory_ref
       character(len=*), intent(in), optional :: prefix_ref
       ! Serialbox-compatible keywords pp_ser passes through from
@@ -329,6 +343,29 @@ contains
       ! 'nczarr-v2'. Threaded through to preserf_open_serializer, which
       ! turns it into the right on-disk URL / extension.
       character(len=*), intent(in), optional :: backend
+
+      ! Effective open mode passed to preserf_open_serializer. Deferred
+      ! length so it mirrors `mode` exactly when present (preserving the
+      ! existing unknown-mode validation), or holds the single-character
+      ! mode derived from the runtime state when `mode` is omitted.
+      character(len=:), allocatable :: eff_mode
+
+      ! Resolve the effective open mode. pp_ser's `!$SER INIT` never passes
+      ! `mode`; Serialbox sets it earlier via `!$SER MODE` → ppser_set_mode,
+      ! which lands in `ppser_mode_state`. Map that state to an open mode so
+      ! an omitted `mode` keeps working: 1 (read) / 2 (read-perturb) open
+      ! read-only, 0 (write, the default when nothing was set) creates the
+      ! store.
+      if (present(mode)) then
+         eff_mode = mode
+      else
+         select case (ppser_mode_state)
+         case (1, 2)
+            eff_mode = 'r'
+         case default
+            eff_mode = 'w'
+         end select
+      end if
 
       ! Validate optional-argument coherence BEFORE creating/truncating
       ! the main store, so a partial-arg mistake doesn't trash an
@@ -399,13 +436,14 @@ contains
       ! preserf_write_root_housekeeping). They are written only on the
       ! 'w' path; read-mode opens ignore them, so the read-only reference
       ! store below is left untouched.
-      call preserf_open_serializer(ppser_serializer, directory, prefix, mode, &
+      call preserf_open_serializer(ppser_serializer, directory, prefix, &
+                                   eff_mode, &
                                    rank=mpi_rank, singlefile=singlefile, &
                                    archive=archive, unique_id=unique_id, &
                                    backend=backend)
 
       if (.not. (present(directory_ref) .and. present(prefix_ref))) then
-         if (mode == 'r' .or. mode == 'R') then
+         if (eff_mode == 'r' .or. eff_mode == 'R') then
             ! pp_ser-generated read/read-perturb DATA branches call
             ! `fs_read_field(ppser_serializer_ref, ...)`. In a plain
             ! read-mode init without explicit reference args, point
@@ -419,20 +457,28 @@ contains
          end if
       end if
 
-      ! Default the runtime DATA mode to match the open mode, so
-      ! pp_ser-generated `SELECT CASE (ppser_get_mode())` blocks
-      ! take the matching branch out of the box: 'w' → 0 (write),
-      ! 'r' → 1 (read). Callers that want read-perturb (mode 2) or
-      ! some other override still need to call `ppser_set_mode(...)`
-      ! explicitly. Without this default, a read-only init would
-      ! leave the mode at 0 and a generated DATA block would attempt
-      ! to write into the read-only store.
-      select case (mode)
-      case ('w', 'W')
-         ppser_mode_state = 0
-      case ('r', 'R')
-         ppser_mode_state = 1
-      end select
+      ! When `mode` is given explicitly, default the runtime DATA mode to
+      ! match the open mode, so pp_ser-generated `SELECT CASE
+      ! (ppser_get_mode())` blocks take the matching branch out of the box:
+      ! 'w' → 0 (write), 'r' → 1 (read). Callers that want read-perturb
+      ! (mode 2) or some other override still need to call
+      ! `ppser_set_mode(...)` explicitly. Without this default, a read-only
+      ! init would leave the mode at 0 and a generated DATA block would
+      ! attempt to write into the read-only store.
+      !
+      ! When `mode` is omitted, the runtime mode state set earlier by
+      ! `ppser_set_mode` (`!$SER MODE`) is authoritative and left untouched
+      ! — `eff_mode` was derived from it above, so the open already matches.
+      ! In particular read-perturb (2) is preserved here; a blind 'r' → 1
+      ! sync would otherwise clobber it back to plain read.
+      if (present(mode)) then
+         select case (mode)
+         case ('w', 'W')
+            ppser_mode_state = 0
+         case ('r', 'R')
+            ppser_mode_state = 1
+         end select
+      end if
 
       ! Re-enable the ON/OFF gate. The flag is module SAVE state and
       ! survives a previous ppser_finalize, so a caller that ran
