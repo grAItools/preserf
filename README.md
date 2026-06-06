@@ -6,7 +6,7 @@ source into explicit serialization calls.
 The repository contains two main pieces:
 
 - `src/preserf/`: the preprocessor engine and CLI.
-- `src/preserf-fortran/`: Fortran helper modules that provide the runtime API
+- `src/preserf/fortran/`: Fortran helper modules that provide the runtime API
   targeted by generated code.
 
 ## What it does
@@ -33,7 +33,7 @@ The repository contains two main pieces:
 - Storage model mapping:
   [docs/references/storage_mapping.md](docs/references/storage_mapping.md)
 - Fortran runtime helpers and compatibility details:
-  [src/preserf-fortran/README.md](src/preserf-fortran/README.md)
+  [src/preserf/fortran/README.md](src/preserf/fortran/README.md)
 - Testing strategy: [docs/testing.md](docs/testing.md)
 - Code style guide: [docs/style.md](docs/style.md)
 - Architecture decision records: [docs/adr/README.md](docs/adr/README.md)

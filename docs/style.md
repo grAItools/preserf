@@ -67,14 +67,14 @@ branch commits during work can be freeform working notes.
 ## Anti-pattern (with the fix)
 
 A real preserf example, from
-`src/preserf-fortran/m_preserf.f90` (PR [#16](https://github.com/grAItools/preserf/pull/16)):
+`src/preserf/fortran/m_preserf.f90` (PR [#16](https://github.com/grAItools/preserf/pull/16)):
 
 > **Don't** cast a Fortran-side `integer(int64)` to `int32` without
 > checking the range. NetCDF attributes are `int32`-typed and a silent
 > wrap would corrupt the registry without anyone noticing.
 >
 > **Do** route the cast through the `require_fits_int32` subroutine in
-> `src/preserf-fortran/m_preserf.f90`, which `error stop`s with a clear
+> `src/preserf/fortran/m_preserf.f90`, which `error stop`s with a clear
 > message if the value exceeds `huge(0_int32)`. The guard is applied in
 > `active_dims_c_order` and `put_halo_attr`, the two places where
 > user-supplied dim/halo sizes enter the wire format.

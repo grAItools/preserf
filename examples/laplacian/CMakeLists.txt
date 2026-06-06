@@ -8,7 +8,7 @@ project(preserf_example_laplacian LANGUAGES Fortran)
 
 # Build the helper library from source (mirrors tests-fortran/). The
 # explicit binary subdir keeps its artefacts under this example's build tree.
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../src/preserf-fortran
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../src/preserf/fortran
                  preserf_fortran)
 
 # Expand the !$SER directives at build time via the preserf CLI (mirrors the
