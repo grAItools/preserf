@@ -15,7 +15,7 @@ jobs:
     name: verify (linux-64)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.2
 
       - name: Set up pixi
         # Keep pixi-version in lockstep with the pin in .devcontainer/Dockerfile
