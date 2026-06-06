@@ -14,6 +14,15 @@
 # Prerequisites (unchanged from a source checkout): a Fortran compiler,
 # `netcdf-fortran` discoverable via pkg-config, and CMake >= 3.20.
 
+# Resolve the bundled runtime directory ONCE, here at include time, where
+# CMAKE_CURRENT_LIST_DIR reliably points at this module's directory
+# (.../fortran/cmake). Inside a function body it would instead resolve to the
+# *caller's* list file, so it must be captured at file scope. Stash it in a
+# cache variable so the functions below can read it from any directory scope.
+get_filename_component(_preserf_fortran_dir "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+set(PRESERF_FORTRAN_DIR "${_preserf_fortran_dir}"
+    CACHE INTERNAL "Directory of the bundled preserf Fortran runtime sources")
+
 # ----------------------------------------------------------------------------
 # preserf_fortran_library([FORTRAN_DIR <dir>])
 #
@@ -30,9 +39,7 @@ function(preserf_fortran_library)
         return()
     endif()
     if(NOT PFL_FORTRAN_DIR)
-        # CMAKE_CURRENT_LIST_DIR is .../fortran/cmake; the library lives in
-        # its parent, .../fortran.
-        get_filename_component(PFL_FORTRAN_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+        set(PFL_FORTRAN_DIR "${PRESERF_FORTRAN_DIR}")
     endif()
     add_subdirectory("${PFL_FORTRAN_DIR}" preserf_fortran_build)
 endfunction()
