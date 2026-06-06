@@ -20,7 +20,9 @@ netcdf4 = ">=1.7.4"
 numpy = ">=1.26"
 
 [feature.dev.pypi-dependencies]
+build = ">=1.2"
 fprettify = ">=0.3"
+hatchling = ">=1.25"
 mypy = ">=1.0"
 pytest = ">=8.0"
 ruff = ">=0.8"
