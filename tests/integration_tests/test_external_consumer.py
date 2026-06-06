@@ -3,8 +3,11 @@
 Unlike the in-tree e2e test (which builds from the repo's own CMake tree),
 this stands up a throwaway project that discovers the runtime purely through
 ``preserf --cmake-helper`` — the exact path an installed user takes — then
-``include()``s the shipped helper, compiles, runs, and validates the store.
-It proves the discovery -> helper -> library -> link -> run chain end to end.
+``include()``s the shipped helper, compiles, runs, and confirms the bundled
+runtime produced a readable preserf store. It proves the discovery -> helper
+-> library -> link -> run chain end to end; the *serialization* contract
+(exact values, axis order) is owned by ``test_preprocessor_e2e.py``, so this
+test asserts only that a valid store was written.
 
 Marked ``consumer`` so it is deselected from the fast ``verify`` gate (see the
 ``addopts`` in ``pyproject.toml``); it runs under ``pixi run test-consumer`` /
@@ -18,54 +21,29 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from typing import TYPE_CHECKING
+from pathlib import Path
 
-import numpy as np
 import pytest
 
 from tests._support.serialbox import TypeID
 from tests._support.storage import read_dump
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
 pytestmark = pytest.mark.consumer
 
-# A minimal `!$SER` program, modelled on the e2e fixture: one real64 field
-# registered via the `IJ` shortcut, write mode, distinct decodable values.
-_CONSUMER_SOURCE = """\
-program preserf_consumer
-   use, intrinsic :: iso_fortran_env, only: real64
-   implicit none
-   integer, parameter :: ie = 3, je = 4, nboundlines = 0
-   character(len=:), allocatable :: outdir
-   integer :: arg_len, arg_stat
-   real(real64) :: temperature(ie, je)
-   integer :: i, j
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
-   call get_command_argument(1, length=arg_len, status=arg_stat)
-   if (arg_stat /= 0) then
-      write (*, '(a)') 'preserf-consumer: missing output directory argument'
-      error stop 1
-   end if
-   allocate (character(len=arg_len) :: outdir)
-   call get_command_argument(1, value=outdir, status=arg_stat)
+# Reuse the in-tree e2e fixture as the consumer's sample `!$SER` program
+# rather than maintaining a second hand-written copy that could drift from it.
+# The fixture prints "preserf-fortran: e2e OK" and writes a store with prefix
+# "e2e" (see tests-fortran/e2e/e2e_fixture.f90.in).
+_FIXTURE = _REPO_ROOT / "tests-fortran" / "e2e" / "e2e_fixture.f90.in"
+_FIXTURE_MARKER = "preserf-fortran: e2e OK"
+_FIXTURE_PREFIX = "e2e"
 
-   do j = 1, je
-      do i = 1, ie
-         temperature(i, j) = real(10*i + j, real64)
-      end do
-   end do
-
-   !$SER INIT directory=outdir prefix="consumer" mode="w"
-   !$SER REGISTER temperature real IJ
-   !$SER SAVEPOINT sp1 step=1
-   !$SER DATA temperature=temperature
-   !$SER CLEANUP
-
-   write (*, '(a)') 'preserf-consumer: OK'
-end program preserf_consumer
-"""
+# Probe order matches tests/conftest.py: single-config generators drop the
+# binary directly under the build dir, multi-config ones under a per-config
+# subdir.
+_CONFIG_SUBDIRS = ("", "Debug", "Release", "RelWithDebInfo", "MinSizeRel")
 
 # A consumer's CMakeLists: discover the helper via the CLI and call it — the
 # documented integration recipe, with no reference to the in-tree checkout.
@@ -96,6 +74,9 @@ def _require_consumer_toolchain() -> None:
         missing.append("preserf CLI")
     if shutil.which("cmake") is None:
         missing.append("cmake")
+    # The shipped helper emits GNU-specific flags (-ffree-line-length-none,
+    # -cpp), which the long generated `fs_*` lines require, so the build
+    # genuinely needs gfortran rather than any Fortran compiler.
     if shutil.which("gfortran") is None:
         missing.append("gfortran")
     if shutil.which("pkg-config") is None:
@@ -129,12 +110,22 @@ def _run(cmd: list[str], cwd: Path) -> None:
     )
 
 
+def _locate_binary(build: Path, name: str) -> Path | None:
+    """Find the built executable across single- and multi-config generators."""
+    for config in _CONFIG_SUBDIRS:
+        base = build / config if config else build
+        for candidate in (base / name, base / f"{name}.exe"):
+            if candidate.is_file():
+                return candidate
+    return None
+
+
 def test_external_project_builds_against_bundled_runtime(tmp_path: Path) -> None:
     _require_consumer_toolchain()
 
     project = tmp_path / "project"
     project.mkdir()
-    (project / "consumer.f90").write_text(_CONSUMER_SOURCE)
+    (project / "consumer.f90").write_text(_FIXTURE.read_text())
     (project / "CMakeLists.txt").write_text(_CONSUMER_CMAKE)
 
     build = tmp_path / "build"
@@ -144,10 +135,8 @@ def test_external_project_builds_against_bundled_runtime(tmp_path: Path) -> None
     _run(["cmake", "-S", str(project), "-B", str(build)], cwd=tmp_path)
     _run(["cmake", "--build", str(build)], cwd=tmp_path)
 
-    binary = build / "consumer"
-    if not binary.is_file():
-        binary = build / "consumer.exe"
-    assert binary.is_file(), f"consumer binary not built under {build}"
+    binary = _locate_binary(build, "consumer")
+    assert binary is not None, f"consumer binary not built under {build}"
 
     result = subprocess.run(
         [str(binary), str(out_dir)],
@@ -160,16 +149,12 @@ def test_external_project_builds_against_bundled_runtime(tmp_path: Path) -> None
         f"consumer exited {result.returncode}.\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
-    assert "preserf-consumer: OK" in result.stdout
+    assert _FIXTURE_MARKER in result.stdout
 
-    # The bundled runtime wrote a store the Python reader decodes.
-    dump = read_dump(str(out_dir / "consumer.nc"))
-    assert dump.prefix == "consumer"
+    # The bundled runtime wrote a store the Python reader decodes. This test
+    # only confirms a valid store landed (the build chain works); the full
+    # value/axis round-trip is asserted by test_preprocessor_e2e.py.
+    dump = read_dump(str(out_dir / f"{_FIXTURE_PREFIX}.nc"))
+    assert dump.prefix == _FIXTURE_PREFIX
     assert "temperature" in dump.field_map
-    info = dump.field_map["temperature"]
-    assert info.type_id == TypeID.Float64
-    assert info.dims == [4, 3]  # Fortran (3, 4) -> netCDF C-order [4, 3]
-
-    data = dump.field_data["temperature"][0]
-    expected = {10 * i + j for i in range(1, 4) for j in range(1, 5)}
-    assert set(np.asarray(data).ravel().astype(int).tolist()) == expected
+    assert dump.field_map["temperature"].type_id == TypeID.Float64

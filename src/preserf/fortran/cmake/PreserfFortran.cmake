@@ -48,8 +48,7 @@ endfunction()
 # preserf_add_fortran_target(<target>
 #                            SOURCES <f90> [<f90> ...]
 #                            [DEPENDS_GLOB <file> ...]
-#                            [PRESERF_CLI <path>]
-#                            [<extra plain sources> ...])
+#                            [PRESERF_CLI <path>])
 #
 # Reproduce the whole expand -> compile -> link -> SERIALIZE workflow that a
 # preserf consumer would otherwise hand-wire: run the `preserf` CLI to expand
@@ -72,6 +71,15 @@ function(preserf_add_fortran_target TARGET)
 
     if(NOT PAT_SOURCES)
         message(FATAL_ERROR "preserf_add_fortran_target(${TARGET}): SOURCES is required")
+    endif()
+    if(PAT_UNPARSED_ARGUMENTS)
+        # Reject stray tokens rather than letting them fall through to
+        # add_executable as source files — a misspelled keyword (e.g.
+        # DEPENDS instead of DEPENDS_GLOB) would otherwise become a confusing
+        # "cannot find source file" build error instead of a clear failure.
+        message(FATAL_ERROR
+            "preserf_add_fortran_target(${TARGET}): unexpected argument(s): "
+            "${PAT_UNPARSED_ARGUMENTS}. Did you misspell SOURCES or DEPENDS_GLOB?")
     endif()
 
     preserf_fortran_library()
@@ -96,7 +104,7 @@ function(preserf_add_fortran_target TARGET)
         list(APPEND _generated_sources "${_out}")
     endforeach()
 
-    add_executable(${TARGET} ${_generated_sources} ${PAT_UNPARSED_ARGUMENTS})
+    add_executable(${TARGET} ${_generated_sources})
     target_link_libraries(${TARGET} PRIVATE preserf_fortran)
 
     # SERIALIZE activates the guarded serialization calls; without it every
