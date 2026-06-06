@@ -98,7 +98,11 @@ def _require_consumer_toolchain() -> None:
         missing.append("cmake")
     if shutil.which("gfortran") is None:
         missing.append("gfortran")
-    if (
+    if shutil.which("pkg-config") is None:
+        # Check the tool exists before invoking it, so a host without
+        # pkg-config skips cleanly instead of raising FileNotFoundError.
+        missing.append("pkg-config")
+    elif (
         subprocess.run(
             ["pkg-config", "--exists", "netcdf-fortran"], check=False
         ).returncode

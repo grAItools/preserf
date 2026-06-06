@@ -27,7 +27,7 @@ preserf alone.
     `--output-dir`).
   - `errors.py` — `DirectiveError` carries file/line context.
 - `src/preserf/fortran/` — Fortran runtime helper.
-  - `m_preserf.f90` — canonical API (`fs_register_field`,
+  - `m_preserf.F90` — canonical API (`fs_register_field`,
     `fs_create_savepoint`, `fs_add_*_metainfo`, `fs_write_field`,
     `fs_read_field`, enable/disable/status).
   - `utils_preserf.f90` — lifecycle (`ppser_initialize`, `ppser_finalize`,

@@ -62,7 +62,8 @@ def _build_wheel(outdir: Path) -> Path:
 
 def test_wheel_bundles_fortran_runtime(tmp_path: Path) -> None:
     wheel = _build_wheel(tmp_path)
-    names = set(zipfile.ZipFile(wheel).namelist())
+    with zipfile.ZipFile(wheel) as archive:
+        names = set(archive.namelist())
     for expected in _EXPECTED_WHEEL_FILES:
         assert expected in names, f"{expected} missing from wheel: {sorted(names)}"
     # The CPP overload templates ship too (m_preserf.F90 #includes them).
