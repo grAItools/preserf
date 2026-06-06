@@ -227,3 +227,6 @@ CLAUDE.local.md
 specs/*/scratch.md
 .agents/.cache/
 # <<< ai-agent-harness (managed by copier) <<<
+
+# Claude Code agent worktrees (ephemeral; never committed)
+.claude/worktrees/
