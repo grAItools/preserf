@@ -14,6 +14,31 @@ embedded in each spec's Problem section.
 
 ### Added
 
+- Fortran distribution (`specs/2026-06-fortran-distribution`): the Fortran
+  runtime now ships inside the wheel as package data. The runtime tree moved
+  from `src/preserf-fortran/` to `src/preserf/fortran/`, so a `pip install
+  preserf` user can compile preserf-generated Fortran without cloning the
+  repo. `preserf.get_fortran_dir()` / `get_cmake_helper()` and the matching
+  `preserf --fortran-dir` / `--cmake-helper` CLI flags expose the bundled
+  location (numpy `get_include()` pattern). A shipped CMake helper
+  (`preserf/fortran/cmake/PreserfFortran.cmake`) provides
+  `preserf_add_fortran_target()` — one call that expands `!$SER` sources,
+  compiles and links them against the runtime, and applies `SERIALIZE` and the
+  required flags. The laplacian example and the Fortran e2e test consume that
+  same shipped helper so the integration recipe cannot drift. A packaging test
+  asserts the wheel carries the runtime + helper and that discovery resolves
+  (fast `verify` gate); a `consumer`-marked external-consumer test builds a
+  throwaway project against the bundled runtime via the discovery CLI, runs it,
+  and validates the store round-trips (`pixi run test-all`). Distribution is
+  source-only and CMake-only; `netcdf-fortran` remains a user-supplied
+  pkg-config dependency. See the README "Using preserf in your build" section.
+
+### Changed
+
+- The Fortran helper sources moved from `src/preserf-fortran/` to
+  `src/preserf/fortran/` (no API or behaviour change; updated CMake
+  `add_subdirectory` paths, `pixi` fprettify paths, and docs).
+
 - Tracers (Slice C, Phase 1 — `!$SER REGISTERTRACERS` / `!$SER TRACER`):
   the Fortran helper gains `fs_RegisterAllTracers`,
   `ppser_write_tracer_by_name` / `_by_idx` / `_all`, and a host-side

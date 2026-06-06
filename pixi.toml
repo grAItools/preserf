@@ -72,7 +72,10 @@ test-py = { cmd = ["pytest"], default-environment = "dev" }
 # Fortran binary exists.
 test-py-with-fortran = { cmd = ["pytest"], default-environment = "dev", env = { PRESERF_REQUIRE_FORTRAN = "1" }, depends-on = ["test-fortran"] }
 test-examples = { cmd = ["bash", "examples/run-all.sh"], default-environment = "examples" }
-test-all = { depends-on = ["test-py-with-fortran", "test-examples"] }
+# External-consumer end-to-end build (deselected from `verify` by the
+# `-m 'not consumer'` default in pyproject; `-m consumer` here overrides it).
+test-consumer = { cmd = ["pytest", "-m", "consumer"], default-environment = "dev" }
+test-all = { depends-on = ["test-py-with-fortran", "test-examples", "test-consumer"] }
 typecheck = { cmd = ["mypy", "src"], default-environment = "dev" }
 verify = { depends-on = ["fmt-check", "lint", "typecheck", "test-py-with-fortran"] }
 # clean = { cmd = ["rm", "-rf", "build", "dist", "preserf.egg-info"] }

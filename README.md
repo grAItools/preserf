@@ -17,6 +17,53 @@ The repository contains two main pieces:
   related forms into Fortran API calls.
 - Supports CLI processing of single files or directory trees.
 
+## Using preserf in your build
+
+`pip install preserf` ships the Fortran runtime sources and a CMake helper
+inside the package, so you can compile preserf-generated Fortran without
+cloning this repository.
+
+**Prerequisites** (unchanged from a source checkout): a Fortran compiler,
+[`netcdf-fortran`](https://docs.unidata.ucar.edu/netcdf-fortran/) discoverable
+via pkg-config, and CMake ≥ 3.20. `preserf` does not bundle or build these —
+the runtime is shipped as **source** and compiled by your own project against
+your own `netcdf-fortran` (compiler-specific `.mod` files and prebuilt
+libraries are deliberately not distributed).
+
+**Discover the bundled files.** The package exposes their location both as a
+CLI command and a Python API (the numpy `get_include()` pattern):
+
+```sh
+preserf --fortran-dir     # absolute path to the runtime sources
+preserf --cmake-helper    # absolute path to the CMake helper module
+```
+
+```python
+import preserf
+preserf.get_fortran_dir()    # -> Path to the runtime sources
+preserf.get_cmake_helper()   # -> Path to PreserfFortran.cmake
+```
+
+**Wire it into CMake.** Include the shipped helper and call one function — it
+runs `preserf` to expand your `!$SER` sources, compiles and links them against
+the runtime, and applies the `SERIALIZE` definition and required flags:
+
+```cmake
+cmake_minimum_required(VERSION 3.20)
+project(my_app LANGUAGES Fortran)
+
+execute_process(COMMAND preserf --cmake-helper
+                OUTPUT_VARIABLE PRESERF_CMAKE_HELPER
+                OUTPUT_STRIP_TRAILING_WHITESPACE)
+include("${PRESERF_CMAKE_HELPER}")
+
+preserf_add_fortran_target(my_app SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/my_app.f90)
+```
+
+Building the target expands the directives and produces a runnable binary.
+The same helper drives the in-tree [laplacian example](examples/laplacian/)
+and the Fortran e2e test, so this is exactly the recipe CI exercises.
+
 ## Development commands
 
 - `pixi run test-py`: run the fast Python test suite.

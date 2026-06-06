@@ -45,3 +45,11 @@ warn_unused_configs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The external-consumer test compiles and runs a real project against the
+# bundled runtime — too slow for the fast `verify` gate. Deselect it by
+# default; `pixi run test-consumer` (part of `test-all`) re-selects it with
+# `-m consumer`, which overrides this default expression.
+addopts = "-m 'not consumer'"
+markers = [
+  "consumer: end-to-end build of an external project against the bundled runtime (slow)",
+]
