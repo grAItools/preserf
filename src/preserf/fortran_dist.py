@@ -1,9 +1,11 @@
 """Discovery of the bundled Fortran runtime and CMake helper.
 
 The wheel ships the Fortran runtime sources and a CMake helper as package
-data under ``preserf/fortran/`` (see ``pyproject.toml`` force-include). These
-accessors resolve their on-disk location so a build system can find them
-without knowing install internals — the numpy ``get_include()`` pattern.
+data under ``preserf/fortran/``: because that tree lives inside the
+``preserf`` package, hatchling includes it by default (no ``force-include``
+needed — the packaging test guards that it actually ships). These accessors
+resolve their on-disk location so a build system can find them without
+knowing install internals — the numpy ``get_include()`` pattern.
 
 Resolution is ``__file__``-relative: this module sits in the ``preserf``
 package directory alongside the ``fortran/`` data, so the same code resolves
