@@ -40,7 +40,9 @@ def test_fortran_dir_flag() -> None:
 def test_cmake_helper_flag() -> None:
     result = runner.invoke(app, ["--cmake-helper"])
     assert result.exit_code == 0
-    assert result.stdout.strip().endswith("PreserfFortran.cmake")
+    out = result.stdout.strip()
+    assert out.endswith("PreserfFortran.cmake")
+    assert Path(out).is_file()
 
 
 def test_processes_file_to_stdout(tmp_path: Path) -> None:

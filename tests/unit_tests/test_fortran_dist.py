@@ -23,10 +23,9 @@ def test_get_fortran_dir_reexported_from_package() -> None:
 
 def test_get_cmake_helper_location() -> None:
     helper = get_cmake_helper()
-    # Resolves under the bundled fortran dir; existence of the file itself
-    # is asserted once the helper ships (see the CMake-helper phase).
     assert helper.parent == get_fortran_dir() / "cmake"
     assert helper.name == "PreserfFortran.cmake"
+    assert helper.is_file()
 
 
 def test_get_cmake_helper_reexported_from_package() -> None:

@@ -30,6 +30,7 @@ _EXPECTED_WHEEL_FILES = (
     "preserf/fortran/utils_ppser.f90",
     "preserf/fortran/preserf_version.f90.in",
     "preserf/fortran/CMakeLists.txt",
+    "preserf/fortran/cmake/PreserfFortran.cmake",
 )
 
 
@@ -78,3 +79,13 @@ def test_discovery_cli_resolves_to_runtime() -> None:
     result = CliRunner().invoke(app, ["--fortran-dir"])
     assert result.exit_code == 0
     assert (Path(result.stdout.strip()) / "m_preserf.F90").is_file()
+
+
+def test_cmake_helper_api_resolves_to_file() -> None:
+    assert preserf.get_cmake_helper().is_file()
+
+
+def test_cmake_helper_cli_resolves_to_file() -> None:
+    result = CliRunner().invoke(app, ["--cmake-helper"])
+    assert result.exit_code == 0
+    assert Path(result.stdout.strip()).is_file()
