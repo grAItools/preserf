@@ -120,6 +120,36 @@ set_tests_properties(preserf_fortran_backend_nczarr_badchar PROPERTIES
     TIMEOUT 60
 )
 
+# Issue #48: with no explicit backend= argument the backend is resolved
+# from the PRESERF_BACKEND env var. PRESERF_BACKEND=nczarr-v2 selects the
+# NCZarr V2 backend; an explicit backend= still overrides the env var.
+add_test(
+    NAME preserf_fortran_backend_env
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-env
+)
+set_tests_properties(preserf_fortran_backend_env PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    ENVIRONMENT "PRESERF_BACKEND=nczarr-v2"
+    PASS_REGULAR_EXPRESSION "preserf-fortran: backend-env OK"
+    TIMEOUT 60
+)
+
+# Issue #48 negative: an unknown PRESERF_BACKEND value must abort at the
+# ppser_initialize boundary with the same "unknown backend" message as an
+# unknown explicit backend= argument.
+add_test(
+    NAME preserf_fortran_backend_env_bad
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-env-bad
+)
+set_tests_properties(preserf_fortran_backend_env_bad PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    ENVIRONMENT "PRESERF_BACKEND=zarr3"
+    PASS_REGULAR_EXPRESSION "unknown backend"
+    TIMEOUT 60
+)
+
 # -----------------------------------------------------------------------------
 # Slice A-1: read-mode create-or-resolve-and-validate.
 #

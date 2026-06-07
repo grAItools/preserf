@@ -1274,6 +1274,66 @@ program test_minimal
                                    k=2, k_size=3, mode=ppser_get_mode())
                call abort_unexpected('kbuff-bad-shape')
             end block
+         else if (scenario == 'backend-env') then
+            ! Issue #48: with no explicit `backend=` argument the helper
+            ! resolves the backend from the PRESERF_BACKEND env var (the
+            ! ctest target sets PRESERF_BACKEND=nczarr-v2). The store must
+            ! land as a `.zarr` directory, proving the env-var fallback is
+            ! wired through ppser_initialize. An explicit `backend=` then
+            ! overrides the env var, so the same prefix opened with
+            ! backend='netcdf4' must produce a `.nc` file — the
+            ! arg-beats-env precedence.
+            block
+               real(real64) :: ue(3)
+               logical :: zarr_exists, nc_exists
+               integer :: i
+               do i = 1, 3
+                  ue(i) = 600.0_real64 + real(i, real64)
+               end do
+               ! Clear any stores a prior run may have left so the
+               ! existence checks below reflect only this run.
+               call delete_dir_if_exists(trim(out_dir)//'/fenv.zarr')
+               call delete_if_exists(trim(out_dir)//'/fenv_arg.nc')
+
+               ! (a) No backend= argument: PRESERF_BACKEND=nczarr-v2 selects
+               ! the NCZarr V2 backend, yielding a `.zarr` directory store.
+               call ppser_initialize(out_dir, 'fenv', 'w')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', ue)
+               call ppser_finalize()
+               inquire (file=trim(out_dir)//'/fenv.zarr', exist=zarr_exists)
+               if (.not. zarr_exists) error stop &
+                  'backend-env: PRESERF_BACKEND=nczarr-v2 did not select nczarr'
+
+               ! (b) Explicit backend= beats the env var: backend='netcdf4'
+               ! must produce a plain `.nc` file even though
+               ! PRESERF_BACKEND=nczarr-v2 is still set.
+               call ppser_initialize(out_dir, 'fenv_arg', 'w', backend='netcdf4')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', ue)
+               call ppser_finalize()
+               inquire (file=trim(out_dir)//'/fenv_arg.nc', exist=nc_exists)
+               if (.not. nc_exists) error stop &
+                  'backend-env: explicit backend= did not override PRESERF_BACKEND'
+
+               write (*, '(a)') 'preserf-fortran: backend-env OK'
+               stop
+            end block
+         else if (scenario == 'backend-env-bad') then
+            ! Issue #48: an unknown PRESERF_BACKEND value (the ctest target
+            ! sets PRESERF_BACKEND=zarr3) must abort at the ppser_initialize
+            ! boundary with the same clear "unknown backend" message as an
+            ! unknown explicit backend= argument, rather than a deep netCDF
+            ! URL error.
+            call ppser_initialize(out_dir, 'fenvbad', 'w')
+            ! Unreachable: the env-var backend allowlist must abort first.
+            call abort_unexpected('backend-env-bad')
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &
@@ -1529,6 +1589,18 @@ contains
       open (newunit=unit, file=path, status='old', iostat=ios)
       if (ios == 0) close (unit, status='delete')
    end subroutine delete_if_exists
+
+   !> Recursively delete a directory store (e.g. a `.zarr` directory) if it
+   !> exists. The backend-env scenario uses this to clear a store left by a
+   !> prior run before asserting on its existence, since the ctest output
+   !> dir is reused, not cleaned. Fortran has no intrinsic directory remove,
+   !> so shell out to `rm -rf` (the test harness already targets POSIX
+   !> shells via the ctest COMMAND list).
+   subroutine delete_dir_if_exists(path)
+      character(len=*), intent(in) :: path
+      integer :: stat
+      call execute_command_line('rm -rf '''//path//'''', exitstat=stat)
+   end subroutine delete_dir_if_exists
 
    !> Register a field of the given datatype and (i,j,k,l) sizes with all
    !> halos zero, against the module-level ppser_serializer. Keeps the

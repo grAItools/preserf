@@ -14,6 +14,18 @@ embedded in each spec's Problem section.
 
 ### Added
 
+- `PRESERF_BACKEND` environment variable: when `ppser_initialize` is
+  called without an explicit `backend=` argument (as pp_ser / Serialbox
+  `!$SER INIT` call sites do), the storage backend is resolved from the
+  `PRESERF_BACKEND` env var, else the `netcdf4` default. Precedence,
+  most → least specific: explicit `backend=` argument → `PRESERF_BACKEND`
+  → `netcdf4`. An unknown value — from either source — aborts at the
+  init boundary with the same clear "unknown backend" message
+  (`netcdf4` / `nczarr-v2`). This makes the on-disk format a runtime
+  choice for callers that never surface the `backend` keyword. The
+  resolved backend is also logged in the "SERIALIZATION IS ON" init
+  line so the format is self-evident from the run log. Covered by the
+  `backend-env` / `backend-env-bad` ctest scenarios (#48).
 - Tracers (Slice C, Phase 1 — `!$SER REGISTERTRACERS` / `!$SER TRACER`):
   the Fortran helper gains `fs_RegisterAllTracers`,
   `ppser_write_tracer_by_name` / `_by_idx` / `_all`, and a host-side
