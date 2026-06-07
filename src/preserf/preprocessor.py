@@ -526,9 +526,25 @@ class Preprocessor:
         lower = [a.lower() for a in args]
         if_pos = lower.index("if") if "if" in lower else len(args)
 
+        # The opt-in `compression=` keyword (issue #46) feeds the integer
+        # `compression` dummy of ppser_initialize. Accept the same on/off
+        # shorthand `!$SER OPTION` uses: `on` -> the helper's default
+        # deflate level (a Fortran parameter so the level lives in one
+        # place), `off` -> 0. An explicit integer 1..9 passes through
+        # verbatim; ppser_initialize range-checks it at runtime.
+        init_args = list(args[1:if_pos])
+        for i, arg in enumerate(init_args):
+            key, sep, value = arg.partition("=")
+            if sep and key.strip().lower() == "compression":
+                v = value.strip().lower()
+                if v == "on":
+                    init_args[i] = "compression=PPSER_DEFAULT_DEFLATE_LEVEL"
+                elif v == "off":
+                    init_args[i] = "compression=0"
+
         self._calls.add(_METHODS["init"])
         pad = " " * 11
-        joined = (", &\n" + pad).join(args[1:if_pos])
+        joined = (", &\n" + pad).join(init_args)
         out += tab + f"call {_METHODS['init']}( &\n{pad}{joined})\n"
         if if_statement:
             out += "ENDIF\n"

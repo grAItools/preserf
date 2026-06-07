@@ -61,6 +61,26 @@ def test_init_expands_to_initialize_call() -> None:
     assert "WARNING: SERIALIZATION IS ON" in out
 
 
+def test_init_compression_on_maps_to_default_level() -> None:
+    # issue #46: `compression=on` feeds the integer `compression` dummy of
+    # ppser_initialize via the helper's default deflate-level parameter, so
+    # the level lives in one place (the Fortran side), not the directive.
+    out = expand("!$SER INIT dir prefix compression=on\n")
+    assert "compression=PPSER_DEFAULT_DEFLATE_LEVEL)" in out
+
+
+def test_init_compression_off_maps_to_zero() -> None:
+    out = expand("!$SER INIT dir prefix compression=off\n")
+    assert "compression=0)" in out
+
+
+def test_init_compression_explicit_level_passes_through() -> None:
+    # An explicit integer level is left verbatim; ppser_initialize
+    # range-checks it (0 off / 1..9) at runtime.
+    out = expand("!$SER INIT dir prefix compression=6\n")
+    assert "compression=6)" in out
+
+
 def test_init_with_if_clause() -> None:
     out = expand("!$SER INIT dir prefix IF myflag\n")
     assert "IF (myflag) THEN" in out

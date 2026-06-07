@@ -101,6 +101,26 @@ module utils_preserf
    ! Python reader agree on the on-disk URL.
    character(len=*), parameter, public :: PPSER_DEFAULT_BACKEND = 'netcdf4'
 
+   ! Opt-in field-write compression (issue #46, storage_mapping.md §9).
+   ! `ppser_deflate_level` is the active zlib deflate level applied to
+   ! per-savepoint field-data variables (§6) at definition time:
+   !   * 0 = OFF (the default) — variables are written uncompressed and
+   !     contiguous, preserving bit-exact byte parity with the v0.1
+   !     reference layout.
+   !   * 1..9 = ON — `ensure_variable` switches the variable to chunked
+   !     storage (deflate requires chunking in NetCDF4/HDF5) and attaches
+   !     `nf90_def_var_deflate` at that level.
+   ! The knob is reset to the default on every fresh `ppser_initialize`
+   ! (it is module SAVE state) and is set from the `compression` keyword.
+   ! `compression=on` maps to PPSER_DEFAULT_DEFLATE_LEVEL; an explicit
+   ! integer 1..9 selects the level directly. Compression is NetCDF4-only
+   ! in v1: NCZarr deflate needs an HDF5 filter plugin that is not always
+   ! present, so enabling it on the nczarr-v2 backend is rejected at the
+   ! `ppser_initialize` boundary (NCZarr compressor support is a tracked
+   ! follow-up — see storage_mapping.md §9).
+   integer, parameter, public :: PPSER_DEFAULT_DEFLATE_LEVEL = 4
+   integer, save, public :: ppser_deflate_level = 0
+
    ! Mode: 0 = write, 1 = read, 2 = read-perturb.
    integer, save :: ppser_mode_state = 0
 
@@ -319,7 +339,7 @@ contains
                                directory_ref, prefix_ref, &
                                singlefile, mpi_rank, rprecision, &
                                rperturb, realtype, archive, unique_id, &
-                               backend)
+                               backend, compression)
       character(len=*), intent(in) :: directory
       character(len=*), intent(in) :: prefix
       ! Optional for pp_ser / Serialbox `!$SER INIT` compatibility: those
@@ -343,6 +363,12 @@ contains
       ! 'nczarr-v2'. Threaded through to preserf_open_serializer, which
       ! turns it into the right on-disk URL / extension.
       character(len=*), intent(in), optional :: backend
+      ! Opt-in field-write compression (issue #46): an integer zlib
+      ! deflate level. 0 (or absent) leaves field variables uncompressed
+      ! and contiguous (the default — preserves byte parity). 1..9 turns
+      ! on chunked + deflate on the field-write path; the preprocessor
+      ! maps `!$SER INIT compression=on` to PPSER_DEFAULT_DEFLATE_LEVEL.
+      integer, intent(in), optional :: compression
 
       ! Effective open mode passed to preserf_open_serializer. Deferred
       ! length so it mirrors `mode` exactly when present (preserving the
@@ -385,6 +411,36 @@ contains
             write (*, '(a)') "preserf: backend must be 'netcdf4' or 'nczarr-v2'"
             error stop 1
          end if
+      end if
+
+      ! Resolve the opt-in compression knob (issue #46). Reset to the
+      ! OFF default first (module SAVE state, so a prior init's override
+      ! must not stick across a later init that omits the keyword), then
+      ! apply the keyword. A negative level, or a level above the zlib
+      ! ceiling of 9, is a user-authored `!$SER INIT` mistake — reject it
+      ! loudly rather than passing a bad level into nf90_def_var_deflate.
+      ppser_deflate_level = 0
+      if (present(compression)) then
+         if (compression < 0 .or. compression > 9) then
+            write (*, '(a,i0,a)') &
+               'preserf: compression level ', compression, &
+               ' is out of range; expected 0 (off) or 1..9'
+            error stop 1
+         end if
+         ! NetCDF4-only in v1: NCZarr deflate needs an HDF5 filter plugin
+         ! that may be absent, and silently writing an unreadable store is
+         ! worse than a clear up-front abort. Reject the combination before
+         ! any store is opened (NCZarr compressor support is a follow-up —
+         ! storage_mapping.md §9).
+         if (compression > 0 .and. present(backend)) then
+            if (backend == 'nczarr-v2') then
+               write (*, '(a)') &
+                  'preserf: compression is not supported with the '// &
+                  "'nczarr-v2' backend in this release (netcdf4 only)"
+               error stop 1
+            end if
+         end if
+         ppser_deflate_level = compression
       end if
 
       ! Behaviour-changing keywords: update the module state that
@@ -508,6 +564,9 @@ contains
       ppser_mode_state = 0
       call ppser_reset_tracers()
       call ppser_reset_kbuffers()
+      ! Drop the opt-in compression knob back to OFF so a finalize +
+      ! later fs_* without a fresh init starts uncompressed (issue #46).
+      ppser_deflate_level = 0
       ! Also restore the ON/OFF gate to its default. ppser_initialize
       ! re-sets this on every fresh session as belt-and-braces, but
       ! resetting here too means an explicit finalize + later code

@@ -644,6 +644,157 @@ def test_fortran_realtype_too_long_aborts(tmp_path: Path, fortran_binary: Path) 
     )
 
 
+def test_fortran_compression_roundtrips_and_shrinks(
+    tmp_path: Path, fortran_binary: Path
+) -> None:
+    """issue #46: opt-in compression chunks + deflates the field variable.
+
+    The ``compression`` scenario writes a large, highly compressible
+    real64 field with ``compression=1`` and reads it back losslessly
+    through the Fortran helper. This test additionally asserts the on-disk
+    variable carries a deflate filter and chunked storage, that the Python
+    reference reader decodes the (transparently decompressed) data, and
+    that the compressed file is meaningfully smaller than the uncompressed
+    default written by the ``compression-default-off`` scenario.
+    """
+    import netCDF4  # local import; netCDF4 is a dev-only dependency
+
+    comp_dir = tmp_path / "comp"
+    comp_dir.mkdir()
+    plain_dir = tmp_path / "plain"
+    plain_dir.mkdir()
+
+    comp = subprocess.run(
+        [str(fortran_binary), str(comp_dir), "compression"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert comp.returncode == 0, (
+        f"Fortran binary exited {comp.returncode}.\n"
+        f"stdout: {comp.stdout}\nstderr: {comp.stderr}"
+    )
+    assert "preserf-fortran: compression OK" in comp.stdout
+
+    plain = subprocess.run(
+        [str(fortran_binary), str(plain_dir), "compression-default-off"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert plain.returncode == 0, (
+        f"Fortran binary exited {plain.returncode}.\n"
+        f"stdout: {plain.stdout}\nstderr: {plain.stderr}"
+    )
+    assert "preserf-fortran: compression-default-off OK" in plain.stdout
+
+    comp_nc = comp_dir / "fcomp.nc"
+    plain_nc = plain_dir / "fnocomp.nc"
+
+    # The compressed field variable must carry a deflate filter and chunked
+    # storage; the default field variable must carry neither (contiguous,
+    # uncompressed — byte-parity layout preserved).
+    raw = netCDF4.Dataset(str(comp_nc), "r")
+    try:
+        var = raw.groups["savepoints"].groups["sp_000000"].variables["big"]
+        filt = var.filters()
+        assert filt is not None and filt.get("zlib") is True, (
+            f"compressed 'big' should report a zlib deflate filter, got {filt}"
+        )
+        assert var.chunking() != "contiguous", (
+            "deflate requires chunked storage; 'big' must not be contiguous"
+        )
+    finally:
+        raw.close()
+
+    raw = netCDF4.Dataset(str(plain_nc), "r")
+    try:
+        var = raw.groups["savepoints"].groups["sp_000000"].variables["big"]
+        filt = var.filters()
+        assert filt is None or filt.get("zlib") in (False, None), (
+            f"default 'big' must be uncompressed, got filter {filt}"
+        )
+    finally:
+        raw.close()
+
+    # Compression must actually shrink this (ramped, very compressible) store.
+    assert comp_nc.stat().st_size < plain_nc.stat().st_size, (
+        "compressed store should be smaller than the uncompressed default: "
+        f"{comp_nc.stat().st_size} vs {plain_nc.stat().st_size}"
+    )
+
+    # The Python reference reader decodes the compressed field unchanged
+    # (netCDF transparently decompresses on read).
+    dump = read_dump(str(comp_nc))
+    assert set(dump.field_map.keys()) == {"big"}
+    big = dump.field_data["big"][0]
+    expected = np.array([i // 64 for i in range(1, 4097)], dtype=np.float64)
+    np.testing.assert_array_equal(big, expected)
+
+
+def test_fortran_compression_bad_level_aborts(
+    tmp_path: Path, fortran_binary: Path
+) -> None:
+    """issue #46: a compression level outside 0..9 aborts at init.
+
+    ``ppser_initialize`` validates the ``compression`` keyword before any
+    store is opened, so an out-of-range level fails loudly rather than
+    reaching ``nf90_def_var_deflate`` with a bad level.
+    """
+    out_dir = tmp_path / "fortran_out"
+    out_dir.mkdir()
+
+    result = subprocess.run(
+        [str(fortran_binary), str(out_dir), "compression-bad-level"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode != 0, (
+        "binary should have aborted on an out-of-range compression level\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "compression level" in (result.stdout + result.stderr), (
+        "abort should name the compression-level guard\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+
+def test_fortran_compression_nczarr_rejected(
+    tmp_path: Path, fortran_binary: Path
+) -> None:
+    """issue #46: compression on the nczarr-v2 backend is rejected in v1.
+
+    NCZarr deflate needs an HDF5 filter plugin that may be absent, so
+    enabling compression with ``backend='nczarr-v2'`` aborts up front
+    rather than writing a store that cannot be read back. NCZarr
+    compressor support is a tracked follow-up (storage_mapping.md §9).
+    """
+    out_dir = tmp_path / "fortran_out"
+    out_dir.mkdir()
+
+    result = subprocess.run(
+        [str(fortran_binary), str(out_dir), "compression-nczarr"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode != 0, (
+        "binary should have aborted on nczarr-v2 + compression\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "compression is not supported with the 'nczarr-v2' backend" in (
+        result.stdout + result.stderr
+    ), (
+        "abort should name the nczarr compression restriction\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Slice B: full (rank x dtype) type-coverage matrix.
 #

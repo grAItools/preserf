@@ -120,6 +120,48 @@ set_tests_properties(preserf_fortran_backend_nczarr_badchar PROPERTIES
     TIMEOUT 60
 )
 
+# issue #46 positive: opt-in compression chunks + deflates the field
+# variable (NetCDF4) and round-trips it losslessly through the Fortran
+# helper. The Python wire-compat test additionally asserts the on-disk
+# deflate filter and the file-size reduction.
+add_test(
+    NAME preserf_fortran_compression
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" compression
+)
+set_tests_properties(preserf_fortran_compression PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: compression OK"
+    TIMEOUT 60
+)
+
+# issue #46 negative: a compression level outside 0..9 aborts at the
+# ppser_initialize boundary before any store is opened.
+add_test(
+    NAME preserf_fortran_compression_bad_level
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" compression-bad-level
+)
+set_tests_properties(preserf_fortran_compression_bad_level PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "compression level"
+    TIMEOUT 60
+)
+
+# issue #46 negative: compression is NetCDF4-only in v1, so combining it
+# with the nczarr-v2 backend aborts up front rather than writing a store
+# that cannot be read back (NCZarr deflate filter plugin may be absent).
+add_test(
+    NAME preserf_fortran_compression_nczarr
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" compression-nczarr
+)
+set_tests_properties(preserf_fortran_compression_nczarr PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "compression is not supported with the 'nczarr-v2' backend"
+    TIMEOUT 60
+)
+
 # -----------------------------------------------------------------------------
 # Slice A-1: read-mode create-or-resolve-and-validate.
 #
