@@ -285,8 +285,9 @@ contains
    function ppser_resolve_backend(backend) result(eff_backend)
       character(len=*), intent(in), optional :: backend
       character(len=:), allocatable :: eff_backend
-      ! Generous buffer for the env-var value; backend labels are short,
-      ! and an over-long value just fails the allowlist check below.
+      ! Generous buffer for the env-var value; backend labels are short.
+      ! An over-long value triggers a negative env_stat (truncation) and is
+      ! aborted early below rather than reaching the allowlist check.
       character(len=64) :: env_value
       integer :: env_stat
 
