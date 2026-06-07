@@ -271,7 +271,8 @@ program test_minimal
             ! to absolute (against the CWD) rather than reject it, making it
             ! a drop-in. Write + read a real64 field through a RELATIVE
             ! directory and round-trip it; the store must land under the CWD
-            ! at <PWD>/<reldir>/<prefix>.zarr. The relative directory is
+            ! at <CWD>/<reldir>/<prefix>.zarr (process CWD via getcwd(3)).
+            ! The relative directory is
             ! pre-created by the CMakeLists fixture (cmake -E make_directory)
             ! relative to the ctest working dir, so this scenario ignores
             ! out_dir and uses its own relative path.
