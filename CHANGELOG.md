@@ -178,6 +178,15 @@ embedded in each spec's Problem section.
 
 ### Fixed
 
+- The `nczarr-v2` backend now resolves a **relative** `directory` (e.g.
+  `./ser_data`) to an absolute path against the process CWD (via POSIX
+  `getcwd`) before building its `file://...#mode=nczarr,zarr2` URL, instead
+  of aborting. NetCDF4 (and Serialbox) already accept relative directories,
+  so this makes `nczarr-v2` a drop-in for the same inputs; an absolute
+  `directory` is unchanged, and a genuinely un-resolvable path still aborts
+  with a clear message. The `backend-nczarr-relpath` ctest now round-trips a
+  field through a relative directory
+  ([#49](https://github.com/grAItools/preserf/issues/49)).
 - `ppser_initialize`'s `mode` argument is now **optional**, restoring
   drop-in compatibility with pp_ser / Serialbox `!$SER INIT` call sites,
   which never pass `mode` (Serialbox selects it separately via `!$SER MODE`
