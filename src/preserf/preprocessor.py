@@ -93,6 +93,11 @@ _COMPUTED_OPS = ("*", "+", "-", "/")
 _RE_MERGE = re.compile(r"\bmerge\b", re.IGNORECASE)
 
 # Utility-module symbols always imported alongside any serialization call.
+# Public `integer, parameter` exported by utils_ppser (re-exported from
+# utils_preserf). `!$SER INIT ... compression=on` expands to this symbol, so
+# it must be imported via the generated `USE utils_ppser, ONLY:` list.
+_DEFAULT_DEFLATE_LEVEL_PARAM = "PPSER_DEFAULT_DEFLATE_LEVEL"
+
 _ALWAYS_PPSER = (
     "ppser_savepoint",
     "ppser_serializer",
@@ -394,8 +399,11 @@ class Preprocessor:
             return
         # Sorted for reproducible output: the reference pp_ser iterated a
         # set here, so its USE block ordering was non-deterministic.
-        calls_pp = sorted(c for c in self._calls if c.startswith("ppser"))
-        calls_fs = sorted(c for c in self._calls if not c.startswith("ppser"))
+        # `PPSER_DEFAULT_DEFLATE_LEVEL` lives in utils_ppser too (case-folded
+        # match so the uppercase parameter routes into the ppser ONLY list
+        # rather than the user module's).
+        calls_pp = sorted(c for c in self._calls if c.lower().startswith("ppser"))
+        calls_fs = sorted(c for c in self._calls if not c.lower().startswith("ppser"))
         if not calls_pp and not calls_fs:
             return
 
@@ -538,7 +546,11 @@ class Preprocessor:
             if sep and key.strip().lower() == "compression":
                 v = value.strip().lower()
                 if v == "on":
-                    init_args[i] = "compression=PPSER_DEFAULT_DEFLATE_LEVEL"
+                    init_args[i] = f"compression={_DEFAULT_DEFLATE_LEVEL_PARAM}"
+                    # The named parameter must be imported alongside the
+                    # ppser_* symbols, otherwise the emitted USE block leaves
+                    # it undefined and the generated source fails to compile.
+                    self._calls.add(_DEFAULT_DEFLATE_LEVEL_PARAM)
                 elif v == "off":
                     init_args[i] = "compression=0"
 

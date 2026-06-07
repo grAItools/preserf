@@ -69,6 +69,31 @@ def test_init_compression_on_maps_to_default_level() -> None:
     assert "compression=PPSER_DEFAULT_DEFLATE_LEVEL)" in out
 
 
+def test_init_compression_on_imports_default_level_symbol() -> None:
+    # Regression guard (PR #53 review): `compression=on` expands to the
+    # named parameter PPSER_DEFAULT_DEFLATE_LEVEL, so that symbol must also
+    # appear in the emitted `USE utils_ppser, ONLY:` list — otherwise the
+    # generated source fails to compile with an undefined symbol.
+    out = expand(
+        "subroutine foo()\n!$SER INIT dir prefix compression=on\nend subroutine foo\n"
+    )
+    assert "USE utils_ppser, ONLY:" in out
+    use_block = out[out.index("USE utils_ppser, ONLY:") :]
+    use_block = use_block[: use_block.index("#endif")]
+    assert "PPSER_DEFAULT_DEFLATE_LEVEL" in use_block
+
+
+def test_init_compression_off_does_not_import_default_level_symbol() -> None:
+    # `compression=off` inlines the literal 0, so the parameter symbol must
+    # NOT be dragged into the import list.
+    out = expand(
+        "subroutine foo()\n!$SER INIT dir prefix compression=off\nend subroutine foo\n"
+    )
+    use_block = out[out.index("USE utils_ppser, ONLY:") :]
+    use_block = use_block[: use_block.index("#endif")]
+    assert "PPSER_DEFAULT_DEFLATE_LEVEL" not in use_block
+
+
 def test_init_compression_off_maps_to_zero() -> None:
     out = expand("!$SER INIT dir prefix compression=off\n")
     assert "compression=0)" in out
