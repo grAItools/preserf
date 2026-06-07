@@ -150,6 +150,21 @@ set_tests_properties(preserf_fortran_backend_env_bad PROPERTIES
     TIMEOUT 60
 )
 
+# Issue #48 (review): a whitespace-only PRESERF_BACKEND is blank after trim
+# and must be treated as unset, falling back to the 'netcdf4' default rather
+# than failing the allowlist with an unhelpful "unknown backend:" message.
+add_test(
+    NAME preserf_fortran_backend_env_blank
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-env-blank
+)
+set_tests_properties(preserf_fortran_backend_env_blank PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    ENVIRONMENT "PRESERF_BACKEND=   "
+    PASS_REGULAR_EXPRESSION "preserf-fortran: backend-env-blank OK"
+    TIMEOUT 60
+)
+
 # -----------------------------------------------------------------------------
 # Slice A-1: read-mode create-or-resolve-and-validate.
 #

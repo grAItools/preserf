@@ -267,10 +267,14 @@ contains
    !> precedence (most → least specific):
    !>   1. the explicit `backend` argument (e.g. the `!$SER INIT` keyword),
    !>      when present;
-   !>   2. the `PRESERF_BACKEND` environment variable, when set non-empty —
-   !>      a runtime override for callers (such as pp_ser / Serialbox
-   !>      `!$SER INIT`) that never surface the `backend` keyword, so the
-   !>      on-disk format can be chosen without editing source;
+   !>   2. the `PRESERF_BACKEND` environment variable, when set to a
+   !>      non-blank value — a runtime override for callers (such as
+   !>      pp_ser / Serialbox `!$SER INIT`) that never surface the `backend`
+   !>      keyword, so the on-disk format can be chosen without editing
+   !>      source. A blank or whitespace-only value is treated as unset and
+   !>      falls back to the default; a value too long for the read buffer
+   !>      (truncation) aborts with a clear message rather than acting on a
+   !>      partial value;
    !>   3. the `PPSER_DEFAULT_BACKEND` default ('netcdf4').
    !> The result is validated against the same allowlist as an explicit
    !> backend ('netcdf4' / 'nczarr-v2'); an unrecognised value — whether
@@ -284,17 +288,30 @@ contains
       ! Generous buffer for the env-var value; backend labels are short,
       ! and an over-long value just fails the allowlist check below.
       character(len=64) :: env_value
-      integer :: env_len, env_stat
+      integer :: env_stat
 
       if (present(backend)) then
          eff_backend = backend
       else
          call get_environment_variable('PRESERF_BACKEND', value=env_value, &
-                                       length=env_len, status=env_stat)
-         ! status 0 = set; 1 = not set; >1 = other error. A set-but-empty
-         ! value (env_len == 0) is treated as unset so it falls back to the
-         ! default rather than failing the allowlist on an empty string.
-         if (env_stat == 0 .and. env_len > 0) then
+                                       status=env_stat)
+         ! get_environment_variable status semantics (F2008 16.9.84):
+         !   0  = variable set; its value was returned in env_value.
+         !   1  = variable not set.
+         !   2  = the processor does not support environment variables.
+         !  < 0 = the value was too long for env_value (truncation).
+         ! A negative status means the configured value would be silently
+         ! truncated, which could change the selected backend — abort with a
+         ! clear message rather than acting on a partial value. Status 1 or 2
+         ! (unset / unsupported) fall through to the default. A set value that
+         ! is blank or whitespace-only (empty after trim) is treated as unset
+         ! so it falls back to the default rather than failing the allowlist
+         ! on an empty string with an unhelpful "unknown backend:" message.
+         if (env_stat < 0) then
+            write (*, '(a,i0,a)') 'preserf: PRESERF_BACKEND value too long ', &
+               len(env_value), ' chars max (it was truncated)'
+            error stop 1
+         else if (env_stat == 0 .and. len_trim(env_value) > 0) then
             eff_backend = trim(env_value)
          else
             eff_backend = PPSER_DEFAULT_BACKEND

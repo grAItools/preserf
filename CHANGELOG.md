@@ -24,8 +24,12 @@ embedded in each spec's Problem section.
   (`netcdf4` / `nczarr-v2`). This makes the on-disk format a runtime
   choice for callers that never surface the `backend` keyword. The
   resolved backend is also logged in the "SERIALIZATION IS ON" init
-  line so the format is self-evident from the run log. Covered by the
-  `backend-env` / `backend-env-bad` ctest scenarios (#48).
+  line so the format is self-evident from the run log. A blank or
+  whitespace-only `PRESERF_BACKEND` is treated as unset and falls back to
+  the default; a value too long for the read buffer (truncation) aborts
+  with a clear message rather than acting on a partial value. Covered by
+  the `backend-env` / `backend-env-bad` / `backend-env-blank` ctest
+  scenarios (#48).
 - Tracers (Slice C, Phase 1 — `!$SER REGISTERTRACERS` / `!$SER TRACER`):
   the Fortran helper gains `fs_RegisterAllTracers`,
   `ppser_write_tracer_by_name` / `_by_idx` / `_all`, and a host-side
