@@ -14,6 +14,19 @@ embedded in each spec's Problem section.
 
 ### Added
 
+- ADR [0005](docs/adr/0005-content-deduplication-across-savepoints.md)
+  (Proposed): frames the cross-savepoint content-deduplication decision
+  raised in [#47](https://github.com/grAItools/preserf/issues/47) — preserf
+  stores every `(savepoint, field)` write separately whereas Serialbox
+  content-dedups identical writes (~2.63× / 11 GB vs 31.7 GB in an ICON
+  experiment). Records the data-model constraints (no netCDF dedup, HDF5
+  hard links not exposed by netcdf-c, no native NCZarr chunk dedup), the
+  options (in-file content-addressed blob pool + per-savepoint references,
+  dataset-per-content-hash, filesystem reflinks, do-nothing), and recommends
+  the blob-pool direction gated on sequencing after the chunking/compression
+  work ([#46](https://github.com/grAItools/preserf/issues/46)), a resolving
+  reference reader, and a `_preserf_schema_version` bump. Docs-only; no
+  runtime or schema change yet.
 - Tracers (Slice C, Phase 1 — `!$SER REGISTERTRACERS` / `!$SER TRACER`):
   the Fortran helper gains `fs_RegisterAllTracers`,
   `ppser_write_tracer_by_name` / `_by_idx` / `_all`, and a host-side
