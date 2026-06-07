@@ -327,11 +327,14 @@ contains
          return
       end if
       ! Copy the NUL-terminated C string into a Fortran deferred-length
-      ! scalar, stopping at the terminator.
+      ! scalar, stopping at the terminator. Convert each C char to the
+      ! default character kind explicitly (via its code point) so the
+      ! concatenation does not rely on c_char equalling the default
+      ! character kind, which is not guaranteed on every compiler.
       cwd = ''
       do i = 1, cwd_cap
          if (cbuf(i) == c_null_char) exit
-         cwd = cwd//cbuf(i)
+         cwd = cwd//char(ichar(cbuf(i)))
       end do
       ! getcwd returns an absolute path; guard defensively all the same.
       if (len(cwd) == 0) then
@@ -360,10 +363,11 @@ contains
    !>   * `'nczarr-v2'` — an NCZarr V2 `.zarr` directory store, opened via
    !>     a `file://directory/prefix.zarr#mode=nczarr,zarr2` URL. A relative
    !>     `directory` (e.g. `./ser_data`) is resolved to absolute against the
-   !>     CWD (the `PWD` environment variable) before the URL is built, so
+   !>     process CWD via POSIX `getcwd(3)` before the URL is built, so
    !>     nczarr-v2 accepts the same relative directories as the NetCDF4
-   !>     backend; only a genuinely un-resolvable relative path (PWD unset,
-   !>     empty, or not itself absolute) aborts with a clear message. An
+   !>     backend; only a genuinely un-resolvable relative path (`getcwd(3)`
+   !>     failed — e.g. the CWD was removed or is longer than the buffer)
+   !>     aborts with a clear message. An
    !>     unrecognised `backend` aborts at this boundary. The same
    !>     group-per-savepoint schema serves both backends (see
    !>     docs/adr/0002-storage-model-mapping.md).
@@ -732,11 +736,12 @@ contains
          ! NetCDF4 (and Serialbox) accept a relative directory such as
          ! './ser_data' — the OS resolves it against the process CWD — so
          ! resolve_abs_dir() resolves a relative directory the same way
-         ! (via the PWD environment variable) before building the URL,
+         ! (querying the CWD via POSIX getcwd(3)) before building the URL,
          ! rather than rejecting it. nczarr-v2 thus accepts the same
          ! relative directories as netcdf4. A genuinely un-resolvable
-         ! relative path (PWD unset/empty or not itself absolute) still
-         ! aborts with a clear message rather than emitting a bad URL.
+         ! relative path (getcwd(3) failed — e.g. the CWD was removed or
+         ! is longer than the buffer) still aborts with a clear message
+         ! rather than emitting a bad URL.
          block
             character(len=:), allocatable :: abs_dir
             logical :: resolved
@@ -751,7 +756,9 @@ contains
                write (*, '(a,a,a)') &
                   "preserf: nczarr-v2 backend could not resolve the relative "// &
                   "directory '", trim(directory), &
-                  "' to an absolute path (PWD is unset, empty, or not absolute)"
+                  "' to an absolute path (getcwd(3) failed: the current "// &
+                  "working directory may have been removed or be longer "// &
+                  "than the buffer)"
                error stop 1
             end if
             ! The URL is built by raw concatenation, not URI-encoded like
