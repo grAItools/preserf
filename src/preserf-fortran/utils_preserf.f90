@@ -296,7 +296,11 @@ contains
    !> it tracks the process's real working directory — the same one netcdf-c
    !> resolves a relative store path against. An absolute `directory` is
    !> returned unchanged. A leading `./` on a relative path is dropped so the
-   !> result is `<cwd>/rest` rather than `<cwd>/./rest`. `ok` is set
+   !> result is `<cwd>/rest` rather than `<cwd>/./rest`. Resolution is a purely
+   !> lexical join: interior `.`/`..`/`//` segments are NOT collapsed (pp_ser
+   !> directories are simple, and netcdf-c's `file://` URL parser does not
+   !> guarantee `..` normalisation the way the OS would for the NetCDF4
+   !> backend). `ok` is set
    !> `.false.` (and `abs_dir` left unallocated) when getcwd fails (e.g. the
    !> CWD is longer than the buffer or has been unlinked), so the caller can
    !> emit a clear error rather than build a malformed URL.
