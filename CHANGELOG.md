@@ -14,6 +14,23 @@ embedded in each spec's Problem section.
 
 ### Added
 
+- ADR [0005](docs/adr/0005-content-deduplication-across-savepoints.md)
+  (Proposed): decides the cross-savepoint content-deduplication question
+  raised in [#47](https://github.com/grAItools/preserf/issues/47) — preserf
+  stores every `(savepoint, field)` write separately whereas Serialbox
+  content-dedups identical writes (~2.63× / 11 GB vs 31.7 GB in an ICON
+  experiment). Adopts **dictionary-encoded per-field version pools**: each
+  field's distinct contents are stored once under a reserved
+  `/_field_versions/<name>` array and each savepoint references its version
+  by integer index (`<name>__index`), so a stock `xr.open_datatree` /
+  `zarr.open_group` reader reconstructs fields with standard array indexing
+  and **no preserf-specific reader library**, identically for NetCDF4 and
+  NCZarr and portably to object stores. Rejects opaque blob-pool references,
+  HDF5 hard links, filesystem reflinks, and kerchunk/VirtualiZarr manifests
+  (each either needs a special reader or is not portable). Ships opt-in
+  (`!$SER INIT dedup=`, default off) and bumps `_preserf_schema_version` to
+  `2` when enabled. Docs-only; the Fortran helper, Python reader, and tests
+  are the implementation follow-up.
 - Tracers (Slice C, Phase 1 — `!$SER REGISTERTRACERS` / `!$SER TRACER`):
   the Fortran helper gains `fs_RegisterAllTracers`,
   `ppser_write_tracer_by_name` / `_by_idx` / `_all`, and a host-side
