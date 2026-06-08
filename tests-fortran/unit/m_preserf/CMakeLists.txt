@@ -219,6 +219,22 @@ set_tests_properties(preserf_fortran_init_default_mode PROPERTIES
     TIMEOUT 60
 )
 
+# Issue #42: in write mode ppser_initialize must create the output
+# `directory` (mkdir -p semantics) before nf90_create, matching Serialbox.
+# The scenario points INIT at a fresh nested subdirectory that does not
+# exist and asserts the store file gets created (so the directory was made
+# first); a second init proves mkdir -p is idempotent.
+add_test(
+    NAME preserf_fortran_init_mkdir
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" init-mkdir
+)
+set_tests_properties(preserf_fortran_init_mkdir PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: init-mkdir OK"
+    TIMEOUT 60
+)
+
 # Slice B: full type-coverage matrix. One round-trip per dtype (logical /
 # int32 / int64 / real32 / real64) at rank 1, plus a 0-D scalar, a 4-D
 # field, and a real32 read-perturb. The full (rank x dtype) on-disk type
@@ -258,6 +274,20 @@ add_test(
 set_tests_properties(preserf_fortran_perturb_roundtrip PROPERTIES
     FIXTURES_REQUIRED preserf_fortran_output_dir
     PASS_REGULAR_EXPRESSION "preserf-fortran: perturb-roundtrip OK"
+    TIMEOUT 60
+)
+
+# Issue #39: 5-arg fs_read_field perturb overloads for integer and logical.
+# The perturb argument is accepted but ignored; the field is read identically
+# to the 4-arg form. Covers int32, int64, and logical at ranks 0-4.
+add_test(
+    NAME preserf_fortran_perturb_noop
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" perturb-noop
+)
+set_tests_properties(preserf_fortran_perturb_noop PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: perturb-noop OK"
     TIMEOUT 60
 )
 
@@ -533,5 +563,23 @@ add_test(
 set_tests_properties(preserf_fortran_kbuff_bad_shape PROPERTIES
     FIXTURES_REQUIRED preserf_fortran_output_dir
     PASS_REGULAR_EXPRESSION "inconsistent slice shape"
+    TIMEOUT 60
+)
+
+# Issue #43: fs_write_field auto-registers a field on its first write,
+# matching Serialbox, so pp_ser !$SER DATA / !$SER ACCDATA call sites
+# (which never emit !$SER REGISTER) write without an explicit
+# registration. The scenario writes representative dtypes / ranks with no
+# prior fs_register_field, then re-opens read-only and round-trips them
+# back — the read path resolves each field only through the registry, so a
+# lossless round-trip proves the inferred type_id + dims were recorded.
+add_test(
+    NAME preserf_fortran_autoregister
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" autoregister
+)
+set_tests_properties(preserf_fortran_autoregister PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: autoregister OK"
     TIMEOUT 60
 )

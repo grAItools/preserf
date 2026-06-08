@@ -54,6 +54,7 @@ ${CMAKE_CURRENT_SOURCE_DIR}/preserf_write_field_logical.inc;\
 ${CMAKE_CURRENT_SOURCE_DIR}/preserf_read_field.inc;\
 ${CMAKE_CURRENT_SOURCE_DIR}/preserf_read_field_logical.inc;\
 ${CMAKE_CURRENT_SOURCE_DIR}/preserf_read_field_perturb.inc;\
+${CMAKE_CURRENT_SOURCE_DIR}/preserf_read_field_perturb_noop.inc;\
 ${CMAKE_CURRENT_SOURCE_DIR}/preserf_apply_perturb.inc"
 )
 

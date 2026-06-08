@@ -162,6 +162,21 @@ module m_preserf
       module procedure fs_read_field_r8_0d_perturb, &
          fs_read_field_r8_1d_perturb, fs_read_field_r8_2d_perturb, &
          fs_read_field_r8_3d_perturb, fs_read_field_r8_4d_perturb
+      ! Read-perturb (5-arg) no-op overloads: integer and logical dtypes,
+      ! ranks 0-4. Perturbation is ignored for non-float types; these
+      ! overloads exist so that pp_ser / Serialbox callers that emit the
+      ! same 5-arg call shape for every type (e.g. mo_ser_common.f90
+      ! CASE(2) blocks) compile and run correctly for integer/logical
+      ! fields. See issue #39.
+      module procedure fs_read_field_l_0d_perturb, &
+         fs_read_field_l_1d_perturb, fs_read_field_l_2d_perturb, &
+         fs_read_field_l_3d_perturb, fs_read_field_l_4d_perturb
+      module procedure fs_read_field_i4_0d_perturb, &
+         fs_read_field_i4_1d_perturb, fs_read_field_i4_2d_perturb, &
+         fs_read_field_i4_3d_perturb, fs_read_field_i4_4d_perturb
+      module procedure fs_read_field_i8_0d_perturb, &
+         fs_read_field_i8_1d_perturb, fs_read_field_i8_2d_perturb, &
+         fs_read_field_i8_3d_perturb, fs_read_field_i8_4d_perturb
    end interface
    public :: fs_read_field
 
@@ -1953,6 +1968,132 @@ contains
 #undef PRESERF_SUB
 #undef PRESERF_DTYPE
 
+   ! ------------------------------------------------------------------------
+   ! DATA — read with perturbation magnitude (CASE(2) form) — no-op overloads
+   !
+   ! Integer (int32 / int64) and logical fields accept the 5-arg call shape
+   ! that pp_ser emits uniformly for every type in its read-perturb CASE(2)
+   ! branch (see issue #39). The perturbation argument is received and
+   ! discarded; the field is simply read via its 4-arg sibling.
+   ! ------------------------------------------------------------------------
+
+   ! logical read-perturb no-op overloads (ranks 0-4).
+#define PRESERF_DTYPE logical
+#define PRESERF_SUB fs_read_field_l_0d_perturb
+#define PRESERF_DIMS
+#define PRESERF_BASE fs_read_field_l_0d
+#include "preserf_read_field_perturb_noop.inc"
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_l_1d_perturb
+#define PRESERF_DIMS , dimension(:)
+#define PRESERF_BASE fs_read_field_l_1d
+#include "preserf_read_field_perturb_noop.inc"
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_l_2d_perturb
+#define PRESERF_DIMS , dimension(:, :)
+#define PRESERF_BASE fs_read_field_l_2d
+#include "preserf_read_field_perturb_noop.inc"
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_l_3d_perturb
+#define PRESERF_DIMS , dimension(:, :, :)
+#define PRESERF_BASE fs_read_field_l_3d
+#include "preserf_read_field_perturb_noop.inc"
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_l_4d_perturb
+#define PRESERF_DIMS , dimension(:, :, :, :)
+#define PRESERF_BASE fs_read_field_l_4d
+#include "preserf_read_field_perturb_noop.inc"
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#undef PRESERF_DTYPE
+
+   ! int32 read-perturb no-op overloads (ranks 0-4).
+#define PRESERF_DTYPE integer(int32)
+#define PRESERF_SUB fs_read_field_i4_0d_perturb
+#define PRESERF_DIMS
+#define PRESERF_BASE fs_read_field_i4_0d
+#include "preserf_read_field_perturb_noop.inc"
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_i4_1d_perturb
+#define PRESERF_DIMS , dimension(:)
+#define PRESERF_BASE fs_read_field_i4_1d
+#include "preserf_read_field_perturb_noop.inc"
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_i4_2d_perturb
+#define PRESERF_DIMS , dimension(:, :)
+#define PRESERF_BASE fs_read_field_i4_2d
+#include "preserf_read_field_perturb_noop.inc"
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_i4_3d_perturb
+#define PRESERF_DIMS , dimension(:, :, :)
+#define PRESERF_BASE fs_read_field_i4_3d
+#include "preserf_read_field_perturb_noop.inc"
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_i4_4d_perturb
+#define PRESERF_DIMS , dimension(:, :, :, :)
+#define PRESERF_BASE fs_read_field_i4_4d
+#include "preserf_read_field_perturb_noop.inc"
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#undef PRESERF_DTYPE
+
+   ! int64 read-perturb no-op overloads (ranks 0-4).
+#define PRESERF_DTYPE integer(int64)
+#define PRESERF_SUB fs_read_field_i8_0d_perturb
+#define PRESERF_DIMS
+#define PRESERF_BASE fs_read_field_i8_0d
+#include "preserf_read_field_perturb_noop.inc"
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_i8_1d_perturb
+#define PRESERF_DIMS , dimension(:)
+#define PRESERF_BASE fs_read_field_i8_1d
+#include "preserf_read_field_perturb_noop.inc"
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_i8_2d_perturb
+#define PRESERF_DIMS , dimension(:, :)
+#define PRESERF_BASE fs_read_field_i8_2d
+#include "preserf_read_field_perturb_noop.inc"
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_i8_3d_perturb
+#define PRESERF_DIMS , dimension(:, :, :)
+#define PRESERF_BASE fs_read_field_i8_3d
+#include "preserf_read_field_perturb_noop.inc"
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#define PRESERF_SUB fs_read_field_i8_4d_perturb
+#define PRESERF_DIMS , dimension(:, :, :, :)
+#define PRESERF_BASE fs_read_field_i8_4d
+#include "preserf_read_field_perturb_noop.inc"
+#undef PRESERF_BASE
+#undef PRESERF_DIMS
+#undef PRESERF_SUB
+#undef PRESERF_DTYPE
+
    ! ========================================================================
    ! Internal helpers
    ! ========================================================================
@@ -2686,8 +2827,13 @@ contains
    !> the field's registered dims under `/_fields/<fieldname>` (which are
    !> stored in C-order, so we compare against `reverse(fortran_shape)`).
    !> Aborts with a clear error on type-id mismatch, shape mismatch, or
-   !> on accesses to fields that were never registered. `op` is "write"
+   !> on a *read* of a field that was never registered. `op` is "write"
    !> or "read" and is interpolated into error messages.
+   !> On the *write* path an unknown field is auto-registered on the fly
+   !> (type_id + C-order dims inferred from the runtime shape, no halos),
+   !> matching Serialbox's `fs_write_field`, which registers a field on
+   !> its first write — so pp_ser `!$SER DATA` call sites that never emit
+   !> `!$SER REGISTER` write without an explicit registration (issue #43).
    !> When `registered_dims_out` is present it returns the registry's
    !> C-order `dims` vector this routine already fetched, so a read-path
    !> caller can hand it to `require_variable_xtype` instead of having it
@@ -2706,6 +2852,20 @@ contains
 
       ncerr = nf90_inq_varid(s%fields_grpid, trim(fieldname), varid)
       if (ncerr == NF90_ENOTVAR) then
+         ! A write to a field that was never registered: auto-register it
+         ! from the runtime shape + type_id (Serialbox parity, issue #43)
+         ! rather than abort. A read cannot auto-register — there is no
+         ! field to read — so it still aborts.
+         if (trim(op) == 'write') then
+            call autoregister_field(s, fieldname, fortran_shape, expected_tid)
+            ! The entry we just wrote matches the runtime shape and type
+            ! by construction, so hand the C-order dims back (a read never
+            ! takes this branch, but keep the contract consistent) and
+            ! return without re-validating.
+            if (present(registered_dims_out)) &
+               registered_dims_out = fortran_shape_to_c_order(fortran_shape)
+            return
+         end if
          write (*, '(a,a,a,a,a)') &
             'preserf: ', trim(op), ' on unregistered field "', &
             trim(fieldname), '"; call fs_register_field first'
@@ -2766,6 +2926,60 @@ contains
       ! require_variable_xtype need not re-read them from the registry.
       if (present(registered_dims_out)) registered_dims_out = registered_dims
    end subroutine validate_field_shape
+
+   !> Reverse a runtime Fortran shape (fastest-varying axis first) into the
+   !> netCDF C-order `dims` vector (slowest-varying axis first) that the
+   !> `/_fields/<fieldname>` registry records. A rank-0 (scalar) field maps
+   !> to a zero-length vector. Mirrors the column-major → C-order reversal
+   !> that active_dims_c_order performs for the explicit REGISTER path.
+   function fortran_shape_to_c_order(fortran_shape) result(dims)
+      integer, intent(in) :: fortran_shape(:)
+      integer(int32), allocatable :: dims(:)
+      integer :: r, axis
+
+      r = size(fortran_shape)
+      allocate (dims(r))
+      do axis = 1, r
+         ! C-axis (axis-1) is the slowest-varying = last Fortran axis.
+         call require_fits_int32(fortran_shape(r - axis + 1), 'field extent')
+         dims(axis) = int(fortran_shape(r - axis + 1), int32)
+      end do
+   end function fortran_shape_to_c_order
+
+   !> Auto-register a field under `/_fields/<fieldname>` on its first write,
+   !> inferring `type_id` and the C-order `dims` from the runtime array.
+   !> Serialbox's `fs_write_field` registers a field on first write, so
+   !> pp_ser `!$SER DATA` / `!$SER ACCDATA` call sites (which never emit a
+   !> `!$SER REGISTER`) can write without an explicit registration. This
+   !> mirrors the create branch of fs_register_field, minus the halo
+   !> attributes: a write site carries no halo metadata, so the inferred
+   !> entry records zero halos (an absent halo attribute reads back as 0).
+   !> See issue #43.
+   subroutine autoregister_field(s, fieldname, fortran_shape, type_id)
+      type(t_serializer), intent(in) :: s
+      character(len=*), intent(in) :: fieldname
+      integer, intent(in) :: fortran_shape(:)
+      integer(int32), intent(in) :: type_id
+      integer :: ncerr, varid
+      integer(int32) :: zero
+      integer(int32), allocatable :: dims(:)
+
+      dims = fortran_shape_to_c_order(fortran_shape)
+      zero = 0_int32
+
+      ! Create the dummy attribute-carrier scalar variable, matching the
+      ! explicit-REGISTER layout (storage_mapping.md §1) so Python readers
+      ! decode an auto-registered field identically to a registered one.
+      ncerr = nf90_def_var(s%fields_grpid, trim(fieldname), NF90_INT, varid)
+      call preserf_check_nf_with_msg(ncerr, &
+                                     'def_var /_fields/'//trim(fieldname))
+      ncerr = nf90_put_att(s%fields_grpid, varid, 'type_id', type_id)
+      call preserf_check_nf_with_msg(ncerr, 'put_att type_id')
+      ncerr = nf90_put_att(s%fields_grpid, varid, 'dims', dims)
+      call preserf_check_nf_with_msg(ncerr, 'put_att dims')
+      ncerr = nf90_put_var(s%fields_grpid, varid, zero)
+      call preserf_check_nf_with_msg(ncerr, 'put_var (registry placeholder)')
+   end subroutine autoregister_field
 
    !> Ensure per-field dimensions exist on `grpid` and return their dim ids.
    !> Dimensions are named `<fieldname>_dim0`, `<fieldname>_dim1`, … in
