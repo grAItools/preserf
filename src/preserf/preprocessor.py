@@ -137,6 +137,25 @@ def _is_computed(value: str) -> bool:
     return _RE_MERGE.search(value) is not None
 
 
+def _strip_trailing_comment(text: str) -> str:
+    """Strip a trailing inline Fortran comment from directive body text.
+
+    Finds the first ``!`` that is not inside a single- or double-quoted string
+    and drops it together with everything after it.  A ``!`` inside a quoted
+    literal (e.g. ``name='a!b'``) is *not* treated as a comment delimiter.
+    """
+    in_single = False
+    in_double = False
+    for i, ch in enumerate(text):
+        if ch == "'" and not in_double:
+            in_single = not in_single
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+        elif ch == "!" and not in_single and not in_double:
+            return text[:i].rstrip()
+    return text
+
+
 @dataclass
 class Options:
     """Configuration for a :class:`Preprocessor` run.
@@ -424,7 +443,7 @@ class Preprocessor:
         m = _RE_SER.search(self._line)
         if not m:
             return False
-        body = m.group(1)
+        body = _strip_trailing_comment(m.group(1))
         if not body:
             return True  # bare ``!$SER`` line: directive for grouping only
         args = _RE_TOKENS.split(body)[1::2]
