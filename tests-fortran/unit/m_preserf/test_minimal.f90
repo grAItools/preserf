@@ -14,7 +14,8 @@
 !> directly via netCDF4 (so the kind-specific `nf90_put_att` branches
 !> are protected against on-disk type regressions).
 program test_minimal
-   use, intrinsic :: iso_fortran_env, only: int32, int64, real32, real64
+   use, intrinsic :: iso_fortran_env, only: int32, int64, real32, real64, &
+                                            error_unit
    ! Deliberately import the alias module names rather than the real
    ! ones (utils_preserf, m_preserf). pp_ser-generated source uses
    ! `USE m_serialize` / `USE utils_ppser`, so wiring the integration
@@ -426,6 +427,69 @@ program test_minimal
                call ppser_finalize()
 
                write (*, '(a)') 'preserf-fortran: init-default-mode OK'
+               stop
+            end block
+         else if (scenario == 'init-mkdir') then
+            ! Issue #42: in write mode ppser_initialize must create
+            ! `directory` (mkdir -p semantics) before nf90_create, matching
+            ! Serialbox — whose serializer creation made the output
+            ! directory, so drop-in `!$SER INIT directory='...'` call sites
+            ! never mkdir it. Point INIT at a fresh nested subdirectory that
+            ! does NOT exist, write a field, finalize, and assert the store
+            ! file was created (i.e. the directory was created first). A
+            ! second init into the same (now-existing) directory proves
+            ! mkdir -p is idempotent. The Python wire-compat counterpart is
+            ! not needed: this is a pure local-filesystem behaviour.
+            block
+               character(len=:), allocatable :: nested_dir
+               character(len=:), allocatable :: store_path
+               real(real64) :: u_w(3)
+               logical :: store_pre, store_post
+               integer :: i
+               do i = 1, 3
+                  u_w(i) = 700.0_real64 + real(i, real64)
+               end do
+               ! A two-level nested path under the ctest output dir, so the
+               ! mkdir must create more than one missing component. The ctest
+               ! output dir is reused (not cleaned), so a prior run may have
+               ! left `nested_dir` (and its parent `mkdir_a`) behind. Remove
+               ! the whole `mkdir_a` subtree recursively and assert the leaf
+               ! directory is genuinely absent, so the test actually
+               ! exercises ppser_initialize creating a *missing* directory
+               ! rather than passing trivially against a pre-existing one.
+               nested_dir = trim(out_dir)//'/mkdir_a/mkdir_b'
+               store_path = nested_dir//'/fmkdir.nc'
+               call remove_dir_recursive(trim(out_dir)//'/mkdir_a')
+               if (dir_exists(nested_dir)) error stop &
+                  'init-mkdir: nested output directory unexpectedly present '// &
+                  'before init (precondition cleanup failed)'
+               inquire (file=store_path, exist=store_pre)
+               if (store_pre) error stop &
+                  'init-mkdir: store file unexpectedly present before init'
+
+               call ppser_initialize(nested_dir, 'fmkdir', 'w')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u_w)
+               call ppser_finalize()
+
+               inquire (file=store_path, exist=store_post)
+               if (.not. store_post) error stop &
+                  'init-mkdir: store file not created (directory not made)'
+
+               ! mkdir -p is idempotent: a second write into the now-existing
+               ! directory must succeed, not abort.
+               call ppser_initialize(nested_dir, 'fmkdir2', 'w')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u_w)
+               call ppser_finalize()
+
+               write (*, '(a)') 'preserf-fortran: init-mkdir OK'
                stop
             end block
          else if (scenario == 'perturb-roundtrip') then
@@ -1734,6 +1798,63 @@ contains
       open (newunit=unit, file=path, status='old', iostat=ios)
       if (ios == 0) close (unit, status='delete')
    end subroutine delete_if_exists
+
+   !> Recursively remove a directory subtree (`rm -rf`) if it exists. The
+   !> init-mkdir scenario uses this to clear a nested output directory that
+   !> a prior run may have left behind, so the "directory was missing
+   !> before init" precondition genuinely holds (the ctest output dir is
+   !> reused, not cleaned). `rm -rf` is a no-op on a missing path, so the
+   !> exit status is asserted only to surface a real removal failure.
+   subroutine remove_dir_recursive(path)
+      character(len=*), intent(in) :: path
+      integer :: exitstat, cmdstat, i
+      character(len=:), allocatable :: escaped
+      ! Single-quote the path so spaces and shell metacharacters are taken
+      ! literally; embedded single quotes are escaped via the standard
+      ! '\'' close-reopen idiom (mirroring preserf_ensure_directory, whose
+      ! replace_single_quotes helper is private to utils_preserf) so a quote
+      ! in the path cannot break out of the quoting. `--` terminates option
+      ! parsing so a path beginning with `-` is treated as an operand rather
+      ! than an `rm` flag.
+      escaped = ''
+      do i = 1, len_trim(path)
+         if (path(i:i) == "'") then
+            escaped = escaped//"'\''"
+         else
+            escaped = escaped//path(i:i)
+         end if
+      end do
+      call execute_command_line("rm -rf -- '"//escaped//"'", &
+                                wait=.true., exitstat=exitstat, cmdstat=cmdstat)
+      ! Test cmdstat FIRST: per the Fortran standard, exitstat is not
+      ! guaranteed to be defined when cmdstat is non-zero, and `.or.` is not
+      ! guaranteed to short-circuit, so reading exitstat in the same condition
+      ! could read an undefined value. Split the checks (mirroring the
+      ! cmdstat-then-exitstat ordering in preserf_ensure_directory).
+      ! `error stop` only takes a constant message, so emit the offending
+      ! path (which CI needs to diagnose the failure) to stderr first.
+      if (cmdstat /= 0) then
+         write (error_unit, '(a)') &
+            'remove_dir_recursive: failed to clear precondition directory: '// &
+            trim(path)
+         error stop 'remove_dir_recursive: failed to clear precondition directory'
+      end if
+      if (exitstat /= 0) then
+         write (error_unit, '(a)') &
+            'remove_dir_recursive: failed to clear precondition directory: '// &
+            trim(path)
+         error stop 'remove_dir_recursive: failed to clear precondition directory'
+      end if
+   end subroutine remove_dir_recursive
+
+   !> Return .true. iff `path` is an existing directory. gfortran's
+   !> `inquire(file=...//'/.', exist=)` form detects a directory (the
+   !> trailing `/.` only resolves when the path is a directory), which a
+   !> bare `inquire(file=path)` does not portably do.
+   logical function dir_exists(path)
+      character(len=*), intent(in) :: path
+      inquire (file=trim(path)//'/.', exist=dir_exists)
+   end function dir_exists
 
    !> Register a field of the given datatype and (i,j,k,l) sizes with all
    !> halos zero, against the module-level ppser_serializer. Keeps the
