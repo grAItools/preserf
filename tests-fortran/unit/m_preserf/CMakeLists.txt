@@ -135,6 +135,66 @@ set_tests_properties(preserf_fortran_backend_nczarr_badchar PROPERTIES
     TIMEOUT 60
 )
 
+# Issue #48: with no explicit backend= argument the backend is resolved
+# from the PRESERF_BACKEND env var. PRESERF_BACKEND=nczarr-v2 selects the
+# NCZarr V2 backend; an explicit backend= still overrides the env var.
+add_test(
+    NAME preserf_fortran_backend_env
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-env
+)
+set_tests_properties(preserf_fortran_backend_env PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    ENVIRONMENT "PRESERF_BACKEND=nczarr-v2"
+    PASS_REGULAR_EXPRESSION "preserf-fortran: backend-env OK"
+    TIMEOUT 60
+)
+
+# Issue #48 negative: an unknown PRESERF_BACKEND value must abort at the
+# ppser_initialize boundary with the same "unknown backend" message as an
+# unknown explicit backend= argument.
+add_test(
+    NAME preserf_fortran_backend_env_bad
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-env-bad
+)
+set_tests_properties(preserf_fortran_backend_env_bad PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    ENVIRONMENT "PRESERF_BACKEND=zarr3"
+    PASS_REGULAR_EXPRESSION "unknown backend"
+    TIMEOUT 60
+)
+
+# Issue #48 (review): a whitespace-only PRESERF_BACKEND is blank after trim
+# and must be treated as unset, falling back to the 'netcdf4' default rather
+# than failing the allowlist with an unhelpful "unknown backend:" message.
+add_test(
+    NAME preserf_fortran_backend_env_blank
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-env-blank
+)
+set_tests_properties(preserf_fortran_backend_env_blank PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    ENVIRONMENT "PRESERF_BACKEND=   "
+    PASS_REGULAR_EXPRESSION "preserf-fortran: backend-env-blank OK"
+    TIMEOUT 60
+)
+
+# Issue #48 (review): an explicit backend= passed as a fixed-length character
+# variable carries leading/trailing blanks; ppser_resolve_backend must trim
+# and adjustl them so a logically valid value is accepted rather than rejected
+# as "unknown backend". No PRESERF_BACKEND is set for this scenario.
+add_test(
+    NAME preserf_fortran_backend_arg_padded
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-arg-padded
+)
+set_tests_properties(preserf_fortran_backend_arg_padded PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: backend-arg-padded OK"
+    TIMEOUT 60
+)
+
 # -----------------------------------------------------------------------------
 # Slice A-1: read-mode create-or-resolve-and-validate.
 #

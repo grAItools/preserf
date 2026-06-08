@@ -283,6 +283,78 @@ contains
       end do
    end function uri_unsafe_char
 
+   !> Resolve the effective storage backend, applying the selection
+   !> precedence (most → least specific):
+   !>   1. the explicit `backend` argument (e.g. the `!$SER INIT` keyword),
+   !>      when present — normalised with `trim`/`adjustl` so a value passed
+   !>      in a fixed-length character variable (carrying leading/trailing
+   !>      blanks) is accepted rather than rejected by the allowlist;
+   !>   2. the `PRESERF_BACKEND` environment variable, when set to a
+   !>      non-blank value — a runtime override for callers (such as
+   !>      pp_ser / Serialbox `!$SER INIT`) that never surface the `backend`
+   !>      keyword, so the on-disk format can be chosen without editing
+   !>      source. A blank or whitespace-only value is treated as unset and
+   !>      falls back to the default; a value too long for the read buffer
+   !>      (truncation) aborts with a clear message rather than acting on a
+   !>      partial value;
+   !>   3. the `PPSER_DEFAULT_BACKEND` default ('netcdf4').
+   !> The result is validated against the same allowlist as an explicit
+   !> backend ('netcdf4' / 'nczarr-v2'); an unrecognised value — whether
+   !> from the argument or the env var — aborts with a clear message rather
+   !> than surfacing a deep netCDF URL error later. Resolved once at the
+   !> `ppser_initialize` boundary so every store opened in a session shares
+   !> one backend.
+   function ppser_resolve_backend(backend) result(eff_backend)
+      character(len=*), intent(in), optional :: backend
+      character(len=:), allocatable :: eff_backend
+      ! Generous buffer for the env-var value; backend labels are short.
+      ! An over-long value triggers a negative env_stat (truncation) and is
+      ! aborted early below rather than reaching the allowlist check.
+      character(len=64) :: env_value
+      integer :: env_stat
+
+      if (present(backend)) then
+         ! Normalise the explicit argument the same way as the env var: a
+         ! fixed-length character actual (e.g. character(len=32) :: b='netcdf4')
+         ! carries trailing blanks, and a caller may pad with leading ones, so
+         ! strip both rather than reject a logically valid value as "unknown".
+         eff_backend = trim(adjustl(backend))
+      else
+         call get_environment_variable('PRESERF_BACKEND', value=env_value, &
+                                       status=env_stat)
+         ! get_environment_variable status semantics (F2008 16.9.84):
+         !   0  = variable set; its value was returned in env_value.
+         !   1  = variable not set.
+         !   2  = the processor does not support environment variables.
+         !  < 0 = the value was too long for env_value (truncation).
+         ! A negative status means the configured value would be silently
+         ! truncated, which could change the selected backend — abort with a
+         ! clear message rather than acting on a partial value. Status 1 or 2
+         ! (unset / unsupported) fall through to the default. A set value that
+         ! is blank or whitespace-only (empty after trim) is treated as unset
+         ! so it falls back to the default rather than failing the allowlist
+         ! on an empty string with an unhelpful "unknown backend:" message.
+         if (env_stat < 0) then
+            write (*, '(a,i0,a)') 'preserf: PRESERF_BACKEND value too long ', &
+               len(env_value), ' chars max (it was truncated)'
+            error stop 1
+         else if (env_stat == 0 .and. len_trim(env_value) > 0) then
+            eff_backend = trim(adjustl(env_value))
+         else
+            eff_backend = PPSER_DEFAULT_BACKEND
+         end if
+      end if
+
+      ! Validate the resolved backend at the user-facing boundary, before
+      ! any store is opened, so a typo'd keyword OR a typo'd PRESERF_BACKEND
+      ! aborts with a clear message rather than a deep netCDF URL error.
+      if (eff_backend /= 'netcdf4' .and. eff_backend /= 'nczarr-v2') then
+         write (*, '(a,a)') 'preserf: unknown backend: ', eff_backend
+         write (*, '(a)') "preserf: backend must be 'netcdf4' or 'nczarr-v2'"
+         error stop 1
+      end if
+   end function ppser_resolve_backend
+
    !> Resolve a (possibly relative) `directory` to an absolute path for the
    !> NCZarr V2 `file://` URL. NetCDF4 (and Serialbox) accept a relative
    !> directory like `./ser_data` because the OS resolves it against the
@@ -361,7 +433,10 @@ contains
 
    !> Initialise the global serializer (and optionally a read-reference
    !> serializer) by opening a dataset under `directory` with name
-   !> `prefix`. The `backend` keyword selects the store format:
+   !> `prefix`. The `backend` keyword selects the store format; when it is
+   !> omitted the backend is resolved from the `PRESERF_BACKEND` environment
+   !> variable, else the `'netcdf4'` default (see `ppser_resolve_backend`
+   !> for the full precedence):
    !>   * `'netcdf4'` (default) — a plain NetCDF4 `.nc` file
    !>     (`directory/prefix.nc`).
    !>   * `'nczarr-v2'` — an NCZarr V2 `.zarr` directory store, opened via
@@ -439,8 +514,9 @@ contains
       character(len=*), intent(in), optional :: archive
       integer, intent(in), optional :: unique_id
       ! Storage backend selector (Slice E): 'netcdf4' (default) or
-      ! 'nczarr-v2'. Threaded through to preserf_open_serializer, which
-      ! turns it into the right on-disk URL / extension.
+      ! 'nczarr-v2'. When omitted, resolved from the PRESERF_BACKEND env
+      ! var, else the default. Threaded through to preserf_open_serializer,
+      ! which turns it into the right on-disk URL / extension.
       character(len=*), intent(in), optional :: backend
 
       ! Effective open mode passed to preserf_open_serializer. Deferred
@@ -448,6 +524,11 @@ contains
       ! existing unknown-mode validation), or holds the single-character
       ! mode derived from the runtime state when `mode` is omitted.
       character(len=:), allocatable :: eff_mode
+
+      ! Effective storage backend, resolved (and validated) once here from
+      ! the optional argument / PRESERF_BACKEND env var / default, then
+      ! threaded through every open below so a session uses one backend.
+      character(len=:), allocatable :: eff_backend
 
       ! Resolve the effective open mode. pp_ser's `!$SER INIT` never passes
       ! `mode`; Serialbox sets it earlier via `!$SER MODE` → ppser_set_mode,
@@ -475,16 +556,15 @@ contains
          error stop 1
       end if
 
-      ! Reject an unknown backend at the user-facing boundary, before any
-      ! store is opened, so a typo'd `!$SER INIT` backend keyword aborts
-      ! with a clear message rather than a deep netCDF URL error.
-      if (present(backend)) then
-         if (backend /= 'netcdf4' .and. backend /= 'nczarr-v2') then
-            write (*, '(a,a)') 'preserf: unknown backend: ', backend
-            write (*, '(a)') "preserf: backend must be 'netcdf4' or 'nczarr-v2'"
-            error stop 1
-         end if
-      end if
+      ! Resolve (and validate) the storage backend ONCE here, before any
+      ! store is opened: the explicit argument wins, else the
+      ! PRESERF_BACKEND env var, else the default. An unknown value —
+      ! whether from the keyword or the env var — aborts with a clear
+      ! message rather than a deep netCDF URL error. The resolved value is
+      ! threaded into every open below, and logged in the INIT banner so
+      ! the on-disk format is self-evident from the run log.
+      eff_backend = ppser_resolve_backend(backend)
+      write (*, '(a,a)') 'preserf: SERIALIZATION IS ON, backend=', eff_backend
 
       ! Behaviour-changing keywords: update the module state that
       ! pp_ser-generated REGISTER / DATA calls consume. `rprecision`
@@ -546,7 +626,7 @@ contains
       if (present(directory_ref) .and. present(prefix_ref)) then
          call preserf_open_serializer(ppser_serializer_ref, &
                                       directory_ref, prefix_ref, 'r', &
-                                      rank=mpi_rank, backend=backend)
+                                      rank=mpi_rank, backend=eff_backend)
       end if
 
       ! Thread the metadata-only keywords into the open so they are
@@ -559,7 +639,7 @@ contains
                                    eff_mode, &
                                    rank=mpi_rank, singlefile=singlefile, &
                                    archive=archive, unique_id=unique_id, &
-                                   backend=backend)
+                                   backend=eff_backend)
 
       if (.not. (present(directory_ref) .and. present(prefix_ref))) then
          if (eff_mode == 'r' .or. eff_mode == 'R') then
@@ -572,7 +652,7 @@ contains
             ! read-only opens).
             call preserf_open_serializer(ppser_serializer_ref, &
                                          directory, prefix, 'r', &
-                                         rank=mpi_rank, backend=backend)
+                                         rank=mpi_rank, backend=eff_backend)
          end if
       end if
 
