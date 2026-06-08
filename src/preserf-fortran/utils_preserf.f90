@@ -70,8 +70,8 @@ module utils_preserf
 
    ! Real-field type metadata for pp_ser-emitted `fs_register_field`
    ! calls. These are mutable `save` state (not `parameter`) so the
-   ! `realtype` / `rprecision` keywords on `!$SER INIT` can override
-   ! them via `ppser_initialize`; the `PPSER_DEFAULT_*` parameters
+   ! `realtype` keyword on `!$SER INIT` can override them via
+   ! `ppser_initialize`; the `PPSER_DEFAULT_*` parameters
    ! below are the Serialbox double-precision defaults, used both as
    ! the initial values here and as the reset target on every fresh
    ! `ppser_initialize` (so a prior override does not stick across a
@@ -376,17 +376,16 @@ contains
    !>     group-per-savepoint schema serves both backends (see
    !>     docs/adr/0002-storage-model-mapping.md).
    !>
-   !> **Precondition:** `directory` MUST already exist on disk. The
-   !> helper calls `nf90_create` on the per-backend target directly and
-   !> does not create parent directories — `nf90_create` propagates the
-   !> underlying HDF5 / system error if the parent is missing. The Python
-   !> reference writer in `tests/_support/storage.py` creates the
-   !> directory with `mkdir(parents=True, exist_ok=True)`; Fortran callers
-   !> are responsible for an equivalent step before calling
-   !> `ppser_initialize`. The CTest target `preserf_fortran_minimal_setup`
-   !> runs `cmake -E make_directory` for this reason;
-   !> tests/integration_tests/test_fortran_wire_compat.py uses pytest's
-   !> `tmp_path` fixture.
+   !> **Output directory:** in write mode `directory` is created with
+   !> `mkdir -p` semantics before `nf90_create` (issue #42), matching
+   !> Serialbox — whose serializer creation made the output directory, so
+   !> drop-in `!$SER INIT directory='...'` call sites (e.g. ICON) never
+   !> mkdir it themselves. Without this a fresh run would abort inside
+   !> `nf90_create` with netCDF's generic "Permission denied" (the real
+   !> cause being the missing parent directory). The Python reference
+   !> writer in `tests/_support/storage.py` likewise creates the directory
+   !> with `mkdir(parents=True, exist_ok=True)`. Read mode does not create
+   !> the directory: the store must already exist to be opened.
    !>
    !> `mode` is one of: 'w' (write, create or truncate), 'r' (read-only).
    !> Append mode ('a') is reserved but currently rejected — see
@@ -434,7 +433,7 @@ contains
       ! are unaffected when a keyword is absent.
       logical, intent(in), optional :: singlefile
       integer, intent(in), optional :: mpi_rank
-      integer, intent(in), optional :: rprecision
+      real(real64), intent(in), optional :: rprecision
       real(real64), intent(in), optional :: rperturb
       character(len=*), intent(in), optional :: realtype
       character(len=*), intent(in), optional :: archive
@@ -489,19 +488,25 @@ contains
 
       ! Behaviour-changing keywords: update the module state that
       ! pp_ser-generated REGISTER / DATA calls consume. `rprecision`
-      ! is the real byte length; `realtype` is the type string passed
-      ! to `fs_register_field`; `rperturb` feeds the read-perturb path
-      ! (Slice A-2) via `ppser_zrperturb`.
+      ! is a Serialbox-compatible real tolerance value (e.g. the ICON
+      ! caller passes `10.0**(-PRECISION(1.0))`, ~1e-6); it is accepted
+      ! here for interface compatibility but not currently used — the
+      ! real byte length is determined by `realtype` / the real kind.
+      ! `realtype` is the type string passed to `fs_register_field`;
+      ! `rperturb` feeds the read-perturb path (Slice A-2) via
+      ! `ppser_zrperturb`.
       !
-      ! Reset to the Serialbox defaults FIRST. These three are module
-      ! SAVE state, so without a reset an override from a prior init in
-      ! the same process would stick across a later init that omits the
-      ! keyword — the omitting init must see the documented default, not
-      ! the stale override.
+      ! Reset to the Serialbox defaults FIRST. All three of
+      ! `ppser_reallength`, `ppser_realtype`, and `ppser_zrperturb` are
+      ! module SAVE state, so without a reset an override from a prior
+      ! init in the same process would stick across a later init that
+      ! omits the keyword — the omitting init must see the documented
+      ! default, not the stale override. (`ppser_reallength` is reset
+      ! alongside `ppser_realtype` because it is re-derived from
+      ! `realtype` below, so a stale length must not survive either.)
       ppser_reallength = PPSER_DEFAULT_REALLENGTH
       ppser_realtype = PPSER_DEFAULT_REALTYPE
       ppser_zrperturb = PPSER_DEFAULT_RPERTURB
-      if (present(rprecision)) ppser_reallength = rprecision
       if (present(realtype)) then
          ! `realtype` comes from a user-authored `!$SER INIT` directive,
          ! so reject an over-long value loudly rather than silently
@@ -514,6 +519,20 @@ contains
             error stop 1
          end if
          ppser_realtype = realtype
+         ! Derive the byte length from the type name so `ppser_reallength`
+         ! is always consistent with `ppser_realtype`. Serialbox convention:
+         ! 'float'/'single' → 4 bytes; 'double' → 8 bytes; 'real' → 8 bytes
+         ! (the Serialbox default); any other name leaves the default intact.
+         ! Match case-insensitively (mirroring `type_id_from_datatype`'s
+         ! `to_lower` on the datatype) so e.g. `realtype='FLOAT'` derives a
+         ! length of 4 instead of silently keeping the default 8, which
+         ! would later abort `fs_register_field` on a byte-length mismatch.
+         select case (preserf_to_lower(trim(realtype)))
+         case ('float', 'single')
+            ppser_reallength = 4
+         case ('double', 'real')
+            ppser_reallength = 8
+         end select
       end if
       if (present(rperturb)) ppser_zrperturb = rperturb
 
@@ -798,6 +817,17 @@ contains
 
       select case (mode)
       case ('w', 'W')
+         ! Create `directory` (mkdir -p semantics) before nf90_create,
+         ! matching Serialbox: its serializer creation made the output
+         ! directory, so real `!$SER INIT directory='...'` call sites (and
+         ! the runscripts that drive them) never mkdir it. Without this a
+         ! fresh run aborts inside nf90_create with netCDF's generic
+         ! "Permission denied" (the real cause is the missing parent dir).
+         ! Only the 'w' path needs it — a read open requires the store to
+         ! already exist. For nczarr-v2 the `.zarr` store is itself a
+         ! directory under `directory`, so creating `directory` (its parent)
+         ! is the right target there too.
+         call preserf_ensure_directory(directory)
          ncerr = nf90_create(path, NF90_NETCDF4, s%ncid)
          call preserf_check_nf_with_msg(ncerr, 'nf90_create '//path)
          s%writable = .true.
@@ -832,6 +862,78 @@ contains
       ! Silence "unused" warning for `version` on write-path opens.
       if (.false.) version = version
    end subroutine preserf_open_serializer
+
+   !> Create `directory` with `mkdir -p` semantics before a write-mode
+   !> open, so a fresh run does not abort inside `nf90_create` on a missing
+   !> parent directory (issue #42). Serialbox's serializer creation made
+   !> the directory, so drop-in `!$SER INIT directory='...'` call sites
+   !> never do; preserf must match that behaviour.
+   !>
+   !> Fortran has no intrinsic mkdir, so the portable approach is
+   !> `EXECUTE_COMMAND_LINE` with the platform `mkdir`. `mkdir -p` is a
+   !> no-op when the directory already exists, so re-initialising over an
+   !> existing store is fine. An empty `directory` is skipped here rather
+   !> than running `mkdir -p ''`: with the netcdf4 backend the store path
+   !> is built as `trim(directory)//'/'//<prefix>.nc`, so an empty
+   !> `directory` yields the root-anchored `/<prefix>.nc` (it does NOT mean
+   !> "current working directory"); there is no parent directory for
+   !> preserf to create in that case, so the skip is correct.
+   !>
+   !> A failed `mkdir` (`exitstat /= 0`) or a shell that could not be
+   !> launched (`cmdstat /= 0`) aborts with a clear message that names the
+   !> directory, rather than letting the subsequent `nf90_create` fail with
+   !> netCDF's generic "Permission denied".
+   subroutine preserf_ensure_directory(directory)
+      character(len=*), intent(in) :: directory
+      integer :: exitstat, cmdstat
+      character(len=256) :: cmdmsg
+
+      if (len_trim(directory) == 0) return
+
+      ! Single-quote the path so spaces and shell metacharacters are taken
+      ! literally; embedded single quotes are escaped via the standard
+      ! '\'' close-reopen idiom so a quote in the path cannot break out of
+      ! the quoting. `--` terminates option parsing so a path beginning with
+      ! `-` is treated as an operand rather than a `mkdir` flag.
+      call execute_command_line( &
+         "mkdir -p -- '"//replace_single_quotes(trim(directory))//"'", &
+         wait=.true., exitstat=exitstat, cmdstat=cmdstat, cmdmsg=cmdmsg)
+
+      if (cmdstat /= 0) then
+         write (*, '(a,a,a,a)') &
+            'preserf: could not run mkdir for output directory ', &
+            trim(directory), ': ', trim(cmdmsg)
+         error stop 1
+      end if
+      if (exitstat /= 0) then
+         ! Note: the Fortran standard only guarantees `cmdmsg` is defined
+         ! when `cmdstat /= 0`. Here the command ran (`cmdstat == 0`) but
+         ! `mkdir` returned a non-zero exit status, so `cmdmsg` may be
+         ! undefined and must not be read; report only the exit status.
+         write (*, '(a,a,a,i0,a)') &
+            'preserf: failed to create output directory ', &
+            trim(directory), ' (mkdir exit status ', exitstat, ')'
+         error stop 1
+      end if
+   end subroutine preserf_ensure_directory
+
+   !> Return `s` with every single quote replaced by the shell-safe
+   !> close-reopen escape `'\''`, so the result can be embedded inside a
+   !> single-quoted shell word. Used by preserf_ensure_directory to pass an
+   !> arbitrary directory path to `mkdir -p` without shell injection.
+   pure function replace_single_quotes(s) result(out)
+      character(len=*), intent(in) :: s
+      character(len=:), allocatable :: out
+      integer :: i
+      out = ''
+      do i = 1, len(s)
+         if (s(i:i) == "'") then
+            out = out//"'\''"
+         else
+            out = out//s(i:i)
+         end if
+      end do
+   end function replace_single_quotes
 
    subroutine preserf_close_serializer(s)
       type(t_serializer), intent(inout) :: s
@@ -1009,5 +1111,23 @@ contains
          error stop 1
       end if
    end subroutine preserf_validate_schema_version
+
+   ! ASCII lowercase, mirroring `m_preserf`'s `to_lower`. Duplicated here
+   ! (rather than reused) because `m_preserf` already `use`s this module,
+   ! so depending on it back would be a circular module dependency.
+   pure function preserf_to_lower(s) result(r)
+      character(len=*), intent(in) :: s
+      character(len=len(s)) :: r
+      integer :: i, c
+
+      do i = 1, len(s)
+         c = iachar(s(i:i))
+         if (c >= iachar('A') .and. c <= iachar('Z')) then
+            r(i:i) = achar(c + 32)
+         else
+            r(i:i) = s(i:i)
+         end if
+      end do
+   end function preserf_to_lower
 
 end module utils_preserf

@@ -150,6 +150,36 @@ def test_accdata_acc_if_clause() -> None:
     assert "ACC_PREFIX UPDATE HOST ( u(:) ), IF (lacc)" in out
 
 
+# --- trailing inline comment stripping ------------------------------------
+
+
+def test_data_with_single_bang_trailing_comment() -> None:
+    # A single '!' comment after key=value pairs must be silently dropped.
+    out = expand("!$SER DATA vn=vn ! this is a comment\n")
+    assert "call fs_write_field" in out
+    assert "comment" not in out
+
+
+def test_accdata_with_double_bang_trailing_comment() -> None:
+    # A '!!' annotation (common in Fortran) must also be stripped.
+    out = expand("!$SER ACCDATA vn=vn  !! contains both nnow and nnew\n")
+    assert "call fs_write_field" in out
+    assert "nnow" not in out
+
+
+def test_quoted_bang_is_not_stripped() -> None:
+    # A '!' inside a quoted string value must NOT be treated as a comment.
+    out = expand("!$SER SAVEPOINT sp name='a!b'\n")
+    assert "'a!b'" in out
+
+
+def test_savepoint_with_trailing_comment() -> None:
+    # Trailing comment on a SAVEPOINT directive is stripped.
+    out = expand("!$SER SAVEPOINT sp1 ! my savepoint\n")
+    assert "call fs_create_savepoint('sp1', ppser_savepoint)" in out
+    assert "my savepoint" not in out
+
+
 # --- MODE ------------------------------------------------------------------
 
 
