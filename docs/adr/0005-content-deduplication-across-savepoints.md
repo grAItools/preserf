@@ -103,9 +103,29 @@ Adopt **dictionary-encoded, per-field version pools** as the deduplication
 mechanism: store each field's distinct content versions once in a pooled
 array and have each savepoint reference its version by **integer index**.
 This supersedes the in-file content-addressed _blob pool with opaque
-references_ direction that an earlier draft of this ADR recommended — the
-blob pool captured the same redundancy but required a preserf resolving
-reader, which the index-based encoding avoids entirely.
+references_ direction that an earlier draft of this ADR recommended.
+
+**Scope of the dedup, stated honestly.** This encoding deduplicates
+**identical writes of the same field across savepoints** — the dominant
+source of the measured redundancy (a field unchanged across many savepoints
+is stored once). It does **not**, as specified in decisions 1–2,
+deduplicate **identical bytes that originate from *different* fields**: each
+field gets its own pool, so two distinct fields that happen to share content
+are stored twice. The earlier blob-pool direction, being a *single* global
+content-addressed store (`hash → (blob, offset, length)`, like Serialbox's
+global checksum-keyed `fields_table`), is field-agnostic and so captures
+cross-field duplication too — and the headline **2.63×** is itself a *global*
+figure (789 globally-unique checksums out of 2077 writes), folding in both
+axes. The per-field pool trades that cross-field coverage for transparent,
+stock-reader reads: a *global* pool of heterogeneously-shaped fields is
+naturally a flat byte buffer addressed by `(offset, length)` — i.e. exactly
+the opaque handle that forces a preserf resolving reader. Keeping each pool a
+clean, single-shape, standard-indexable array is *what* makes
+`pool["u"].isel(...)` work without preserf code, and that requires
+partitioning the content. See decision 5 for the refinement that recovers
+essentially all *practically-occurring* cross-field duplication while keeping
+that transparency, and the Alternatives entry for why the fully-global
+opaque pool is rejected as the primary scheme.
 
 ### 1. A reserved `/_field_versions` group holds the unique versions
 
@@ -192,6 +212,44 @@ cost is small. Read mode is the mirror: resolve `<name>__index[savepoint]`
 then read that pool slice back into the host array — a contained change to
 the helper's read path.
 
+### 5. Optional refinement — pool by `(type_id, shape)` to recover cross-field dedup
+
+The per-field pool (decisions 1–4) misses duplication between *distinct*
+fields that share content. A **`(type_id, shape)`-keyed pool** recovers
+essentially all of it while keeping every pool a clean, standard-indexable
+array:
+
+- Replace per-field `/_field_versions/<name>` with shape-bucketed pools
+  `/_field_versions/pool_<type_id>_<shape>` (a stable, derived bucket name).
+  Every field with that dtype and shape shares the bucket, so an all-zero
+  version written by `u` and by `v` collapses to one slice.
+- The index becomes a `(pool, version)` pair rather than a bare version: a
+  field's `<name>__index` still gives the version, and the field's
+  `/_fields/<name>` carrier records which bucket it resolves against (its
+  `type_id` + `dims` already determine it). Reconstruction stays pure
+  indexing — `pool.isel(version=…)` — just against a shared array.
+
+The decisive observation: **identical bytes require identical byte length**,
+so two fields can only collide if they have the same element count and dtype.
+Bucketing by `(type_id, shape)` therefore catches every realistic cross-field
+collision — most importantly the **all-zero / constant-init** case, where
+many distinct same-shaped fields share content at early savepoints. The
+*only* duplication it still misses is between fields whose shapes differ but
+whose flattened bytes coincide (e.g. `(10,20)` vs `(200,)` of the same
+dtype) — degenerate for real array data and not worth a flat byte pool to
+catch. This refinement is thus strictly more general than per-field pooling
+and strictly more transparent than the global opaque blob pool, recovering
+near-all cross-field redundancy with no special reader.
+
+Whether to ship decision 5 from the start or as a follow-up depends on how
+much of the measured redundancy is cross-field — a question the issue #47
+data does not yet break down (it would require grouping the 789 unique
+checksums by how many distinct field names map to each). The per-field pool
+(decisions 1–4) is the floor; the bucketed pool is the natural upgrade if
+that breakdown shows material cross-field collision, and it is a localized
+change (bucket naming + a `(pool, version)` index) rather than a new schema
+direction.
+
 ### Schema version
 
 This changes what a savepoint variable means and where field data lives, so
@@ -215,13 +273,17 @@ mirrors how chunking/compression are slated to arrive as `!$SER OPTION` knobs
 
 - **In-file content-addressed blob pool + opaque references (the earlier
   recommendation).** A reserved `/_blobs` pool plus per-savepoint
-  `(blob, offset, length)` reference attributes captures the same 2.63× and
-  keeps the store a single artifact. Rejected as the primary scheme because
-  the reference is an _opaque handle_: `xr.open_datatree` yields a handle,
-  not a field, so the store is unreadable without a preserf resolving
-  reader — the exact cost this decision exists to avoid. The dictionary
-  encoding captures the same redundancy with a first-class array index
-  instead.
+  `(blob, offset, length)` reference attributes. Being a *single global*
+  content-addressed store, it dedups on **both** axes — cross-savepoint *and*
+  cross-field — so it captures the full *global* 2.63× and keeps the store a
+  single artifact. That cross-field coverage is its one genuine advantage
+  over the per-field dictionary encoding (decisions 1–4); the
+  `(type_id, shape)`-bucketed refinement (decision 5) closes most of that gap
+  transparently. Rejected as the primary scheme because the reference is an
+  _opaque handle_: `xr.open_datatree` yields a handle, not a field, so the
+  store is unreadable without a preserf resolving reader — the exact cost
+  this decision exists to avoid. The dictionary encoding gives up full
+  cross-field coverage to keep stock-reader reads.
 - **HDF5 hard links (netCDF4 only).** Fully transparent and refcounted _for
   HDF5 readers_, so the savepoint path would stay byte-identical. Rejected:
   `nf90_*` cannot create links (needs an offline h5py/libhdf5 pass); a link
@@ -257,6 +319,15 @@ mirrors how chunking/compression are slated to arrive as `!$SER OPTION` knobs
 - **Live, low-memory write path.** Dedup runs inside the existing Fortran
   helper with plain `nf90_*` calls; the per-field hash map holds hashes and
   integers, not bytes. No offline compaction tool is introduced.
+- **Cross-field duplication is out of scope by default.** The per-field pool
+  (decisions 1–4) captures cross-savepoint redundancy only — the dominant
+  source — and stores identical bytes originating from *different* fields
+  twice, unlike the global blob pool. The `(type_id, shape)`-bucketed pool
+  (decision 5) recovers essentially all *practically-occurring* cross-field
+  duplication (notably all-zero / constant-init fields) while keeping reads
+  transparent, and is the planned upgrade if the #47 data shows material
+  cross-field collision. So the per-field figure is a *lower bound* on the
+  achievable dedup, not the full global 2.63×.
 - **Coupled to #46.** Compression is the orthogonal lever and the interim
   posture while dedup is opt-in; the version pool also gives compression a
   clean, deduplicated array to filter, so the two size levers compose rather

@@ -25,7 +25,11 @@ embedded in each spec's Problem section.
   by integer index (`<name>__index`), so a stock `xr.open_datatree` /
   `zarr.open_group` reader reconstructs fields with standard array indexing
   and **no preserf-specific reader library**, identically for NetCDF4 and
-  NCZarr and portably to object stores. Rejects opaque blob-pool references,
+  NCZarr and portably to object stores. The per-field pool dedups
+  **cross-savepoint** (the dominant redundancy) but not **cross-field**;
+  decision 5 adds an optional `(type_id, shape)`-bucketed pool that recovers
+  near-all practically-occurring cross-field duplication (e.g. all-zero-init
+  fields) while staying transparent. Rejects opaque blob-pool references,
   HDF5 hard links, filesystem reflinks, and kerchunk/VirtualiZarr manifests
   (each either needs a special reader or is not portable). Ships opt-in
   (`!$SER INIT dedup=`, default off) and bumps `_preserf_schema_version` to
