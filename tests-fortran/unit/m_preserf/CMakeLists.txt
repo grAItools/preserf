@@ -92,17 +92,32 @@ set_tests_properties(preserf_fortran_backend_bad PROPERTIES
     TIMEOUT 60
 )
 
-# Slice E negative: the nczarr-v2 backend needs an absolute directory for
-# its file:// URL; a relative one must abort rather than build a malformed
-# file://<authority>/... target.
+# Issue #49: the nczarr-v2 backend needs an absolute directory for its
+# file:// URL, but netcdf4 (and Serialbox) accept a relative directory. So
+# nczarr-v2 must resolve a relative directory to absolute (against the CWD)
+# rather than reject it. The scenario writes + reads a field through the
+# RELATIVE directory 'rel_zarr_dir' and asserts the store landed at the
+# resolved <CWD>/rel_zarr_dir/frel.zarr. WORKING_DIRECTORY pins the CWD to
+# the pre-created test-output dir so the relative path resolves there; the
+# setup fixture make_directory's rel_zarr_dir under it first (nf90_create
+# does not create parent dirs).
+add_test(
+    NAME preserf_fortran_backend_nczarr_relpath_setup
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output/rel_zarr_dir"
+)
+set_tests_properties(preserf_fortran_backend_nczarr_relpath_setup PROPERTIES
+    FIXTURES_SETUP preserf_fortran_relpath_dir
+)
 add_test(
     NAME preserf_fortran_backend_nczarr_relpath
     COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
             "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-nczarr-relpath
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-output"
 )
 set_tests_properties(preserf_fortran_backend_nczarr_relpath PROPERTIES
-    FIXTURES_REQUIRED preserf_fortran_output_dir
-    PASS_REGULAR_EXPRESSION "requires an absolute directory"
+    FIXTURES_REQUIRED "preserf_fortran_output_dir;preserf_fortran_relpath_dir"
+    PASS_REGULAR_EXPRESSION "preserf-fortran: backend-nczarr-relpath OK"
     TIMEOUT 60
 )
 
