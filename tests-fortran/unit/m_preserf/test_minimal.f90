@@ -284,15 +284,60 @@ program test_minimal
             error stop &
                'preserf-test_minimal: unknown backend was accepted'
          else if (scenario == 'backend-nczarr-relpath') then
-            ! Slice E: NCZarr's file:// URL needs an absolute directory.
-            ! A relative directory must abort with a clear message rather
-            ! than build a malformed file://<authority>/... URL that would
-            ! silently target the wrong store.
-            call ppser_initialize('relative_dir_not_absolute', 'frel', 'w', &
-                                  backend='nczarr-v2')
-            ! Unreachable: the absolute-directory guard must abort first.
-            error stop &
-               'preserf-test_minimal: relative nczarr directory was accepted'
+            ! Issue #49: NCZarr's file:// URL needs an absolute directory,
+            ! but netcdf4 (and Serialbox) accept a relative directory like
+            ! './ser_data'. So nczarr-v2 must resolve a relative directory
+            ! to absolute (against the CWD) rather than reject it, making it
+            ! a drop-in. Write + read a real64 field through a RELATIVE
+            ! directory and round-trip it; the store must land under the CWD
+            ! at <CWD>/<reldir>/<prefix>.zarr (process CWD via getcwd(3)).
+            ! The relative directory is
+            ! pre-created by the CMakeLists fixture (cmake -E make_directory)
+            ! relative to the ctest working dir, so this scenario ignores
+            ! out_dir and uses its own relative path.
+            block
+               real(real64) :: uz(3), uz_back(3)
+               integer :: i
+               logical :: store_exists
+               do i = 1, 3
+                  uz(i) = 700.0_real64 + real(i, real64)
+               end do
+               call ppser_initialize('rel_zarr_dir', 'frel', 'w', &
+                                     backend='nczarr-v2')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', uz)
+               call ppser_finalize()
+               ! The store must exist at rel_zarr_dir/frel.zarr (relative to
+               ! the CWD), proving the relative directory was resolved to the
+               ! process CWD — not rejected, not mis-targeted to a bogus
+               ! file://<authority>/... location. The inquire path is itself
+               ! relative, so it resolves against the same CWD getcwd saw.
+               inquire (file='rel_zarr_dir/frel.zarr/.zgroup', exist=store_exists)
+               if (.not. store_exists) then
+                  inquire (file='rel_zarr_dir/frel.zarr', exist=store_exists)
+               end if
+               if (.not. store_exists) error stop &
+                  'backend-nczarr-relpath: store not created at resolved path'
+               ! Re-open via the SAME relative directory and read back,
+               ! proving read resolves to the identical absolute path.
+               call ppser_initialize('rel_zarr_dir', 'frel', 'r', &
+                                     backend='nczarr-v2')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', uz_back)
+               do i = 1, 3
+                  if (uz_back(i) /= 700.0_real64 + real(i, real64)) error stop &
+                     'backend-nczarr-relpath: data round-trip mismatch'
+               end do
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: backend-nczarr-relpath OK'
+               stop
+            end block
          else if (scenario == 'backend-nczarr-badchar') then
             ! Slice E: the nczarr-v2 URL is built by raw concatenation, so
             ! a directory (or prefix) carrying a URI-significant character
