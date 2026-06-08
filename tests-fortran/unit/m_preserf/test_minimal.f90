@@ -1362,6 +1362,37 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: backend-env-blank OK'
                stop
             end block
+         else if (scenario == 'backend-arg-padded') then
+            ! Issue #48 (review): an explicit `backend=` actual is commonly a
+            ! fixed-length character variable, which pads the logical value
+            ! with trailing blanks (and a caller may prepend leading ones).
+            ! ppser_resolve_backend must normalise both away (trim+adjustl) so
+            ! a logically valid value is accepted rather than rejected as
+            ! "unknown backend". A padded 'netcdf4' must still write a `.nc`
+            ! file. No env var is needed for this scenario.
+            block
+               character(len=16) :: padded
+               real(real64) :: ue(3)
+               logical :: nc_exists
+               integer :: i
+               padded = '  netcdf4'   ! leading + trailing blanks
+               do i = 1, 3
+                  ue(i) = 800.0_real64 + real(i, real64)
+               end do
+               call delete_if_exists(trim(out_dir)//'/fpadded.nc')
+               call ppser_initialize(out_dir, 'fpadded', 'w', backend=padded)
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', ue)
+               call ppser_finalize()
+               inquire (file=trim(out_dir)//'/fpadded.nc', exist=nc_exists)
+               if (.not. nc_exists) error stop &
+                  'backend-arg-padded: padded backend= was not accepted as netcdf4'
+               write (*, '(a)') 'preserf-fortran: backend-arg-padded OK'
+               stop
+            end block
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &

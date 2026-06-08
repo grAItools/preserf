@@ -165,6 +165,21 @@ set_tests_properties(preserf_fortran_backend_env_blank PROPERTIES
     TIMEOUT 60
 )
 
+# Issue #48 (review): an explicit backend= passed as a fixed-length character
+# variable carries leading/trailing blanks; ppser_resolve_backend must trim
+# and adjustl them so a logically valid value is accepted rather than rejected
+# as "unknown backend". No PRESERF_BACKEND is set for this scenario.
+add_test(
+    NAME preserf_fortran_backend_arg_padded
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-arg-padded
+)
+set_tests_properties(preserf_fortran_backend_arg_padded PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: backend-arg-padded OK"
+    TIMEOUT 60
+)
+
 # -----------------------------------------------------------------------------
 # Slice A-1: read-mode create-or-resolve-and-validate.
 #

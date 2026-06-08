@@ -27,9 +27,12 @@ embedded in each spec's Problem section.
   line so the format is self-evident from the run log. A blank or
   whitespace-only `PRESERF_BACKEND` is treated as unset and falls back to
   the default; a value too long for the read buffer (truncation) aborts
-  with a clear message rather than acting on a partial value. Covered by
-  the `backend-env` / `backend-env-bad` / `backend-env-blank` ctest
-  scenarios (#48).
+  with a clear message rather than acting on a partial value. An explicit
+  `backend=` argument is normalised with `trim`/`adjustl`, so a value passed
+  in a fixed-length character variable (with leading/trailing blanks) is
+  accepted rather than rejected as "unknown backend", matching the env-var
+  path. Covered by the `backend-env` / `backend-env-bad` /
+  `backend-env-blank` / `backend-arg-padded` ctest scenarios (#48).
 - Tracers (Slice C, Phase 1 — `!$SER REGISTERTRACERS` / `!$SER TRACER`):
   the Fortran helper gains `fs_RegisterAllTracers`,
   `ppser_write_tracer_by_name` / `_by_idx` / `_all`, and a host-side

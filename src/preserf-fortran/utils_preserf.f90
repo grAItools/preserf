@@ -266,7 +266,9 @@ contains
    !> Resolve the effective storage backend, applying the selection
    !> precedence (most → least specific):
    !>   1. the explicit `backend` argument (e.g. the `!$SER INIT` keyword),
-   !>      when present;
+   !>      when present — normalised with `trim`/`adjustl` so a value passed
+   !>      in a fixed-length character variable (carrying leading/trailing
+   !>      blanks) is accepted rather than rejected by the allowlist;
    !>   2. the `PRESERF_BACKEND` environment variable, when set to a
    !>      non-blank value — a runtime override for callers (such as
    !>      pp_ser / Serialbox `!$SER INIT`) that never surface the `backend`
@@ -292,7 +294,11 @@ contains
       integer :: env_stat
 
       if (present(backend)) then
-         eff_backend = backend
+         ! Normalise the explicit argument the same way as the env var: a
+         ! fixed-length character actual (e.g. character(len=32) :: b='netcdf4')
+         ! carries trailing blanks, and a caller may pad with leading ones, so
+         ! strip both rather than reject a logically valid value as "unknown".
+         eff_backend = trim(adjustl(backend))
       else
          call get_environment_variable('PRESERF_BACKEND', value=env_value, &
                                        status=env_stat)
@@ -313,7 +319,7 @@ contains
                len(env_value), ' chars max (it was truncated)'
             error stop 1
          else if (env_stat == 0 .and. len_trim(env_value) > 0) then
-            eff_backend = trim(env_value)
+            eff_backend = trim(adjustl(env_value))
          else
             eff_backend = PPSER_DEFAULT_BACKEND
          end if
