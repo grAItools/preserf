@@ -197,6 +197,14 @@ embedded in each spec's Problem section.
 
 ### Fixed
 
+- Line-continuation detection for `!$SER` directives is now comment-aware: a
+  `&` that appears inside a **trailing inline comment** (e.g.
+  `!$SER DATA vn=vn ! foo &`) is no longer mistaken for a line continuation,
+  so the comment is dropped and the following source line is not swallowed
+  into the directive. Genuine continuations (a `&` outside any comment) are
+  unaffected. This reuses the quote-aware comment stripper to drop the
+  trailing comment before checking for the `&` marker
+  ([#55](https://github.com/grAItools/preserf/issues/55)).
 - The `nczarr-v2` backend now resolves a **relative** `directory` (e.g.
   `./ser_data`) to an absolute path against the process CWD (via POSIX
   `getcwd`) before building its `file://...#mode=nczarr,zarr2` URL, instead

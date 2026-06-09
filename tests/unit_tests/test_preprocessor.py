@@ -490,6 +490,24 @@ def test_continuation_prefix_is_case_insensitive() -> None:
     assert "'a', x)" in out and "'b', y)" in out
 
 
+def test_trailing_comment_ending_in_amp_is_not_a_continuation() -> None:
+    # A '&' inside a trailing inline comment must NOT be mistaken for a line
+    # continuation: the comment is dropped and the following source line is
+    # emitted verbatim rather than swallowed into the directive (issue #55).
+    out = expand("!$SER DATA vn=vn ! foo &\nsome_real_code = 1\n")
+    assert "'vn', vn)" in out
+    assert "some_real_code = 1" in out
+    assert "foo" not in out
+
+
+def test_continuation_still_works_after_comment_amp_fix() -> None:
+    # Genuine continuations (a '&' outside any comment) keep working, even
+    # when the continued line also carries a trailing comment.
+    out = expand("!$SER DATA a=x &  ! keep going\n!$SER&  b=y\n")
+    assert "'a', x)" in out and "'b', y)" in out
+    assert "keep going" not in out
+
+
 # --- USE statement injection ----------------------------------------------
 
 

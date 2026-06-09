@@ -105,7 +105,6 @@ _ALWAYS_PPSER = (
 )
 
 _RE_SER = re.compile(r"^ *!\$ser *(.*)$", re.IGNORECASE)
-_RE_SER_CONT_OUT = re.compile(r"^ *!\$ser *(.*) & *$", re.IGNORECASE)
 _RE_SER_CONT_IN = re.compile(r"^ *!\$ser& *", re.IGNORECASE)
 _RE_TOKENS = re.compile(r"""((?:[^ "']|"[^"]*"|'[^']*')+)""")
 _RE_MODULE = re.compile(
@@ -154,6 +153,28 @@ def _strip_trailing_comment(text: str) -> str:
         elif ch == "!" and not in_single and not in_double:
             return text[:i].rstrip()
     return text
+
+
+def _ser_continuation(line: str) -> str | None:
+    """Return the accumulated directive text if ``line`` continues, else ``None``.
+
+    A ``!$SER`` line is a continuation when its directive body — *after* any
+    trailing inline comment is stripped (quote-aware) — ends in ``&``. This
+    keeps a ``&`` that appears inside a trailing comment (e.g.
+    ``!$SER DATA vn=vn ! foo &``) from being mistaken for a line continuation.
+    Returns the directive text with the trailing ``&`` removed, ready to be
+    prepended to the next line.
+    """
+    m = _RE_SER.match(line)
+    if not m:
+        return None
+    body = _strip_trailing_comment(m.group(1))
+    if not body.endswith("&"):
+        return None
+    # Reconstruct the directive prefix (preserving leading whitespace and the
+    # original ``!$SER`` casing) with the comment dropped and the ``&`` chopped.
+    prefix = line[: m.start(1)]
+    return (prefix + body[:-1]).rstrip()
 
 
 @dataclass
@@ -255,10 +276,11 @@ class Preprocessor:
                     raise self._error(msg="Incorrect line continuation encountered")
             self._line = pending + line
 
-            cont = _RE_SER_CONT_OUT.match(self._line)
-            if cont:
-                # Chop the trailing ``&`` and keep accumulating.
-                pending = re.sub(r" +& *$", "", self._line).rstrip()
+            cont = _ser_continuation(self._line)
+            if cont is not None:
+                # Comment-aware: ``&`` inside a trailing comment is not a
+                # continuation. Keep accumulating the chopped directive text.
+                pending = cont
                 continue
             pending = ""
 
