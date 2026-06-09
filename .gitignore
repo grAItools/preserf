@@ -210,6 +210,9 @@ __marimo__/
 
 # Example run artifacts (build/ is already ignored above; ignore stores too)
 examples/*/out/
+# The plain-make example installs the runtime into a local prefix/ (build/ is
+# already ignored above).
+examples/*/prefix/
 
 
 # >>> ai-agent-harness (managed by copier) >>>
