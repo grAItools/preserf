@@ -266,6 +266,16 @@ program test_minimal
             if (ppser_reallength /= 4) error stop &
                'realtype-valid: float did not derive ppser_reallength=4'
             call ppser_finalize()
+            ! A padded actual (leading/trailing blanks, as a fixed-length
+            ! character variable can carry) must be normalised with
+            ! trim(adjustl(...)) like `backend`, so it is accepted and stored
+            ! blank-free in ppser_realtype.
+            call ppser_initialize(out_dir, 'frtv5', 'w', realtype='  double  ')
+            if (trim(ppser_realtype) /= 'double') error stop &
+               'realtype-valid: padded realtype not normalised in ppser_realtype'
+            if (ppser_reallength /= 8) error stop &
+               'realtype-valid: padded realtype did not derive ppser_reallength=8'
+            call ppser_finalize()
             write (*, '(a)') 'preserf-fortran: realtype-valid OK'
             stop
          else if (scenario == 'backend-nczarr') then

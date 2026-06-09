@@ -530,6 +530,14 @@ contains
       ! threaded through every open below so a session uses one backend.
       character(len=:), allocatable :: eff_backend
 
+      ! Effective realtype: the `realtype` actual normalised with
+      ! trim(adjustl(...)), mirroring `ppser_resolve_backend`. A
+      ! fixed-length character actual can carry leading or trailing blanks;
+      ! stripping both keeps the length guard, allowlist match, bad-value
+      ! print, and the stored `ppser_realtype` consistent and tolerant of
+      ! padding.
+      character(len=:), allocatable :: eff_realtype
+
       ! Resolve the effective open mode. pp_ser's `!$SER INIT` never passes
       ! `mode`; Serialbox sets it earlier via `!$SER MODE` → ppser_set_mode,
       ! which lands in `ppser_mode_state`. Map that state to an open mode so
@@ -588,11 +596,19 @@ contains
       ppser_realtype = PPSER_DEFAULT_REALTYPE
       ppser_zrperturb = PPSER_DEFAULT_RPERTURB
       if (present(realtype)) then
+         ! Normalise the same way as `backend` (see `ppser_resolve_backend`):
+         ! a fixed-length character actual may carry leading/trailing blanks,
+         ! so strip both before validating and storing. Using the normalised
+         ! `eff_realtype` everywhere below keeps the length guard, allowlist
+         ! match, bad-value message, and the stored `ppser_realtype` aligned
+         ! and tolerant of padding (and keeps `ppser_realtype` in the form
+         ! that `type_id_from_datatype`'s `trim(...)` matching expects).
+         eff_realtype = trim(adjustl(realtype))
          ! `realtype` comes from a user-authored `!$SER INIT` directive,
          ! so reject an over-long value loudly rather than silently
          ! truncating it into the fixed-length `ppser_realtype` (which
          ! would then mis-register every real field).
-         if (len_trim(realtype) > len(ppser_realtype)) then
+         if (len(eff_realtype) > len(ppser_realtype)) then
             write (*, '(a,i0,a)') &
                'preserf: realtype string exceeds ', len(ppser_realtype), &
                ' characters'
@@ -613,19 +629,19 @@ contains
          ! blowing up much later inside `type_id_from_datatype` when
          ! `fs_register_field` runs (detached from the `!$SER INIT` that set
          ! it). Only after the name is accepted is `ppser_realtype` stored.
-         select case (preserf_to_lower(trim(realtype)))
+         select case (preserf_to_lower(eff_realtype))
          case ('float', 'single')
             ppser_reallength = 4
          case ('double', 'real')
             ppser_reallength = 8
          case default
-            write (*, '(a,a)') 'preserf: unknown realtype: ', trim(realtype)
+            write (*, '(a,a)') 'preserf: unknown realtype: ', eff_realtype
             write (*, '(a)') &
                "preserf: realtype must be 'float', 'single', 'double' "// &
                "or 'real' (case-insensitive)"
             error stop 1
          end select
-         ppser_realtype = realtype
+         ppser_realtype = eff_realtype
       end if
       if (present(rperturb)) ppser_zrperturb = rperturb
 
