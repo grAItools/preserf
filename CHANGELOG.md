@@ -219,6 +219,17 @@ embedded in each spec's Problem section.
   `test_fortran_wire_compat.py` scenario asserts the inferred registry
   entries decode through the Python reference reader
   ([#43](https://github.com/grAItools/preserf/issues/43)).
+- First-write auto-registration (above) is now gated on **write mode**
+  (`ppser_get_mode() == 0`), not merely on the `op == 'write'` code path. A
+  direct `fs_write_field` against a serializer opened in **read** mode on a
+  field that was never registered now aborts with the clear
+  `write on unregistered field "..."; call fs_register_field first` message
+  again, instead of a raw low-level netCDF `def_var` error from
+  auto-registration attempting an `nf90_def_var` on the read-only handle.
+  Generated code never reaches this (pp_ser's mode `SELECT` gates DATA
+  blocks); it is reachable only via direct API use. A new
+  `write-readmode-unregistered` ctest scenario covers it
+  ([#58](https://github.com/grAItools/preserf/issues/58)).
 - `ppser_initialize` now creates the output `directory` (`mkdir -p`
   semantics) before `nf90_create` on the write path, restoring drop-in
   compatibility with Serialbox: its serializer creation made the output

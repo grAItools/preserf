@@ -598,3 +598,19 @@ set_tests_properties(preserf_fortran_autoregister PROPERTIES
     PASS_REGULAR_EXPRESSION "preserf-fortran: autoregister OK"
     TIMEOUT 60
 )
+
+# Issue #58: first-write auto-registration (issue #43) is gated on write
+# mode, not just op == 'write'. A direct fs_write_field against a read-mode
+# serializer on an unregistered field must abort with the friendly
+# "call fs_register_field first" message rather than a raw netCDF def_var
+# error from autoregister_field running on the read-only handle.
+add_test(
+    NAME preserf_fortran_write_readmode_unregistered
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" write-readmode-unregistered
+)
+set_tests_properties(preserf_fortran_write_readmode_unregistered PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "call fs_register_field first"
+    TIMEOUT 60
+)

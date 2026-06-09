@@ -1792,6 +1792,40 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: autoregister OK'
                stop
             end block
+         else if (scenario == 'write-readmode-unregistered') then
+            ! Issue #58: auto-registration on first write (issue #43) must
+            ! be gated on *write mode*, not merely on op == 'write'. A
+            ! direct fs_write_field against a read-mode serializer on a
+            ! field that was never registered must abort with the friendly
+            ! "call fs_register_field first" message, NOT a raw netCDF
+            ! def_var error from autoregister_field running on a read-only
+            ! handle. (Generated code never hits this — pp_ser's mode SELECT
+            ! gates DATA blocks — but the direct API must still fail
+            ! cleanly.) Build a store, re-open it read-only, then write an
+            ! unregistered field.
+            block
+               real(real64) :: nf(3)
+               integer :: i
+               do i = 1, 3
+                  nf(i) = real(i, real64)
+               end do
+               call write_store(out_dir, 'frmwrite', 7.0_real64)
+               call ppser_initialize(out_dir, 'frmwrite', 'r')
+               if (ppser_get_mode() /= 1) error stop &
+                  'write-readmode-unregistered: "r" should set mode 1'
+               call fs_create_savepoint('step', ppser_savepoint)
+               ! 'never_registered' is absent from the store's /_fields
+               ! registry; in read mode this must NOT auto-register.
+               call fs_write_field(ppser_serializer, ppser_savepoint, &
+                                   'never_registered', nf)
+               ! Unreachable: the call above aborts. If we get here, the
+               ! guard regressed (auto-register ran in read mode). Emit a
+               ! non-matching line so the PASS_REGULAR_EXPRESSION fails.
+               call ppser_finalize()
+               write (*, '(a)') &
+                  'write-readmode-unregistered: FAILED (no abort)'
+               stop
+            end block
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &
