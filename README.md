@@ -64,6 +64,15 @@ Building the target expands the directives and produces a runnable binary.
 The same helper drives the in-tree [laplacian example](examples/laplacian/)
 and the Fortran e2e test, so this is exactly the recipe CI exercises.
 
+**Choosing the storage backend at runtime.** When the running binary does not
+pass an explicit `backend=` to `ppser_initialize` (as pp_ser / Serialbox
+`!$SER INIT` call sites do not), the on-disk format is selected from the
+`PRESERF_BACKEND` environment variable — `netcdf4` (default) or `nczarr-v2`:
+
+```sh
+PRESERF_BACKEND=nczarr-v2 ./my_app   # write a Zarr V2 store instead of .nc
+```
+
 ## Development commands
 
 - `pixi run test-py`: run the fast Python test suite.
