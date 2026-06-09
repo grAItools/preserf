@@ -614,3 +614,20 @@ set_tests_properties(preserf_fortran_write_readmode_unregistered PROPERTIES
     PASS_REGULAR_EXPRESSION "call fs_register_field first"
     TIMEOUT 60
 )
+
+# Issue #58 (review follow-up): the auto-registration guard must also gate
+# on the serializer handle's own `writable` flag, not only the global
+# ppser_get_mode() DATA-mode state. When the two diverge (read-only handle
+# but global mode forced to 0/write), a direct fs_write_field of an
+# unregistered field must still abort with the friendly message rather than
+# reach autoregister_field on the read-only handle.
+add_test(
+    NAME preserf_fortran_write_readhandle_mode0_unregistered
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" write-readhandle-mode0-unregistered
+)
+set_tests_properties(preserf_fortran_write_readhandle_mode0_unregistered PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "call fs_register_field first"
+    TIMEOUT 60
+)

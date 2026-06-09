@@ -1826,6 +1826,47 @@ program test_minimal
                   'write-readmode-unregistered: FAILED (no abort)'
                stop
             end block
+         else if (scenario == 'write-readhandle-mode0-unregistered') then
+            ! Issue #58 (review follow-up): the auto-registration guard
+            ! must also gate on the serializer handle's own `writable`
+            ! flag, not only the global ppser_get_mode() DATA-mode state.
+            ! Those two can diverge: open a store read-only (handle is
+            ! read-only, s%writable == .false.) but force the global mode
+            ! back to 0 (write) via ppser_set_mode. A direct fs_write_field
+            ! of an unregistered field must STILL abort with the friendly
+            ! "call fs_register_field first" message — never reach
+            ! autoregister_field, which would hit a raw netCDF def_var error
+            ! on the read-only handle.
+            block
+               real(real64) :: nf(3)
+               integer :: i
+               do i = 1, 3
+                  nf(i) = real(i, real64)
+               end do
+               call write_store(out_dir, 'frhm0', 7.0_real64)
+               call ppser_initialize(out_dir, 'frhm0', 'r')
+               ! Resolve the existing savepoint while still in read mode
+               ! (fs_create_savepoint looks up rather than creates in read
+               ! mode), so the only write attempt comes from fs_write_field.
+               call fs_create_savepoint('step', ppser_savepoint)
+               ! Now force the global mode to 0 (write) while the handle
+               ! stays read-only: this is the divergence the writable gate
+               ! covers (global DATA mode vs. per-handle writability).
+               call ppser_set_mode(0)
+               if (ppser_get_mode() /= 0) error stop &
+                  'write-readhandle-mode0-unregistered: set_mode(0) failed'
+               ! 'never_registered' is absent from /_fields; the read-only
+               ! handle must NOT auto-register despite mode == 0.
+               call fs_write_field(ppser_serializer, ppser_savepoint, &
+                                   'never_registered', nf)
+               ! Unreachable: the call above aborts. Reaching here means the
+               ! writable gate regressed (autoregister ran on a read-only
+               ! handle). Emit a non-matching line so the regex fails.
+               call ppser_finalize()
+               write (*, '(a)') &
+                  'write-readhandle-mode0-unregistered: FAILED (no abort)'
+               stop
+            end block
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &

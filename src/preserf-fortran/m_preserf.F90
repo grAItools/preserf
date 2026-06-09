@@ -2857,15 +2857,21 @@ contains
          ! rather than abort. A read cannot auto-register — there is no
          ! field to read — so it still aborts.
          !
-         ! Gate auto-registration on *write mode* (ppser_get_mode() == 0),
-         ! not just `op == 'write'` (issue #58). `autoregister_field` calls
-         ! nf90_def_var / nf90_put_*, which fail with a raw low-level netCDF
-         ! error on a read-only handle. A direct fs_write_field against a
-         ! read-mode serializer therefore falls through to the friendly
+         ! Gate auto-registration on *write mode* (ppser_get_mode() == 0)
+         ! AND the serializer handle's own writability (issue #58).
+         ! `autoregister_field` calls nf90_def_var / nf90_put_*, which fail
+         ! with a raw low-level netCDF error on a read-only handle. The
+         ! global `ppser_get_mode()` is DATA-mode state, not this handle's
+         ! writability: a direct fs_write_field against a read-opened
+         ! serializer (s%writable == .false.) while the global mode is still
+         ! 0 would otherwise still reach autoregister_field. Gating on
+         ! `s%writable` as well ensures auto-registration never runs on a
+         ! read-only t_serializer; both cases fall through to the friendly
          ! "call fs_register_field first" message below instead. (pp_ser's
          ! mode SELECT already gates DATA blocks, so generated code never
          ! reaches a write call in read mode.)
-         if (trim(op) == 'write' .and. ppser_get_mode() == 0) then
+         if (trim(op) == 'write' .and. ppser_get_mode() == 0 &
+             .and. s%writable) then
             call autoregister_field(s, fieldname, fortran_shape, expected_tid)
             ! The entry we just wrote matches the runtime shape and type
             ! by construction, so hand the C-order dims back (a read never
