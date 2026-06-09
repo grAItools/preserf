@@ -32,13 +32,25 @@ embedded in each spec's Problem section.
   and validates the store round-trips (`pixi run test-all`). Distribution is
   source-only and CMake-only; `netcdf-fortran` remains a user-supplied
   pkg-config dependency. See the README "Using preserf in your build" section.
-
-### Changed
-
-- The Fortran helper sources moved from `src/preserf-fortran/` to
-  `src/preserf/fortran/` (no API or behaviour change; updated CMake
-  `add_subdirectory` paths, `pixi` fprettify paths, and docs).
-
+- `PRESERF_BACKEND` environment variable: when `ppser_initialize` is
+  called without an explicit `backend=` argument (as pp_ser / Serialbox
+  `!$SER INIT` call sites do), the storage backend is resolved from the
+  `PRESERF_BACKEND` env var, else the `netcdf4` default. Precedence,
+  most → least specific: explicit `backend=` argument → `PRESERF_BACKEND`
+  → `netcdf4`. An unknown value — from either source — aborts at the
+  init boundary with the same clear "unknown backend" message
+  (`netcdf4` / `nczarr-v2`). This makes the on-disk format a runtime
+  choice for callers that never surface the `backend` keyword. The
+  resolved backend is also logged in the "SERIALIZATION IS ON" init
+  line so the format is self-evident from the run log. A blank or
+  whitespace-only `PRESERF_BACKEND` is treated as unset and falls back to
+  the default; a value too long for the read buffer (truncation) aborts
+  with a clear message rather than acting on a partial value. An explicit
+  `backend=` argument is normalised with `trim`/`adjustl`, so a value passed
+  in a fixed-length character variable (with leading/trailing blanks) is
+  accepted rather than rejected as "unknown backend", matching the env-var
+  path. Covered by the `backend-env` / `backend-env-bad` /
+  `backend-env-blank` / `backend-arg-padded` ctest scenarios (#48).
 - Tracers (Slice C, Phase 1 — `!$SER REGISTERTRACERS` / `!$SER TRACER`):
   the Fortran helper gains `fs_RegisterAllTracers`,
   `ppser_write_tracer_by_name` / `_by_idx` / `_all`, and a host-side
@@ -188,6 +200,9 @@ embedded in each spec's Problem section.
 
 ### Changed
 
+- The Fortran helper sources moved from `src/preserf-fortran/` to
+  `src/preserf/fortran/` (no API or behaviour change; updated CMake
+  `add_subdirectory` paths, `pixi` fprettify paths, and docs).
 - Test layout reorganized into `tests/unit_tests/`,
   `tests/integration_tests/`, and `tests-fortran/unit/m_preserf/`
   ([#17](https://github.com/grAItools/preserf/pull/17)).
@@ -203,6 +218,40 @@ embedded in each spec's Problem section.
 
 ### Fixed
 
+- The `nczarr-v2` backend now resolves a **relative** `directory` (e.g.
+  `./ser_data`) to an absolute path against the process CWD (via POSIX
+  `getcwd`) before building its `file://...#mode=nczarr,zarr2` URL, instead
+  of aborting. NetCDF4 (and Serialbox) already accept relative directories,
+  so this makes `nczarr-v2` a drop-in for the same inputs; an absolute
+  `directory` is unchanged, and a genuinely un-resolvable path still aborts
+  with a clear message. The `backend-nczarr-relpath` ctest now round-trips a
+  field through a relative directory
+  ([#49](https://github.com/grAItools/preserf/issues/49)).
+- `fs_write_field` now **auto-registers** a field on its first write when it
+  is not already present under `/_fields/`, inferring the `type_id` from the
+  Fortran overload and the C-order `dims` from the runtime array shape (no
+  halos). This matches Serialbox, whose `fs_write_field` registers a field on
+  first write, so pp_ser `!$SER DATA` / `!$SER ACCDATA` call sites — which
+  never emit `!$SER REGISTER` — write without an explicit registration
+  instead of aborting with "write on unregistered field". A read of an
+  unregistered field still aborts (there is nothing to read). A new
+  `autoregister` ctest scenario writes representative dtypes / ranks with no
+  prior `fs_register_field` and round-trips them back, and a
+  `test_fortran_wire_compat.py` scenario asserts the inferred registry
+  entries decode through the Python reference reader
+  ([#43](https://github.com/grAItools/preserf/issues/43)).
+- `ppser_initialize` now creates the output `directory` (`mkdir -p`
+  semantics) before `nf90_create` on the write path, restoring drop-in
+  compatibility with Serialbox: its serializer creation made the output
+  directory, so real `!$SER INIT directory='...'` call sites (e.g. ICON)
+  and the runscripts that drive them never `mkdir` it. Previously a fresh
+  run aborted inside `nf90_create` with netCDF's generic "Permission
+  denied" (the real cause being the missing parent directory). The mkdir
+  is portable (`EXECUTE_COMMAND_LINE` with `mkdir -p`), idempotent over an
+  existing store, and shell-injection-safe; read-mode opens are unaffected
+  (the store must already exist). A new `init-mkdir` ctest scenario writes
+  into a fresh nested subdirectory and asserts the store is created
+  ([#42](https://github.com/grAItools/preserf/issues/42)).
 - `ppser_initialize`'s `mode` argument is now **optional**, restoring
   drop-in compatibility with pp_ser / Serialbox `!$SER INIT` call sites,
   which never pass `mode` (Serialbox selects it separately via `!$SER MODE`

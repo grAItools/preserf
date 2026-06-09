@@ -92,17 +92,32 @@ set_tests_properties(preserf_fortran_backend_bad PROPERTIES
     TIMEOUT 60
 )
 
-# Slice E negative: the nczarr-v2 backend needs an absolute directory for
-# its file:// URL; a relative one must abort rather than build a malformed
-# file://<authority>/... target.
+# Issue #49: the nczarr-v2 backend needs an absolute directory for its
+# file:// URL, but netcdf4 (and Serialbox) accept a relative directory. So
+# nczarr-v2 must resolve a relative directory to absolute (against the CWD)
+# rather than reject it. The scenario writes + reads a field through the
+# RELATIVE directory 'rel_zarr_dir' and asserts the store landed at the
+# resolved <CWD>/rel_zarr_dir/frel.zarr. WORKING_DIRECTORY pins the CWD to
+# the pre-created test-output dir so the relative path resolves there; the
+# setup fixture make_directory's rel_zarr_dir under it first (nf90_create
+# does not create parent dirs).
+add_test(
+    NAME preserf_fortran_backend_nczarr_relpath_setup
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output/rel_zarr_dir"
+)
+set_tests_properties(preserf_fortran_backend_nczarr_relpath_setup PROPERTIES
+    FIXTURES_SETUP preserf_fortran_relpath_dir
+)
 add_test(
     NAME preserf_fortran_backend_nczarr_relpath
     COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
             "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-nczarr-relpath
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-output"
 )
 set_tests_properties(preserf_fortran_backend_nczarr_relpath PROPERTIES
-    FIXTURES_REQUIRED preserf_fortran_output_dir
-    PASS_REGULAR_EXPRESSION "requires an absolute directory"
+    FIXTURES_REQUIRED "preserf_fortran_output_dir;preserf_fortran_relpath_dir"
+    PASS_REGULAR_EXPRESSION "preserf-fortran: backend-nczarr-relpath OK"
     TIMEOUT 60
 )
 
@@ -117,6 +132,66 @@ add_test(
 set_tests_properties(preserf_fortran_backend_nczarr_badchar PROPERTIES
     FIXTURES_REQUIRED preserf_fortran_output_dir
     PASS_REGULAR_EXPRESSION "needs URI-encoding"
+    TIMEOUT 60
+)
+
+# Issue #48: with no explicit backend= argument the backend is resolved
+# from the PRESERF_BACKEND env var. PRESERF_BACKEND=nczarr-v2 selects the
+# NCZarr V2 backend; an explicit backend= still overrides the env var.
+add_test(
+    NAME preserf_fortran_backend_env
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-env
+)
+set_tests_properties(preserf_fortran_backend_env PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    ENVIRONMENT "PRESERF_BACKEND=nczarr-v2"
+    PASS_REGULAR_EXPRESSION "preserf-fortran: backend-env OK"
+    TIMEOUT 60
+)
+
+# Issue #48 negative: an unknown PRESERF_BACKEND value must abort at the
+# ppser_initialize boundary with the same "unknown backend" message as an
+# unknown explicit backend= argument.
+add_test(
+    NAME preserf_fortran_backend_env_bad
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-env-bad
+)
+set_tests_properties(preserf_fortran_backend_env_bad PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    ENVIRONMENT "PRESERF_BACKEND=zarr3"
+    PASS_REGULAR_EXPRESSION "unknown backend"
+    TIMEOUT 60
+)
+
+# Issue #48 (review): a whitespace-only PRESERF_BACKEND is blank after trim
+# and must be treated as unset, falling back to the 'netcdf4' default rather
+# than failing the allowlist with an unhelpful "unknown backend:" message.
+add_test(
+    NAME preserf_fortran_backend_env_blank
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-env-blank
+)
+set_tests_properties(preserf_fortran_backend_env_blank PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    ENVIRONMENT "PRESERF_BACKEND=   "
+    PASS_REGULAR_EXPRESSION "preserf-fortran: backend-env-blank OK"
+    TIMEOUT 60
+)
+
+# Issue #48 (review): an explicit backend= passed as a fixed-length character
+# variable carries leading/trailing blanks; ppser_resolve_backend must trim
+# and adjustl them so a logically valid value is accepted rather than rejected
+# as "unknown backend". No PRESERF_BACKEND is set for this scenario.
+add_test(
+    NAME preserf_fortran_backend_arg_padded
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" backend-arg-padded
+)
+set_tests_properties(preserf_fortran_backend_arg_padded PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: backend-arg-padded OK"
     TIMEOUT 60
 )
 
@@ -159,6 +234,22 @@ set_tests_properties(preserf_fortran_init_default_mode PROPERTIES
     TIMEOUT 60
 )
 
+# Issue #42: in write mode ppser_initialize must create the output
+# `directory` (mkdir -p semantics) before nf90_create, matching Serialbox.
+# The scenario points INIT at a fresh nested subdirectory that does not
+# exist and asserts the store file gets created (so the directory was made
+# first); a second init proves mkdir -p is idempotent.
+add_test(
+    NAME preserf_fortran_init_mkdir
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" init-mkdir
+)
+set_tests_properties(preserf_fortran_init_mkdir PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: init-mkdir OK"
+    TIMEOUT 60
+)
+
 # Slice B: full type-coverage matrix. One round-trip per dtype (logical /
 # int32 / int64 / real32 / real64) at rank 1, plus a 0-D scalar, a 4-D
 # field, and a real32 read-perturb. The full (rank x dtype) on-disk type
@@ -198,6 +289,20 @@ add_test(
 set_tests_properties(preserf_fortran_perturb_roundtrip PROPERTIES
     FIXTURES_REQUIRED preserf_fortran_output_dir
     PASS_REGULAR_EXPRESSION "preserf-fortran: perturb-roundtrip OK"
+    TIMEOUT 60
+)
+
+# Issue #39: 5-arg fs_read_field perturb overloads for integer and logical.
+# The perturb argument is accepted but ignored; the field is read identically
+# to the 4-arg form. Covers int32, int64, and logical at ranks 0-4.
+add_test(
+    NAME preserf_fortran_perturb_noop
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" perturb-noop
+)
+set_tests_properties(preserf_fortran_perturb_noop PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: perturb-noop OK"
     TIMEOUT 60
 )
 
@@ -473,5 +578,23 @@ add_test(
 set_tests_properties(preserf_fortran_kbuff_bad_shape PROPERTIES
     FIXTURES_REQUIRED preserf_fortran_output_dir
     PASS_REGULAR_EXPRESSION "inconsistent slice shape"
+    TIMEOUT 60
+)
+
+# Issue #43: fs_write_field auto-registers a field on its first write,
+# matching Serialbox, so pp_ser !$SER DATA / !$SER ACCDATA call sites
+# (which never emit !$SER REGISTER) write without an explicit
+# registration. The scenario writes representative dtypes / ranks with no
+# prior fs_register_field, then re-opens read-only and round-trips them
+# back — the read path resolves each field only through the registry, so a
+# lossless round-trip proves the inferred type_id + dims were recorded.
+add_test(
+    NAME preserf_fortran_autoregister
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" autoregister
+)
+set_tests_properties(preserf_fortran_autoregister PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: autoregister OK"
     TIMEOUT 60
 )
