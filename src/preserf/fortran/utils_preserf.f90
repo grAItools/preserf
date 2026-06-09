@@ -464,7 +464,7 @@ contains
    !>
    !> `mode` is one of: 'w' (write, create or truncate), 'r' (read-only).
    !> Append mode ('a') is reserved but currently rejected — see
-   !> src/preserf-fortran/README.md follow-ups.
+   !> src/preserf/fortran/README.md follow-ups.
    !>
    !> `mode` is **optional** for drop-in compatibility with pp_ser /
    !> Serialbox `!$SER INIT` call sites, which never pass it: Serialbox
@@ -926,7 +926,7 @@ contains
          ! Append mode requires resuming next_sp_index by scanning the
          ! existing /savepoints/sp_NNNNNN groups, which needs an
          ! nf90_inq_grps call shape that the netcdf-fortran 4.5.x
-         ! wrapper makes awkward (see src/preserf-fortran/README.md
+         ! wrapper makes awkward (see src/preserf/fortran/README.md
          ! follow-ups). Until that is implemented, 'a' is rejected
          ! rather than silently corrupting _preserf_savepoint_count
          ! (which would be rewritten to 0 on close).

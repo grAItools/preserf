@@ -2,7 +2,7 @@
 !>
 !> Single source of truth for the preserf-fortran helper's version
 !> string. Derived from `project(... VERSION ...)` in
-!> src/preserf-fortran/CMakeLists.txt at configure time.
+!> src/preserf/fortran/CMakeLists.txt at configure time.
 !>
 !> NB the module is `preserf_version_mod`, not `preserf_version`,
 !> because the latter would clash case-insensitively with the
