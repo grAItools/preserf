@@ -508,6 +508,13 @@ def test_continuation_still_works_after_comment_amp_fix() -> None:
     assert "keep going" not in out
 
 
+def test_continuation_with_trailing_spaces_after_amp() -> None:
+    # Trailing whitespace after the continuation '&' (no comment) must still be
+    # recognised as a continuation, matching the original '& *$' regex tolerance.
+    out = expand("!$SER DATA a=x &   \n!$SER&  b=y\n")
+    assert "'a', x)" in out and "'b', y)" in out
+
+
 # --- USE statement injection ----------------------------------------------
 
 

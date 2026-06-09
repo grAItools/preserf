@@ -168,7 +168,10 @@ def _ser_continuation(line: str) -> str | None:
     m = _RE_SER.match(line)
     if not m:
         return None
-    body = _strip_trailing_comment(m.group(1))
+    # Normalise trailing whitespace so a directive that ends in ``&`` followed
+    # by spaces (e.g. ``!$SER DATA a=x &   ``) is still recognised, matching the
+    # whitespace tolerance of the original ``& *$`` regex.
+    body = _strip_trailing_comment(m.group(1)).rstrip()
     if not body.endswith("&"):
         return None
     # Reconstruct the directive prefix (preserving leading whitespace and the
