@@ -25,11 +25,14 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 import preserf
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 pytestmark = pytest.mark.consumer
 
@@ -141,8 +144,9 @@ def test_install_then_find_package(tmp_path: Path) -> None:
     _run(["cmake", "--build", str(runtime_build), "--target", "install"], cwd=tmp_path)
 
     # The install laid down the package config and at least one `.mod`.
-    assert (prefix / "lib" / "cmake" / "preserf_fortran"
-            / "preserf_fortranConfig.cmake").is_file()
+    assert (
+        prefix / "lib" / "cmake" / "preserf_fortran" / "preserf_fortranConfig.cmake"
+    ).is_file()
     assert list(prefix.rglob("m_serialize.mod")), "installed .mod missing"
 
     # 2. Build a downstream project that consumes the install via find_package.
