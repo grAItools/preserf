@@ -231,6 +231,43 @@ program test_minimal
             ! Unreachable: the length guard must abort before returning.
             error stop &
                'preserf-test_minimal: over-long realtype was accepted'
+         else if (scenario == 'realtype-bad') then
+            ! Issue #56: an unrecognised realtype (e.g. the typo 'flaot')
+            ! must abort at the ppser_initialize boundary, before any field
+            ! is registered, with a clear message naming the bad value —
+            ! mirroring the backend allowlist check. Without this guard the
+            ! bad name is stored verbatim and only blows up much later inside
+            ! type_id_from_datatype when fs_register_field runs.
+            call ppser_initialize(out_dir, 'frtbad', 'w', realtype='flaot')
+            ! Unreachable: the realtype allowlist must abort first.
+            error stop &
+               'preserf-test_minimal: unknown realtype was accepted'
+         else if (scenario == 'realtype-valid') then
+            ! Issue #56: the four recognised names (case-insensitive) keep
+            ! setting ppser_realtype / ppser_reallength consistently after
+            ! the boundary check is added. 'single' → 4 bytes; 'real' → 8.
+            call ppser_initialize(out_dir, 'frtv1', 'w', realtype='single')
+            if (trim(ppser_realtype) /= 'single') error stop &
+               'realtype-valid: single did not update ppser_realtype'
+            if (ppser_reallength /= 4) error stop &
+               'realtype-valid: single did not derive ppser_reallength=4'
+            call ppser_finalize()
+            call ppser_initialize(out_dir, 'frtv2', 'w', realtype='REAL')
+            if (trim(ppser_realtype) /= 'REAL') error stop &
+               'realtype-valid: REAL did not update ppser_realtype'
+            if (ppser_reallength /= 8) error stop &
+               'realtype-valid: REAL did not derive ppser_reallength=8'
+            call ppser_finalize()
+            call ppser_initialize(out_dir, 'frtv3', 'w', realtype='Double')
+            if (ppser_reallength /= 8) error stop &
+               'realtype-valid: Double did not derive ppser_reallength=8'
+            call ppser_finalize()
+            call ppser_initialize(out_dir, 'frtv4', 'w', realtype='float')
+            if (ppser_reallength /= 4) error stop &
+               'realtype-valid: float did not derive ppser_reallength=4'
+            call ppser_finalize()
+            write (*, '(a)') 'preserf-fortran: realtype-valid OK'
+            stop
          else if (scenario == 'backend-nczarr') then
             ! Slice E: ppser_initialize(..., backend='nczarr-v2') makes
             ! the helper emit an NCZarr V2 `.zarr` directory store (via a

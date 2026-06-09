@@ -598,21 +598,34 @@ contains
                ' characters'
             error stop 1
          end if
-         ppser_realtype = realtype
          ! Derive the byte length from the type name so `ppser_reallength`
          ! is always consistent with `ppser_realtype`. Serialbox convention:
          ! 'float'/'single' → 4 bytes; 'double' → 8 bytes; 'real' → 8 bytes
-         ! (the Serialbox default); any other name leaves the default intact.
-         ! Match case-insensitively (mirroring `type_id_from_datatype`'s
-         ! `to_lower` on the datatype) so e.g. `realtype='FLOAT'` derives a
-         ! length of 4 instead of silently keeping the default 8, which
-         ! would later abort `fs_register_field` on a byte-length mismatch.
+         ! (the Serialbox default). Match case-insensitively (mirroring
+         ! `type_id_from_datatype`'s `to_lower` on the datatype) so e.g.
+         ! `realtype='FLOAT'` derives a length of 4 instead of keeping the
+         ! default 8.
+         !
+         ! Validate at this user-facing boundary the same way `backend` is
+         ! (see `ppser_resolve_backend`): an unrecognised name — e.g. a typo
+         ! like 'flaot' — aborts here with a clear, INIT-attributable message
+         ! that names the bad value, rather than being stored verbatim and
+         ! blowing up much later inside `type_id_from_datatype` when
+         ! `fs_register_field` runs (detached from the `!$SER INIT` that set
+         ! it). Only after the name is accepted is `ppser_realtype` stored.
          select case (preserf_to_lower(trim(realtype)))
          case ('float', 'single')
             ppser_reallength = 4
          case ('double', 'real')
             ppser_reallength = 8
+         case default
+            write (*, '(a,a)') 'preserf: unknown realtype: ', trim(realtype)
+            write (*, '(a)') &
+               "preserf: realtype must be 'float', 'single', 'double' "// &
+               "or 'real' (case-insensitive)"
+            error stop 1
          end select
+         ppser_realtype = realtype
       end if
       if (present(rperturb)) ppser_zrperturb = rperturb
 

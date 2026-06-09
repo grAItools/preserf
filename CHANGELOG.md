@@ -182,6 +182,16 @@ embedded in each spec's Problem section.
 
 ### Changed
 
+- `ppser_initialize` now validates the `realtype` keyword at the init
+  boundary, mirroring the existing `backend` allowlist check. An
+  unrecognised name (e.g. the typo `'flaot'`) aborts in `ppser_initialize`
+  with a clear, `!$SER INIT`-attributable message naming the bad value and
+  listing the recognised names (`float` / `single` / `double` / `real`,
+  case-insensitive) — before any field is registered — rather than being
+  stored verbatim and blowing up much later inside `type_id_from_datatype`
+  when `fs_register_field` runs. The four recognised names continue to set
+  `ppser_realtype` / `ppser_reallength` consistently. Covered by the
+  `realtype-bad` / `realtype-valid` ctest scenarios (#56).
 - Test layout reorganized into `tests/unit_tests/`,
   `tests/integration_tests/`, and `tests-fortran/unit/m_preserf/`
   ([#17](https://github.com/grAItools/preserf/pull/17)).
