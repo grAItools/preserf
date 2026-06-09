@@ -143,10 +143,11 @@ def test_install_then_find_package(tmp_path: Path) -> None:
     )
     _run(["cmake", "--build", str(runtime_build), "--target", "install"], cwd=tmp_path)
 
-    # The install laid down the package config and at least one `.mod`.
-    assert (
-        prefix / "lib" / "cmake" / "preserf_fortran" / "preserf_fortranConfig.cmake"
-    ).is_file()
+    # The install laid down the package config and at least one `.mod`. Locate
+    # them with rglob rather than a hard-coded lib/: GNUInstallDirs resolves
+    # CMAKE_INSTALL_LIBDIR to lib64 on some 64-bit distros, and the downstream
+    # find_package below searches both regardless.
+    assert list(prefix.rglob("preserf_fortranConfig.cmake")), "package config missing"
     assert list(prefix.rglob("m_serialize.mod")), "installed .mod missing"
 
     # 2. Build a downstream project that consumes the install via find_package.
