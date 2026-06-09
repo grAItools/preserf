@@ -76,6 +76,12 @@ target_include_directories(preserf_fortran PUBLIC
 
 target_link_libraries(preserf_fortran PUBLIC PkgConfig::NETCDF_FORTRAN)
 
+# Namespaced alias so in-tree consumers (add_subdirectory) can link the same
+# `preserf::preserf_fortran` name that `find_package` exposes for the installed
+# library — the recipe doesn't change when you switch from a source build to an
+# installed package.
+add_library(preserf::preserf_fortran ALIAS preserf_fortran)
+
 # Warnings + explicit F2008 standard for gfortran (the
 # Fortran_STANDARD property above is a no-op for gfortran in
 # CMake 3.28; this is the working enforcement).
@@ -86,6 +92,92 @@ if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
         # macro instantiation that expands wide does not get truncated
         # (same rationale as the e2e target).
         -Wall -Wextra -fimplicit-none -std=f2008 -cpp -ffree-line-length-none
+    )
+endif()
+
+# -----------------------------------------------------------------------------
+# Installation
+# -----------------------------------------------------------------------------
+#
+# Standalone build-and-install workflow:
+#
+#     cmake -S "$(preserf --fortran-dir)" -B build
+#     cmake --build build --target install
+#
+# produces a relocatable package — the static library, the compiled Fortran
+# `.mod` interface files, and a CMake package config — that a downstream
+# project consumes with:
+#
+#     find_package(preserf_fortran REQUIRED)
+#     target_link_libraries(my_app PRIVATE preserf::preserf_fortran)
+#
+# Only the top-level build (this tree configured directly via `cmake -S`)
+# emits install rules. When the tree is pulled in through add_subdirectory()
+# — the shipped PreserfFortran.cmake helper, the laplacian example, the native
+# tests — the enclosing project owns its own install and we add nothing to it.
+# project() sets PROJECT_IS_TOP_LEVEL automatically on CMake >= 3.21; derive it
+# by hand for the 3.20 floor this project targets.
+if(NOT DEFINED PROJECT_IS_TOP_LEVEL)
+    if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+        set(PROJECT_IS_TOP_LEVEL TRUE)
+    else()
+        set(PROJECT_IS_TOP_LEVEL FALSE)
+    endif()
+endif()
+option(PRESERF_FORTRAN_INSTALL
+    "Generate install rules for the preserf_fortran runtime library"
+    ${PROJECT_IS_TOP_LEVEL})
+
+if(PRESERF_FORTRAN_INSTALL)
+    include(GNUInstallDirs)
+    include(CMakePackageConfigHelpers)
+
+    set(_preserf_cmakedir "${CMAKE_INSTALL_LIBDIR}/cmake/preserf_fortran")
+
+    # INSTALL_INTERFACE carries the installed `.mod` location to consumers of
+    # the exported target (BUILD_INTERFACE above serves the in-tree build).
+    target_include_directories(preserf_fortran PUBLIC
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/preserf_fortran>
+    )
+
+    install(TARGETS preserf_fortran
+        EXPORT preserf_fortranTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+
+    # Fortran `.mod` files are the compiler-visible interface (the equivalent
+    # of C headers) and are compiler- and version-specific: a consumer must
+    # build with the same compiler that produced them. Install the whole
+    # module output directory alongside the library.
+    install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/modules/
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/preserf_fortran
+        FILES_MATCHING PATTERN "*.mod"
+    )
+
+    # The export set + a namespaced, version-checked package config make the
+    # library discoverable via find_package(preserf_fortran).
+    install(EXPORT preserf_fortranTargets
+        FILE preserf_fortranTargets.cmake
+        NAMESPACE preserf::
+        DESTINATION ${_preserf_cmakedir}
+    )
+
+    configure_package_config_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/preserf_fortranConfig.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/preserf_fortranConfig.cmake
+        INSTALL_DESTINATION ${_preserf_cmakedir}
+    )
+    write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/preserf_fortranConfigVersion.cmake
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY SameMajorVersion
+    )
+    install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/preserf_fortranConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/preserf_fortranConfigVersion.cmake
+        DESTINATION ${_preserf_cmakedir}
     )
 endif()
 

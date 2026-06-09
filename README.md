@@ -64,6 +64,32 @@ Building the target expands the directives and produces a runnable binary.
 The same helper drives the in-tree [laplacian example](examples/laplacian/)
 and the Fortran e2e test, so this is exactly the recipe CI exercises.
 
+**Alternative: build and install the runtime, then `find_package` it.** If you
+prefer to compile the runtime once and consume it as an installed library
+(rather than rebuilding it from source inside every project), the bundled
+`CMakeLists.txt` is a standalone, installable CMake project:
+
+```sh
+cmake -S "$(preserf --fortran-dir)" -B build -DCMAKE_INSTALL_PREFIX=/your/prefix
+cmake --build build --target install
+```
+
+This installs the `preserf_fortran` library, its compiled Fortran `.mod`
+interface files, and a CMake package config. A downstream project then consumes
+it the standard way:
+
+```cmake
+find_package(preserf_fortran REQUIRED)        # add the prefix to CMAKE_PREFIX_PATH
+target_link_libraries(my_app PRIVATE preserf::preserf_fortran)
+```
+
+Linking `preserf::preserf_fortran` pulls in the installed modules and the
+transitive `netcdf-fortran` flags. The `.mod` files are compiler- and
+version-specific, so build the consumer with the **same Fortran compiler** that
+produced the install. Expanding your own `!$SER` sources is still the
+preprocessor's job — run `preserf` (or the helper above) on them and link the
+result against this target.
+
 **Choosing the storage backend at runtime.** When the running binary does not
 pass an explicit `backend=` to `ppser_initialize` (as pp_ser / Serialbox
 `!$SER INIT` call sites do not), the on-disk format is selected from the

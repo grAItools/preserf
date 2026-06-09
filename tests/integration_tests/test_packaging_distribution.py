@@ -31,6 +31,7 @@ _EXPECTED_WHEEL_FILES = (
     "preserf/fortran/preserf_version.f90.in",
     "preserf/fortran/CMakeLists.txt",
     "preserf/fortran/cmake/PreserfFortran.cmake",
+    "preserf/fortran/cmake/preserf_fortranConfig.cmake.in",
 )
 
 

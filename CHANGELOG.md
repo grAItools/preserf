@@ -32,6 +32,19 @@ embedded in each spec's Problem section.
   and validates the store round-trips (`pixi run test-all`). Distribution is
   source-only and CMake-only; `netcdf-fortran` remains a user-supplied
   pkg-config dependency. See the README "Using preserf in your build" section.
+- Standalone install target for the Fortran runtime: the bundled
+  `preserf/fortran/CMakeLists.txt` is now an installable CMake project, so
+  `cmake -S "$(preserf --fortran-dir)" -B build` followed by
+  `cmake --build build --target install` lays down the `preserf_fortran`
+  library, its compiled `.mod` interface files, and a namespaced CMake package
+  config (`preserf::preserf_fortran`). Downstream projects consume the install
+  with `find_package(preserf_fortran)` instead of rebuilding the runtime from
+  source via `add_subdirectory()`. The generated config re-discovers
+  `netcdf-fortran` through pkg-config. Install rules are emitted only for the
+  top-level (standalone) build, so the existing helper / example / native-test
+  `add_subdirectory` consumers are unchanged (override with
+  `-DPRESERF_FORTRAN_INSTALL=ON/OFF`). A new `consumer`-marked test installs the
+  runtime and builds a throwaway project against it through `find_package`.
 - `PRESERF_BACKEND` environment variable: when `ppser_initialize` is
   called without an explicit `backend=` argument (as pp_ser / Serialbox
   `!$SER INIT` call sites do), the storage backend is resolved from the
