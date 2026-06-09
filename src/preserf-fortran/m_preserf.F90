@@ -282,8 +282,11 @@ contains
    !> (def_var → type_id att → dims att → [halos] → put_var). This is the
    !> single source of truth for that layout: both explicit registration
    !> (fs_register_field create branch) and first-write auto-registration
-   !> (autoregister_field) go through it, so an auto-registered field stays
-   !> byte-indistinguishable from an explicitly-registered one (issue #57).
+   !> (autoregister_field) go through it, so the shared registry-entry
+   !> layout cannot drift between the two paths. Auto-registration omits
+   !> halos (recording zero halos), so its bytes match an explicit
+   !> zero-halo registration; with non-zero halos only the shared,
+   !> non-halo portion of the entry is identical (issue #57).
    !>
    !> `halos`, when present, is the 8-element extent vector in the fixed
    !> order [iMinus, iPlus, jMinus, jPlus, kMinus, kPlus, lMinus, lPlus];

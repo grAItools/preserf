@@ -187,9 +187,10 @@ embedded in each spec's Problem section.
   storage_mapping.md §1) now lives in a single private helper
   `write_field_registry_entry`. Both explicit registration
   (`fs_register_field`) and first-write auto-registration
-  (`autoregister_field`) emit through it, so the two paths cannot drift and
-  an auto-registered field stays byte-indistinguishable from an
-  explicitly-registered one. Pure refactor; on-disk bytes unchanged
+  (`autoregister_field`) emit through it, so the shared registry-entry
+  layout cannot drift between the two paths. Auto-registration omits halos
+  (recording zero halos), so its bytes match an explicit zero-halo
+  registration. Pure refactor; on-disk bytes unchanged
   (verified by the existing `test_fortran_wire_compat.py` suite)
   ([#57](https://github.com/grAItools/preserf/issues/57)).
 - Test layout reorganized into `tests/unit_tests/`,
