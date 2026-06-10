@@ -385,6 +385,11 @@ contains
       integer, parameter :: cwd_cap = 4096
       character(kind=c_char) :: cbuf(cwd_cap)
       character(len=:), allocatable :: cwd, rel
+      ! Explicit length-1 temporary for the converted character (see the
+      ! concat loop below): nvfortran miscompiles concatenating the
+      ! `char()` *function result* straight onto a deferred-length
+      ! allocatable, so we stage it through `ch` first.
+      character(len=1) :: ch
       integer :: i
 
       ok = .true.
@@ -407,10 +412,21 @@ contains
       ! default character kind explicitly (via its code point) so the
       ! concatenation does not rely on c_char equalling the default
       ! character kind, which is not guaranteed on every compiler.
+      !
+      ! The converted character is staged through the explicit
+      ! `character(len=1) :: ch` temporary before concatenation. Issue #63:
+      ! under nvfortran, appending the `char()` function result *directly*
+      ! to the deferred-length allocatable (`cwd = cwd//char(...)`)
+      ! miscompiles — the function result is treated as having a bogus
+      ! length, padding each char with ~98 spaces and corrupting the
+      ! resolved CWD (which then breaks nczarr-v2 with a relative
+      ! directory). No nvfortran flag fixes it; assigning to a `len=1`
+      ! scalar first sidesteps the codegen bug. gfortran is unaffected.
       cwd = ''
       do i = 1, cwd_cap
          if (cbuf(i) == c_null_char) exit
-         cwd = cwd//char(ichar(cbuf(i)))
+         ch = char(ichar(cbuf(i)))
+         cwd = cwd//ch
       end do
       ! getcwd returns an absolute path; guard defensively all the same.
       if (len(cwd) == 0) then

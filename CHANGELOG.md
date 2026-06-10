@@ -197,6 +197,20 @@ embedded in each spec's Problem section.
 
 ### Fixed
 
+- `resolve_abs_dir` (the relative-directory → absolute-path helper used by
+  the `nczarr-v2` backend) no longer corrupts the resolved CWD under
+  **nvfortran**. The `getcwd` copy loop appended the `char()` _function
+  result_ straight onto a deferred-length allocatable string
+  (`cwd = cwd//char(...)`); nvfortran (nvhpc — the production ICON compiler
+  on CSCS) miscompiles this, treating the function result as having a bogus
+  length and padding each character with ~98 spaces, so the resolved CWD
+  became garbage and `nczarr-v2` with a relative `directory` failed. No
+  nvfortran flag fixes it; staging the converted character through an
+  explicit `character(len=1)` temporary before concatenation sidesteps the
+  codegen bug. gfortran was unaffected. A new `resolve-relpath` ctest
+  scenario locks in the byte-exact `<CWD>/<reldir>` resolution so a future
+  regression (corrupted length / stray padding) fails the gate
+  ([#63](https://github.com/grAItools/preserf/issues/63)).
 - The `nczarr-v2` backend now resolves a **relative** `directory` (e.g.
   `./ser_data`) to an absolute path against the process CWD (via POSIX
   `getcwd`) before building its `file://...#mode=nczarr,zarr2` URL, instead

@@ -121,6 +121,36 @@ set_tests_properties(preserf_fortran_backend_nczarr_relpath PROPERTIES
     TIMEOUT 60
 )
 
+# Issue #63: resolve_abs_dir copies the getcwd(3) buffer char-by-char into a
+# deferred-length allocatable. Appending the char() function result straight
+# onto the allocatable miscompiles under nvfortran (each char padded with ~98
+# spaces), corrupting the resolved CWD and breaking nczarr-v2 with a relative
+# directory. The fix stages the char through a character(len=1) temporary.
+# This scenario round-trips a field through a MULTI-SEGMENT relative directory
+# and asserts the store lands at exactly <CWD>/resolve_rel_dir/leaf/fres.zarr,
+# so a corrupted resolution (padded/garbage path) fails the gate. The setup
+# fixture pre-creates the nested relative dir under the pinned WORKING_DIRECTORY
+# (nf90_create does not make parent directories).
+add_test(
+    NAME preserf_fortran_resolve_relpath_setup
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output/resolve_rel_dir/leaf"
+)
+set_tests_properties(preserf_fortran_resolve_relpath_setup PROPERTIES
+    FIXTURES_SETUP preserf_fortran_resolve_relpath_dir
+)
+add_test(
+    NAME preserf_fortran_resolve_relpath
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" resolve-relpath
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-output"
+)
+set_tests_properties(preserf_fortran_resolve_relpath PROPERTIES
+    FIXTURES_REQUIRED "preserf_fortran_output_dir;preserf_fortran_resolve_relpath_dir"
+    PASS_REGULAR_EXPRESSION "preserf-fortran: resolve-relpath OK"
+    TIMEOUT 60
+)
+
 # Slice E negative: the nczarr-v2 URL is raw-concatenated (not URI-encoded
 # like the Python reference path), so a path with a URI-significant
 # character (space / # / ? / %) must abort rather than emit a bad URL.

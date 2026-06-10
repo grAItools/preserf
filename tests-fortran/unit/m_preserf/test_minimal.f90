@@ -338,6 +338,68 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: backend-nczarr-relpath OK'
                stop
             end block
+         else if (scenario == 'resolve-relpath') then
+            ! Issue #63: resolve_abs_dir builds the absolute CWD by copying
+            ! the getcwd(3) C buffer char-by-char into a deferred-length
+            ! allocatable. Appending the char() *function result* straight
+            ! onto the allocatable (`cwd = cwd//char(...)`) miscompiles under
+            ! nvfortran: the result is treated as having a bogus length and
+            ! each character is padded with ~98 spaces, corrupting the
+            ! resolved CWD. The fix stages the converted character through a
+            ! `character(len=1)` temporary first.
+            !
+            ! This scenario is a tighter guard than backend-nczarr-relpath: it
+            ! uses a MULTI-SEGMENT, multi-character relative directory so a
+            ! single corrupted char in the resolved CWD blows the file:// URL
+            ! far off target (under the bug, a ~14-char CWD path balloons past
+            ! 1000 chars of padding). nczarr-v2 needs the absolute path for its
+            ! URL, so a corrupted resolution lands the store at a nonsense
+            ! absolute location while the relative inquire below — which
+            ! resolves against the *real* process CWD — does not find it.
+            ! A clean resolution lands the store at exactly
+            ! <CWD>/resolve_rel_dir/leaf/fres.zarr and round-trips the data.
+            block
+               real(real64) :: uz(4), uz_back(4)
+               integer :: i
+               logical :: store_exists
+               character(len=*), parameter :: reldir = 'resolve_rel_dir/leaf'
+               do i = 1, 4
+                  uz(i) = 900.0_real64 + real(i, real64)
+               end do
+               call ppser_initialize(reldir, 'fres', 'w', backend='nczarr-v2')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 4, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', uz)
+               call ppser_finalize()
+               ! Byte-exact store location: a corrupted resolved CWD would
+               ! target a padded/garbage absolute path, so the store would be
+               ! absent from this relative location (which resolves against
+               ! the genuine CWD the inquire sees).
+               inquire (file=reldir//'/fres.zarr/.zgroup', exist=store_exists)
+               if (.not. store_exists) then
+                  inquire (file=reldir//'/fres.zarr', exist=store_exists)
+               end if
+               if (.not. store_exists) error stop &
+                  'resolve-relpath: store not at <CWD>/'//reldir// &
+                  '/fres.zarr (resolved CWD corrupted?)'
+               ! Re-open via the SAME relative directory and read back: read
+               ! must resolve to the identical absolute path the write used.
+               call ppser_initialize(reldir, 'fres', 'r', backend='nczarr-v2')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 4, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', uz_back)
+               do i = 1, 4
+                  if (uz_back(i) /= 900.0_real64 + real(i, real64)) error stop &
+                     'resolve-relpath: data round-trip mismatch'
+               end do
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: resolve-relpath OK'
+               stop
+            end block
          else if (scenario == 'backend-nczarr-badchar') then
             ! Slice E: the nczarr-v2 URL is built by raw concatenation, so
             ! a directory (or prefix) carrying a URI-significant character
