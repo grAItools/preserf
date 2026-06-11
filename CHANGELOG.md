@@ -229,7 +229,7 @@ embedded in each spec's Problem section.
   auto-registration attempting an `nf90_def_var` on the read-only handle.
   `s%writable` is the authoritative per-handle test of whether
   `nf90_def_var` can succeed; the global `ppser_get_mode()` is DATA-mode
-  state, not this handle's writability, so it is deliberately *not* part of
+  state, not this handle's writability, so it is deliberately _not_ part of
   the gate — a writable handle still auto-registers a first write
   regardless of the global mode (issue #43 parity). Generated code never
   reaches the read-mode case (pp_ser's mode `SELECT` gates DATA blocks); it
