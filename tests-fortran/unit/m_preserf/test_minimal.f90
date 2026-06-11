@@ -1867,6 +1867,46 @@ program test_minimal
                   'write-readhandle-mode0-unregistered: FAILED (no abort)'
                stop
             end block
+         else if (scenario == 'write-writable-mode1-autoregister') then
+            ! Issue #58 (review follow-up): the auto-registration gate keys
+            ! on the handle's own `writable` flag, NOT the global DATA mode.
+            ! A *writable* handle must still auto-register a first write
+            ! (issue #43 Serialbox parity) regardless of the global
+            ! ppser_get_mode() value — gating on mode == 0 would wrongly
+            ! abort this. Open 'w' (writable), force the global mode to 1
+            ! (read), then write an unregistered field: it must
+            ! auto-register and round-trip losslessly, NOT abort.
+            block
+               real(real64) :: nf(3), nfb(3)
+               integer :: i
+               do i = 1, 3
+                  nf(i) = real(i, real64) + 0.5_real64
+               end do
+               call ppser_initialize(out_dir, 'fwm1', 'w')
+               call fs_create_savepoint('step', ppser_savepoint)
+               ! Diverge global mode from the handle's writability: mode 1
+               ! (read) on a writable handle. The write below must ignore
+               ! the global mode and auto-register because s%writable.
+               call ppser_set_mode(1)
+               if (ppser_get_mode() /= 1) error stop &
+                  'write-writable-mode1-autoregister: set_mode(1) failed'
+               call fs_write_field(ppser_serializer, ppser_savepoint, &
+                                   'auto_in_mode1', nf)
+               call ppser_finalize()
+               ! Round-trip: a read can only resolve the field through the
+               ! registry, so a lossless read-back proves the write
+               ! auto-registered it despite the global read mode.
+               call ppser_initialize(out_dir, 'fwm1', 'r')
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'auto_in_mode1', nfb)
+               if (any(nfb /= nf)) error stop &
+                  'write-writable-mode1-autoregister: round-trip mismatch'
+               call ppser_finalize()
+               write (*, '(a)') &
+                  'preserf-fortran: writable-mode1 autoregister OK'
+               stop
+            end block
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &

@@ -631,3 +631,21 @@ set_tests_properties(preserf_fortran_write_readhandle_mode0_unregistered PROPERT
     PASS_REGULAR_EXPRESSION "call fs_register_field first"
     TIMEOUT 60
 )
+
+# Issue #58 (review follow-up): the converse of the gate — a *writable*
+# handle must auto-register a first write (issue #43 parity) regardless of
+# the global ppser_get_mode() state, because the gate keys on s%writable,
+# not the global DATA mode. Open 'w', force global mode to 1 (read), write
+# an unregistered field, and assert it round-trips losslessly instead of
+# aborting. This is the case that distinguishes the s%writable gate from the
+# earlier `ppser_get_mode() == 0 .and. s%writable` form.
+add_test(
+    NAME preserf_fortran_write_writable_mode1_autoregister
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" write-writable-mode1-autoregister
+)
+set_tests_properties(preserf_fortran_write_writable_mode1_autoregister PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: writable-mode1 autoregister OK"
+    TIMEOUT 60
+)
