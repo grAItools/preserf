@@ -4,7 +4,7 @@
 # Run inside the `examples` pixi environment so `preserf`, `cmake`, and the
 # Fortran/netcdf-fortran toolchain are all on PATH:
 #
-#   pixi run -e examples bash examples/laplacian/run.sh
+#   pixi run -e examples bash examples/laplacian/cmake/run.sh
 #
 # Produces:
 #   build/laplacian.F90   expanded source (the !$SER directives made explicit)
@@ -44,4 +44,4 @@ echo "==> run: iterating the Laplacian and serializing each step"
 echo
 echo "Store written to: $OUT/laplacian.nc"
 echo "Verify and plot it with:"
-echo "  pixi run -e examples python $DIR/verify.py $OUT/laplacian.nc"
+echo "  pixi run -e examples python $DIR/../verify.py $OUT/laplacian.nc"

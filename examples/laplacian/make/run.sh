@@ -2,8 +2,9 @@
 # preserf example driver (non-CMake consumer): install the runtime with CMake,
 # then preprocess + compile + link with plain GNU make.
 #
-# This runs the SAME laplacian program as ../laplacian, but instead of
-# consuming the runtime through the shipped PreserfFortran.cmake helper it:
+# This runs the SAME laplacian program as the cmake/ variant next door, but
+# instead of consuming the runtime through the shipped PreserfFortran.cmake
+# helper it:
 #   1. builds + INSTALLS the preserf_fortran library with CMake into a local
 #      prefix (the only CMake step — yields a plain library + .mod + config), and
 #   2. drives the preserf expansion and the gfortran compile/link from a
@@ -12,7 +13,7 @@
 # Run inside the `examples` pixi env (preserf, cmake, gfortran, make and
 # netcdf-fortran all on PATH):
 #
-#   pixi run -e examples bash examples/laplacian-make/run.sh
+#   pixi run -e examples bash examples/laplacian/make/run.sh
 #
 # Produces:
 #   prefix/                 the installed runtime (lib + include/*.mod + cmake/)
@@ -60,5 +61,5 @@ echo "==> run: iterating the Laplacian and serializing each step"
 
 echo
 echo "Store written to: $OUT/laplacian.nc"
-echo "Verify and plot it with (verify.py is shared with the CMake example):"
-echo "  pixi run -e examples python $DIR/../laplacian/verify.py $OUT/laplacian.nc"
+echo "Verify and plot it with (verify.py is shared with the cmake/ variant):"
+echo "  pixi run -e examples python $DIR/../verify.py $OUT/laplacian.nc"

@@ -45,9 +45,10 @@ embedded in each spec's Problem section.
   `add_subdirectory` consumers are unchanged (override with
   `-DPRESERF_FORTRAN_INSTALL=ON/OFF`). A new `consumer`-marked test installs the
   runtime and builds a throwaway project against it through `find_package`.
-- Plain-`make` example (`examples/laplacian-make/`): runs the same Laplacian
-  program as `examples/laplacian/` (reusing its source and `verify.py`), but
-  installs the runtime with CMake and then drives the preprocessing,
+- Plain-`make` example (`examples/laplacian/make/`): runs the same Laplacian
+  program as the CMake variant (`examples/laplacian/cmake/`), reusing the
+  parent `examples/laplacian/` shared `laplacian.f90` source and `verify.py`,
+  but installs the runtime with CMake and then drives the preprocessing,
   compilation and linking from a hand-written `Makefile` against the install
   prefix — demonstrating that the install target makes the runtime consumable
   from a non-CMake build system, and documenting the expand → compile → link

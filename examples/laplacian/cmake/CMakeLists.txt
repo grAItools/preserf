@@ -10,7 +10,7 @@ project(preserf_example_laplacian LANGUAGES Fortran)
 # path, which equals the installed layout). The helper owns the whole
 # expand -> compile -> link -> SERIALIZE recipe; this file just calls it, so
 # the example cannot drift from what `pip install preserf` users get.
-include(${CMAKE_CURRENT_SOURCE_DIR}/../../src/preserf/fortran/cmake/PreserfFortran.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../../src/preserf/fortran/cmake/PreserfFortran.cmake)
 
 # Regenerate whenever the input OR the preprocessor implementation changes, so
 # an incremental build never compiles a stale expansion. GLOB_RECURSE picks up
@@ -18,9 +18,10 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/../../src/preserf/fortran/cmake/PreserfFortr
 # newly added module is tracked without a manual reconfigure. (An external
 # wheel consumer omits this — its installed package is immutable.)
 file(GLOB_RECURSE _preserf_cli_sources CONFIGURE_DEPENDS
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../src/preserf/*.py)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../src/preserf/*.py)
 
+# The !$SER-annotated source lives one level up, shared with the make/ variant.
 preserf_add_fortran_target(laplacian
-    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/laplacian.f90
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../laplacian.f90
     DEPENDS_GLOB ${_preserf_cli_sources}
 )

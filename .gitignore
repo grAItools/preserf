@@ -208,11 +208,12 @@ __marimo__/
 # pixi environments
 .pixi
 
-# Example run artifacts (build/ is already ignored above; ignore stores too)
-examples/*/out/
+# Example run artifacts (build/ is already ignored above; ignore stores too).
+# `**` so it matches nested example variants too (e.g. laplacian/cmake/out/).
+examples/**/out/
 # The plain-make example installs the runtime into a local prefix/ (build/ is
 # already ignored above).
-examples/*/prefix/
+examples/**/prefix/
 
 
 # >>> ai-agent-harness (managed by copier) >>>

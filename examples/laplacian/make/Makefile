@@ -24,9 +24,9 @@ PREFIX     := prefix
 PRESERF    := preserf
 PKG_CONFIG := pkg-config
 BUILDDIR   := build
-# The !$SER-annotated source is shared with the CMake example next door —
-# single source of truth, two build systems.
-SRC        := ../laplacian/laplacian.f90
+# The !$SER-annotated source lives one level up, shared with the cmake/ variant
+# — single source of truth, two build systems.
+SRC        := ../laplacian.f90
 # FC is taken from the environment when set (conda/pixi point it at their own
 # gfortran), else defaults to gfortran.
 FC         ?= gfortran

@@ -92,7 +92,7 @@ result against this target.
 
 **Not using CMake?** The install above is a plain library, so you can drive the
 preprocessing and compilation from any build system. The
-[plain-`make` laplacian example](examples/laplacian-make/) installs the runtime
+[plain-`make` laplacian example](examples/laplacian/make/) installs the runtime
 with CMake and then builds the _same_ program from a hand-written `Makefile`,
 spelling out the expand → compile (`-cpp -DSERIALIZE -ffree-line-length-none
 -std=f2008 -I<prefix>/include/preserf_fortran`) → link (`-lpreserf_fortran`
