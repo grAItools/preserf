@@ -8,9 +8,15 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Find every run.sh at any depth, pruning generated build/ trees so a stale
-# artefact can never be mistaken for a driver. Sorted for deterministic order.
+# Find every run.sh, pruning generated artefact trees (build/, out/, prefix/)
+# so a stale file can never be mistaken for a driver. Capture first (not a
+# process substitution) so a find failure aborts under `set -e` instead of
+# silently running zero examples. Sorted for deterministic order.
+runs="$(find "$DIR" \
+    -type d \( -name build -o -name out -o -name prefix \) -prune -o \
+    -type f -name run.sh -print | sort)"
 while IFS= read -r runsh; do
+    [ -n "$runsh" ] || continue
     echo "==> ${runsh%/run.sh}"
     bash "$runsh"
-done < <(find "$DIR" -type d -name build -prune -o -type f -name run.sh -print | sort)
+done <<< "$runs"

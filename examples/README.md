@@ -48,12 +48,12 @@ pixi run -e examples python examples/laplacian/verify.py \
 ```
 
 These examples are **standalone documentation** but every variant is also built
-and run on CI as its own step (see `.github/workflows/ci.yml`) so a broken
+and run on CI in the `test-examples` step (see `.github/workflows/ci.yml`) so a broken
 example breaks the build. They are intentionally _not_ wired into `pixi run
 verify` — verify covers the strict Python+Fortran suite, not the end-to-end
 example builds. To exercise every example in one shot locally, use `pixi run
 test-examples` (which also runs as part of `pixi run test-all`); it invokes
-`examples/run-all.sh`, which finds every `run.sh` at any depth (so both the
-`cmake/` and `make/` variants run) and executes it. Generated artifacts
+`examples/run-all.sh`, which finds every `run.sh` outside generated `build/`
+trees (so both the `cmake/` and `make/` variants run) and executes it. Generated artifacts
 (`build/`, `out/`, the make variant's `prefix/`) are gitignored and can be
 cleared with each variant's `clean.sh`.
