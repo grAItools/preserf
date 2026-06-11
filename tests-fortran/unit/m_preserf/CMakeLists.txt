@@ -599,11 +599,9 @@ set_tests_properties(preserf_fortran_autoregister PROPERTIES
     TIMEOUT 60
 )
 
-# Issue #58: first-write auto-registration (issue #43) is gated on write
-# mode, not just op == 'write'. A direct fs_write_field against a read-mode
-# serializer on an unregistered field must abort with the friendly
-# "call fs_register_field first" message rather than a raw netCDF def_var
-# error from autoregister_field running on the read-only handle.
+# A direct fs_write_field against a read-mode serializer on an unregistered
+# field must abort with the friendly "call fs_register_field first" message
+# rather than a raw netCDF def_var error from auto-registration.
 add_test(
     NAME preserf_fortran_write_readmode_unregistered
     COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
@@ -615,12 +613,9 @@ set_tests_properties(preserf_fortran_write_readmode_unregistered PROPERTIES
     TIMEOUT 60
 )
 
-# Issue #58 (review follow-up): the auto-registration guard must also gate
-# on the serializer handle's own `writable` flag, not only the global
-# ppser_get_mode() DATA-mode state. When the two diverge (read-only handle
-# but global mode forced to 0/write), a direct fs_write_field of an
-# unregistered field must still abort with the friendly message rather than
-# reach autoregister_field on the read-only handle.
+# The gate keys on the handle's `writable` flag, not the global
+# ppser_get_mode(): a read-only handle with the global mode forced to 0
+# (write) must still abort rather than reach auto-registration.
 add_test(
     NAME preserf_fortran_write_readhandle_mode0_unregistered
     COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
@@ -632,13 +627,9 @@ set_tests_properties(preserf_fortran_write_readhandle_mode0_unregistered PROPERT
     TIMEOUT 60
 )
 
-# Issue #58 (review follow-up): the converse of the gate — a *writable*
-# handle must auto-register a first write (issue #43 parity) regardless of
-# the global ppser_get_mode() state, because the gate keys on s%writable,
-# not the global DATA mode. Open 'w', force global mode to 1 (read), write
-# an unregistered field, and assert it round-trips losslessly instead of
-# aborting. This is the case that distinguishes the s%writable gate from the
-# earlier `ppser_get_mode() == 0 .and. s%writable` form.
+# The converse: a writable handle must auto-register a first write
+# regardless of the global mode. Open 'w', force global mode to 1 (read),
+# write an unregistered field, and assert it round-trips losslessly.
 add_test(
     NAME preserf_fortran_write_writable_mode1_autoregister
     COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>

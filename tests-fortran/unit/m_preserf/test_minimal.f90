@@ -1793,16 +1793,11 @@ program test_minimal
                stop
             end block
          else if (scenario == 'write-readmode-unregistered') then
-            ! Issue #58: auto-registration on first write (issue #43) must
-            ! be gated on *write mode*, not merely on op == 'write'. A
-            ! direct fs_write_field against a read-mode serializer on a
-            ! field that was never registered must abort with the friendly
-            ! "call fs_register_field first" message, NOT a raw netCDF
-            ! def_var error from autoregister_field running on a read-only
-            ! handle. (Generated code never hits this — pp_ser's mode SELECT
-            ! gates DATA blocks — but the direct API must still fail
-            ! cleanly.) Build a store, re-open it read-only, then write an
-            ! unregistered field.
+            ! A direct fs_write_field on a read-opened serializer, for a
+            ! never-registered field, must abort with the friendly
+            ! "call fs_register_field first" message rather than auto-register
+            ! (which would def_var on the read-only handle). Build a store,
+            ! re-open read-only, then write an unregistered field.
             block
                real(real64) :: nf(3)
                integer :: i
@@ -1814,29 +1809,20 @@ program test_minimal
                if (ppser_get_mode() /= 1) error stop &
                   'write-readmode-unregistered: "r" should set mode 1'
                call fs_create_savepoint('step', ppser_savepoint)
-               ! 'never_registered' is absent from the store's /_fields
-               ! registry; in read mode this must NOT auto-register.
                call fs_write_field(ppser_serializer, ppser_savepoint, &
                                    'never_registered', nf)
-               ! Unreachable: the call above aborts. If we get here, the
-               ! guard regressed (auto-register ran in read mode). Emit a
-               ! non-matching line so the PASS_REGULAR_EXPRESSION fails.
+               ! Reached only if the guard regressed: emit a non-matching
+               ! line so PASS_REGULAR_EXPRESSION fails.
                call ppser_finalize()
                write (*, '(a)') &
                   'write-readmode-unregistered: FAILED (no abort)'
                stop
             end block
          else if (scenario == 'write-readhandle-mode0-unregistered') then
-            ! Issue #58 (review follow-up): the auto-registration guard
-            ! must also gate on the serializer handle's own `writable`
-            ! flag, not only the global ppser_get_mode() DATA-mode state.
-            ! Those two can diverge: open a store read-only (handle is
-            ! read-only, s%writable == .false.) but force the global mode
-            ! back to 0 (write) via ppser_set_mode. A direct fs_write_field
-            ! of an unregistered field must STILL abort with the friendly
-            ! "call fs_register_field first" message — never reach
-            ! autoregister_field, which would hit a raw netCDF def_var error
-            ! on the read-only handle.
+            ! The gate keys on the handle's writable flag, not the global
+            ! ppser_get_mode(): a read-only handle with the global mode
+            ! forced to 0 (write) must STILL abort, never reaching
+            ! autoregister_field on the read-only handle.
             block
                real(real64) :: nf(3)
                integer :: i
@@ -1845,37 +1831,25 @@ program test_minimal
                end do
                call write_store(out_dir, 'frhm0', 7.0_real64)
                call ppser_initialize(out_dir, 'frhm0', 'r')
-               ! Resolve the existing savepoint while still in read mode
-               ! (fs_create_savepoint looks up rather than creates in read
-               ! mode), so the only write attempt comes from fs_write_field.
+               ! Resolve the savepoint in read mode so the only write
+               ! attempt comes from fs_write_field.
                call fs_create_savepoint('step', ppser_savepoint)
-               ! Now force the global mode to 0 (write) while the handle
-               ! stays read-only: this is the divergence the writable gate
-               ! covers (global DATA mode vs. per-handle writability).
                call ppser_set_mode(0)
                if (ppser_get_mode() /= 0) error stop &
                   'write-readhandle-mode0-unregistered: set_mode(0) failed'
-               ! 'never_registered' is absent from /_fields; the read-only
-               ! handle must NOT auto-register despite mode == 0.
                call fs_write_field(ppser_serializer, ppser_savepoint, &
                                    'never_registered', nf)
-               ! Unreachable: the call above aborts. Reaching here means the
-               ! writable gate regressed (autoregister ran on a read-only
-               ! handle). Emit a non-matching line so the regex fails.
+               ! Reached only if the writable gate regressed.
                call ppser_finalize()
                write (*, '(a)') &
                   'write-readhandle-mode0-unregistered: FAILED (no abort)'
                stop
             end block
          else if (scenario == 'write-writable-mode1-autoregister') then
-            ! Issue #58 (review follow-up): the auto-registration gate keys
-            ! on the handle's own `writable` flag, NOT the global DATA mode.
-            ! A *writable* handle must still auto-register a first write
-            ! (issue #43 Serialbox parity) regardless of the global
-            ! ppser_get_mode() value — gating on mode == 0 would wrongly
-            ! abort this. Open 'w' (writable), force the global mode to 1
-            ! (read), then write an unregistered field: it must
-            ! auto-register and round-trip losslessly, NOT abort.
+            ! The converse: a writable handle must auto-register a first
+            ! write regardless of the global mode. Open 'w', force the
+            ! global mode to 1 (read), write an unregistered field, and
+            ! assert it round-trips losslessly rather than aborting.
             block
                real(real64) :: nf(3), nfb(3)
                integer :: i
@@ -1884,18 +1858,14 @@ program test_minimal
                end do
                call ppser_initialize(out_dir, 'fwm1', 'w')
                call fs_create_savepoint('step', ppser_savepoint)
-               ! Diverge global mode from the handle's writability: mode 1
-               ! (read) on a writable handle. The write below must ignore
-               ! the global mode and auto-register because s%writable.
                call ppser_set_mode(1)
                if (ppser_get_mode() /= 1) error stop &
                   'write-writable-mode1-autoregister: set_mode(1) failed'
                call fs_write_field(ppser_serializer, ppser_savepoint, &
                                    'auto_in_mode1', nf)
                call ppser_finalize()
-               ! Round-trip: a read can only resolve the field through the
-               ! registry, so a lossless read-back proves the write
-               ! auto-registered it despite the global read mode.
+               ! A read resolves the field only through the registry, so a
+               ! lossless read-back proves the write auto-registered it.
                call ppser_initialize(out_dir, 'fwm1', 'r')
                call fs_create_savepoint('step', ppser_savepoint)
                call fs_read_field(ppser_serializer, ppser_savepoint, &

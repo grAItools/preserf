@@ -2852,26 +2852,13 @@ contains
 
       ncerr = nf90_inq_varid(s%fields_grpid, trim(fieldname), varid)
       if (ncerr == NF90_ENOTVAR) then
-         ! A write to a field that was never registered: auto-register it
-         ! from the runtime shape + type_id (Serialbox parity, issue #43)
-         ! rather than abort. A read cannot auto-register — there is no
-         ! field to read — so it still aborts.
-         !
-         ! Gate auto-registration on the serializer handle's own
-         ! writability (issue #58). `autoregister_field` calls
-         ! nf90_def_var / nf90_put_*, which fail with a raw low-level
-         ! netCDF error on a read-only handle. `s%writable` (.true. for a
-         ! 'w' open, .false. for 'r') is the authoritative per-handle test
-         ! of whether those calls can succeed. The global `ppser_get_mode()`
-         ! is DATA-mode state, not this handle's writability, so it is *not*
-         ! part of this gate: a writable handle must still auto-register a
-         ! first write regardless of the global mode (issue #43 parity),
-         ! and a read-opened handle must never auto-register even when the
-         ! global mode is still 0. A read-only handle falls through to the
-         ! friendly "call fs_register_field first" message below instead.
-         ! (pp_ser's mode SELECT already gates generated DATA blocks, so
-         ! generated code never reaches a write call against a read-only
-         ! store.)
+         ! A write to a never-registered field auto-registers it from the
+         ! runtime shape + type_id (Serialbox parity); a read cannot, so it
+         ! aborts. Gate on s%writable, not ppser_get_mode(): autoregister
+         ! calls nf90_def_var / nf90_put_*, which fail on a read-only handle,
+         ! whereas the global mode is DATA-mode state independent of this
+         ! handle's writability. A read-only handle falls through to the
+         ! abort below.
          if (trim(op) == 'write' .and. s%writable) then
             call autoregister_field(s, fieldname, fortran_shape, expected_tid)
             ! The entry we just wrote matches the runtime shape and type
