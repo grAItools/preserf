@@ -55,7 +55,10 @@ ${CMAKE_CURRENT_SOURCE_DIR}/preserf_read_field.inc;\
 ${CMAKE_CURRENT_SOURCE_DIR}/preserf_read_field_logical.inc;\
 ${CMAKE_CURRENT_SOURCE_DIR}/preserf_read_field_perturb.inc;\
 ${CMAKE_CURRENT_SOURCE_DIR}/preserf_read_field_perturb_noop.inc;\
-${CMAKE_CURRENT_SOURCE_DIR}/preserf_apply_perturb.inc"
+${CMAKE_CURRENT_SOURCE_DIR}/preserf_apply_perturb.inc;\
+${CMAKE_CURRENT_SOURCE_DIR}/preserf_register_tracer.inc;\
+${CMAKE_CURRENT_SOURCE_DIR}/preserf_tracer_io.inc;\
+${CMAKE_CURRENT_SOURCE_DIR}/preserf_write_kbuff.inc"
 )
 
 # Put .mod files where dependents can find them. Fortran_STANDARD /
