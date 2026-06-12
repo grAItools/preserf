@@ -45,7 +45,7 @@ arguments: it is a bulk "register everything the model knows about" hook.
 
 `fs_RegisterAllTracers()` writes one scalar `NF90_INT` carrier variable
 (value `0`) per tracer under a new top-level group `/_tracers`, exactly as
-`fs_register_field` does under `/_fields` (`src/preserf-fortran/m_preserf.F90`
+`fs_register_field` does under `/_fields` (`src/preserf/fortran/m_preserf.F90`
 `fs_register_field`). Each carrier holds:
 
 | Attribute      | Type              | Source / meaning                                                  |
@@ -98,7 +98,7 @@ tracer data byte-identical to a field write.
 
 Because the directive surface carries no data, the helper owns a small,
 fixed-capacity **tracer registry** (module state in
-`src/preserf-fortran/utils_preserf.f90`). A host-side entry point — **not**
+`src/preserf/fortran/utils_preserf.f90`). A host-side entry point — **not**
 emitted by pp_ser — populates it:
 
 ```

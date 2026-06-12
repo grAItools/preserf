@@ -26,8 +26,8 @@ preserf alone.
     (`preserf -r -d out/ src/`, where `--recursive` requires
     `--output-dir`).
   - `errors.py` — `DirectiveError` carries file/line context.
-- `src/preserf-fortran/` — Fortran runtime helper.
-  - `m_preserf.f90` — canonical API (`fs_register_field`,
+- `src/preserf/fortran/` — Fortran runtime helper.
+  - `m_preserf.F90` — canonical API (`fs_register_field`,
     `fs_create_savepoint`, `fs_add_*_metainfo`, `fs_write_field`,
     `fs_read_field`, enable/disable/status).
   - `utils_preserf.f90` — lifecycle (`ppser_initialize`, `ppser_finalize`,
@@ -63,7 +63,7 @@ preserf alone.
   `USE utils_ppser` (the alias modules).
 - **Storage backend.** v0.1 of the Fortran helper writes
   `<dir>/<prefix>.nc` via `NF90_NETCDF4` only — `preserf_open_serializer`
-  in `src/preserf-fortran/utils_preserf.f90` hardcodes that path and
+  in `src/preserf/fortran/utils_preserf.f90` hardcodes that path and
   flag. ADR
   [`docs/adr/0002-storage-model-mapping.md`](adr/0002-storage-model-mapping.md)
   designs the format choice as a URL / mode string

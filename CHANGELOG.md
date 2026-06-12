@@ -14,6 +14,46 @@ embedded in each spec's Problem section.
 
 ### Added
 
+- Fortran distribution (`specs/2026-06-fortran-distribution`): the Fortran
+  runtime now ships inside the wheel as package data. The runtime tree moved
+  from `src/preserf-fortran/` to `src/preserf/fortran/`, so a `pip install
+  preserf` user can compile preserf-generated Fortran without cloning the
+  repo. `preserf.get_fortran_dir()` / `get_cmake_helper()` and the matching
+  `preserf --fortran-dir` / `--cmake-helper` CLI flags expose the bundled
+  location (numpy `get_include()` pattern). A shipped CMake helper
+  (`preserf/fortran/cmake/PreserfFortran.cmake`) provides
+  `preserf_add_fortran_target()` — one call that expands `!$SER` sources,
+  compiles and links them against the runtime, and applies `SERIALIZE` and the
+  required flags. The laplacian example and the Fortran e2e test consume that
+  same shipped helper so the integration recipe cannot drift. A packaging test
+  asserts the wheel carries the runtime + helper and that discovery resolves
+  (fast `verify` gate); a `consumer`-marked external-consumer test builds a
+  throwaway project against the bundled runtime via the discovery CLI, runs it,
+  and validates the store round-trips (`pixi run test-all`). Distribution is
+  source-only and CMake-only; `netcdf-fortran` remains a user-supplied
+  pkg-config dependency. See the README "Using preserf in your build" section.
+- Standalone install target for the Fortran runtime: the bundled
+  `preserf/fortran/CMakeLists.txt` is now an installable CMake project, so
+  `cmake -S "$(preserf --fortran-dir)" -B build` followed by
+  `cmake --build build --target install` lays down the `preserf_fortran`
+  library, its compiled `.mod` interface files, and a namespaced CMake package
+  config (`preserf::preserf_fortran`). Downstream projects consume the install
+  with `find_package(preserf_fortran)` instead of rebuilding the runtime from
+  source via `add_subdirectory()`. The generated config re-discovers
+  `netcdf-fortran` through pkg-config. Install rules are emitted only for the
+  top-level (standalone) build, so the existing helper / example / native-test
+  `add_subdirectory` consumers are unchanged (override with
+  `-DPRESERF_FORTRAN_INSTALL=ON/OFF`). A new `consumer`-marked test installs the
+  runtime and builds a throwaway project against it through `find_package`.
+- Plain-`make` example (`examples/laplacian/make/`): runs the same Laplacian
+  program as the CMake variant (`examples/laplacian/cmake/`), reusing the
+  parent `examples/laplacian/` shared `laplacian.f90` source and `verify.py`,
+  but installs the runtime with CMake and then drives the preprocessing,
+  compilation and linking from a hand-written `Makefile` against the install
+  prefix — demonstrating that the install target makes the runtime consumable
+  from a non-CMake build system, and documenting the expand → compile → link
+  recipe (the `SERIALIZE` / `-cpp` / `-ffree-line-length-none` / F2008 flags and
+  the explicit `netcdf-fortran` link) the CMake helper otherwise applies.
 - `PRESERF_BACKEND` environment variable: when `ppser_initialize` is
   called without an explicit `backend=` argument (as pp_ser / Serialbox
   `!$SER INIT` call sites do), the storage backend is resolved from the
@@ -182,6 +222,9 @@ embedded in each spec's Problem section.
 
 ### Changed
 
+- The Fortran helper sources moved from `src/preserf-fortran/` to
+  `src/preserf/fortran/` (no API or behaviour change; updated CMake
+  `add_subdirectory` paths, `pixi` fprettify paths, and docs).
 - The `/_fields/<name>` registry-entry layout (`def_var` NF90_INT carrier
   → `type_id` att → `dims` att → non-zero halos → scalar `put_var`,
   storage_mapping.md §1) now lives in a single private helper

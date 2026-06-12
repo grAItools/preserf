@@ -117,6 +117,32 @@ pixi run build-fortran
 pixi run test-fortran
 ```
 
+### Installing as a library
+
+The `CMakeLists.txt` in this directory is also a standalone, installable
+project. Building its `install` target lays down the library, the compiled
+`.mod` interface files, and a CMake package config:
+
+```sh
+cmake -S . -B build/install -DCMAKE_INSTALL_PREFIX=/your/prefix
+cmake --build build/install --target install
+```
+
+A downstream project consumes the install with `find_package`:
+
+```cmake
+find_package(preserf_fortran REQUIRED)        # prefix on CMAKE_PREFIX_PATH
+target_link_libraries(my_app PRIVATE preserf::preserf_fortran)
+```
+
+`netcdf-fortran` is re-discovered via pkg-config by the generated package
+config, so the consumer needs it on its pkg-config path too. The `.mod` files
+are compiler-specific — build the consumer with the same Fortran compiler.
+Install rules are emitted only when this tree is the top-level CMake project
+(`cmake -S .`); when it is pulled in via `add_subdirectory()` — the shipped
+`PreserfFortran.cmake` helper, the example, the native tests — no install rules
+are added (override with `-DPRESERF_FORTRAN_INSTALL=ON/OFF`).
+
 ## Cross-language wire-compat test
 
 After building, the Python-side pytest at

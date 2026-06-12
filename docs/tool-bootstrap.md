@@ -57,7 +57,7 @@ If it succeeds on a fresh clone, the Python side of the bootstrap worked.
 
 ## Fortran helper
 
-The Fortran helper modules under `src/preserf-fortran/` are built and
+The Fortran helper modules under `src/preserf/fortran/` are built and
 tested through CMake/CTest, driven by pixi tasks:
 
 ```sh

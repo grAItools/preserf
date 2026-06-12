@@ -27,6 +27,24 @@ def test_no_inputs_is_error() -> None:
     assert result.exit_code != 0
 
 
+def test_fortran_dir_flag() -> None:
+    # Prints the bundled runtime path and exits 0 without requiring SOURCE
+    # args, so a build system can capture `$(preserf --fortran-dir)`.
+    result = runner.invoke(app, ["--fortran-dir"])
+    assert result.exit_code == 0
+    out = result.stdout.strip()
+    assert Path(out).is_dir()
+    assert (Path(out) / "m_preserf.F90").is_file()
+
+
+def test_cmake_helper_flag() -> None:
+    result = runner.invoke(app, ["--cmake-helper"])
+    assert result.exit_code == 0
+    out = result.stdout.strip()
+    assert out.endswith("PreserfFortran.cmake")
+    assert Path(out).is_file()
+
+
 def test_processes_file_to_stdout(tmp_path: Path) -> None:
     src = tmp_path / "in.f90"
     src.write_text(_SOURCE)

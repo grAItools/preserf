@@ -20,7 +20,9 @@ netcdf4 = ">=1.7.4"
 numpy = ">=1.26"
 
 [feature.dev.pypi-dependencies]
+build = ">=1.2"
 fprettify = ">=0.3"
+hatchling = ">=1.25"
 mypy = ">=1.0"
 pytest = ">=8.0"
 ruff = ">=0.8"
@@ -47,12 +49,12 @@ build-fortran = { cmd = ["sh", "-c", "cmake -S tests-fortran -B build/preserf-fo
 clean-fortran = { cmd = ["rm", "-rf", "build/preserf-fortran"], default-environment = "dev" }
 fmt-d = { cmd = ["dprint", "fmt"], default-environment = "dev" }
 fmt-d-check = { cmd = ["dprint", "check"], default-environment = "dev" }
-fmt-f = { cmd = ["fprettify", "--recursive", "src/preserf-fortran"], default-environment = "dev" }
+fmt-f = { cmd = ["fprettify", "--recursive", "src/preserf/fortran"], default-environment = "dev" }
 fmt-f-src = { cmd = ["fprettify"], default-environment = "dev" }
 fmt-py = { cmd = ["ruff", "format", "src", "tests"], default-environment = "dev" }
 fmt-py-src = { cmd = ["ruff", "format"], default-environment = "dev" }
 fmt = { depends-on = ["fmt-py", "fmt-f", "fmt-d"] }
-fmt-f-check = { cmd = ["python", "-c", "import subprocess,sys;r=subprocess.run(['fprettify','--diff','--recursive','src/preserf-fortran'],capture_output=True,text=True);sys.stdout.write(r.stdout);r.returncode and sys.stderr.write(r.stderr);sys.exit(1 if r.stdout.strip() or r.returncode else 0)"], default-environment = "dev" }
+fmt-f-check = { cmd = ["python", "-c", "import subprocess,sys;r=subprocess.run(['fprettify','--diff','--recursive','src/preserf/fortran'],capture_output=True,text=True);sys.stdout.write(r.stdout);r.returncode and sys.stderr.write(r.stderr);sys.exit(1 if r.stdout.strip() or r.returncode else 0)"], default-environment = "dev" }
 fmt-py-check = { cmd = ["ruff", "format", "--check", "src", "tests"], default-environment = "dev" }
 fmt-check = { depends-on = ["fmt-py-check", "fmt-f-check", "fmt-d-check"] }
 lint = { cmd = ["ruff", "check", "src", "tests"], default-environment = "dev" }
@@ -70,7 +72,10 @@ test-py = { cmd = ["pytest"], default-environment = "dev" }
 # Fortran binary exists.
 test-py-with-fortran = { cmd = ["pytest"], default-environment = "dev", env = { PRESERF_REQUIRE_FORTRAN = "1" }, depends-on = ["test-fortran"] }
 test-examples = { cmd = ["bash", "examples/run-all.sh"], default-environment = "examples" }
-test-all = { depends-on = ["test-py-with-fortran", "test-examples"] }
+# External-consumer end-to-end build (deselected from `verify` by the
+# `-m 'not consumer'` default in pyproject; `-m consumer` here overrides it).
+test-consumer = { cmd = ["pytest", "-m", "consumer"], default-environment = "dev" }
+test-all = { depends-on = ["test-py-with-fortran", "test-examples", "test-consumer"] }
 typecheck = { cmd = ["mypy", "src"], default-environment = "dev" }
 verify = { depends-on = ["fmt-check", "lint", "typecheck", "test-py-with-fortran"] }
 # clean = { cmd = ["rm", "-rf", "build", "dist", "preserf.egg-info"] }
