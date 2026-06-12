@@ -413,6 +413,12 @@ program test_minimal
                do i = 1, 4
                   uz(i) = 900.0_real64 + real(i, real64)
                end do
+               ! Clear any store left by a prior ctest run (the output dir is
+               ! reused, not cleaned). Without this, a stale store from an
+               ! earlier *clean* run would satisfy the existence assertion
+               ! below even if THIS run's write landed at a corrupted absolute
+               ! path — masking the very #63 regression this scenario guards.
+               call delete_dir_if_exists(reldir//'/fres.zarr')
                call ppser_initialize(reldir, 'fres', 'w', backend='nczarr-v2')
                call fs_register_field(ppser_serializer, 'u', 'double', &
                                       ppser_reallength, 4, 0, 0, 0, &
