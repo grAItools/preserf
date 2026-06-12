@@ -331,60 +331,28 @@ program test_minimal
             error stop &
                'preserf-test_minimal: unknown backend was accepted'
          else if (scenario == 'backend-nczarr-relpath') then
-            ! Issue #49: NCZarr's file:// URL needs an absolute directory,
-            ! but netcdf4 (and Serialbox) accept a relative directory like
-            ! './ser_data'. So nczarr-v2 must resolve a relative directory
-            ! to absolute (against the CWD) rather than reject it, making it
-            ! a drop-in. Write + read a real64 field through a RELATIVE
-            ! directory and round-trip it; the store must land under the CWD
-            ! at <CWD>/<reldir>/<prefix>.zarr (process CWD via getcwd(3)).
-            ! The relative directory is
-            ! pre-created by the CMakeLists fixture (cmake -E make_directory)
-            ! relative to the ctest working dir, so this scenario ignores
-            ! out_dir and uses its own relative path.
-            block
-               real(real64) :: uz(3), uz_back(3)
-               integer :: i
-               logical :: store_exists
-               do i = 1, 3
-                  uz(i) = 700.0_real64 + real(i, real64)
-               end do
-               call ppser_initialize('rel_zarr_dir', 'frel', 'w', &
-                                     backend='nczarr-v2')
-               call fs_register_field(ppser_serializer, 'u', 'double', &
-                                      ppser_reallength, 3, 0, 0, 0, &
-                                      0, 0, 0, 0, 0, 0, 0, 0)
-               call fs_create_savepoint('step', ppser_savepoint)
-               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', uz)
-               call ppser_finalize()
-               ! The store must exist at rel_zarr_dir/frel.zarr (relative to
-               ! the CWD), proving the relative directory was resolved to the
-               ! process CWD — not rejected, not mis-targeted to a bogus
-               ! file://<authority>/... location. The inquire path is itself
-               ! relative, so it resolves against the same CWD getcwd saw.
-               inquire (file='rel_zarr_dir/frel.zarr/.zgroup', exist=store_exists)
-               if (.not. store_exists) then
-                  inquire (file='rel_zarr_dir/frel.zarr', exist=store_exists)
-               end if
-               if (.not. store_exists) error stop &
-                  'backend-nczarr-relpath: store not created at resolved path'
-               ! Re-open via the SAME relative directory and read back,
-               ! proving read resolves to the identical absolute path.
-               call ppser_initialize('rel_zarr_dir', 'frel', 'r', &
-                                     backend='nczarr-v2')
-               call fs_register_field(ppser_serializer, 'u', 'double', &
-                                      ppser_reallength, 3, 0, 0, 0, &
-                                      0, 0, 0, 0, 0, 0, 0, 0)
-               call fs_create_savepoint('step', ppser_savepoint)
-               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', uz_back)
-               do i = 1, 3
-                  if (uz_back(i) /= 700.0_real64 + real(i, real64)) error stop &
-                     'backend-nczarr-relpath: data round-trip mismatch'
-               end do
-               call ppser_finalize()
-               write (*, '(a)') 'preserf-fortran: backend-nczarr-relpath OK'
-               stop
-            end block
+            ! Issue #49: NCZarr's file:// URL needs an absolute directory, but
+            ! netcdf4 (and Serialbox) accept a relative one like './ser_data',
+            ! so nczarr-v2 must resolve a relative directory against the CWD
+            ! rather than reject it (drop-in parity). The relative dir is
+            ! pre-created by the CMakeLists fixture relative to the ctest
+            ! working dir, so this scenario ignores out_dir. See
+            ! roundtrip_nczarr_relpath.
+            call roundtrip_nczarr_relpath('backend-nczarr-relpath', &
+                                          'rel_zarr_dir', 'frel', 3, 700.0_real64)
+            write (*, '(a)') 'preserf-fortran: backend-nczarr-relpath OK'
+            stop
+         else if (scenario == 'resolve-relpath') then
+            ! Issue #63: regression guard for resolve_abs_dir's getcwd copy
+            ! loop against the nvfortran char()-concat miscompile (see the
+            ! comment on that loop in utils_preserf.f90). Uses a MULTI-SEGMENT
+            ! relative directory so a corrupted resolved CWD lands the store
+            ! far off target and the relative inquire — resolving against the
+            ! real process CWD — fails to find it.
+            call roundtrip_nczarr_relpath('resolve-relpath', &
+                                          'resolve_rel_dir/leaf', 'fres', 4, 900.0_real64)
+            write (*, '(a)') 'preserf-fortran: resolve-relpath OK'
+            stop
          else if (scenario == 'backend-nczarr-badchar') then
             ! Slice E: the nczarr-v2 URL is built by raw concatenation, so
             ! a directory (or prefix) carrying a URI-significant character
@@ -2279,6 +2247,63 @@ contains
       ! metacharacter injection for any path the test harness could produce.
       call remove_dir_recursive(path)
    end subroutine delete_dir_if_exists
+
+   !> Round-trip a `real64` field of length `n` (values `base + i`) through a
+   !> RELATIVE nczarr-v2 directory and assert the store lands at exactly
+   !> `<CWD>/<reldir>/<prefix>.zarr`. Shared by the backend-nczarr-relpath
+   !> (#49) and resolve-relpath (#63) scenarios: both prove a relative
+   !> `directory` is resolved against the process CWD (getcwd(3)) rather than
+   !> rejected or mis-targeted. Any store left by a prior ctest run is cleared
+   !> first (the output dir is reused, not cleaned), so a stale store cannot
+   !> satisfy the existence check after a write that landed at a corrupted
+   !> absolute path. `tag` names the calling scenario in failure diagnostics.
+   subroutine roundtrip_nczarr_relpath(tag, reldir, prefix, n, base)
+      character(len=*), intent(in) :: tag, reldir, prefix
+      integer, intent(in) :: n
+      real(real64), intent(in) :: base
+      real(real64) :: uz(n), uz_back(n)
+      integer :: i
+      logical :: store_exists
+      character(len=:), allocatable :: store
+      store = reldir//'/'//prefix//'.zarr'
+      do i = 1, n
+         uz(i) = base + real(i, real64)
+      end do
+      call delete_dir_if_exists(store)
+      call ppser_initialize(reldir, prefix, 'w', backend='nczarr-v2')
+      call fs_register_field(ppser_serializer, 'u', 'double', &
+                             ppser_reallength, n, 0, 0, 0, &
+                             0, 0, 0, 0, 0, 0, 0, 0)
+      call fs_create_savepoint('step', ppser_savepoint)
+      call fs_write_field(ppser_serializer, ppser_savepoint, 'u', uz)
+      call ppser_finalize()
+      ! The store must exist at <CWD>/<reldir>/<prefix>.zarr, proving the
+      ! relative directory resolved against the process CWD — the inquire path
+      ! is itself relative, so it resolves against the same CWD. A corrupted
+      ! resolution would target a garbage absolute path, absent here.
+      inquire (file=store//'/.zgroup', exist=store_exists)
+      if (.not. store_exists) inquire (file=store, exist=store_exists)
+      if (.not. store_exists) then
+         write (error_unit, '(a)') tag// &
+            ': store not created at resolved relative path '//store
+         error stop 1
+      end if
+      ! Re-open via the SAME relative directory and read back, proving read
+      ! resolves to the identical absolute path the write used.
+      call ppser_initialize(reldir, prefix, 'r', backend='nczarr-v2')
+      call fs_register_field(ppser_serializer, 'u', 'double', &
+                             ppser_reallength, n, 0, 0, 0, &
+                             0, 0, 0, 0, 0, 0, 0, 0)
+      call fs_create_savepoint('step', ppser_savepoint)
+      call fs_read_field(ppser_serializer, ppser_savepoint, 'u', uz_back)
+      do i = 1, n
+         if (uz_back(i) /= base + real(i, real64)) then
+            write (error_unit, '(a)') tag//': data round-trip mismatch'
+            error stop 1
+         end if
+      end do
+      call ppser_finalize()
+   end subroutine roundtrip_nczarr_relpath
 
    !> Recursively remove a directory subtree (`rm -rf`) if it exists. The
    !> init-mkdir scenario uses this to clear a nested output directory that
