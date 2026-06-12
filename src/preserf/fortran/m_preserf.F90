@@ -228,9 +228,9 @@ contains
       integer, intent(in) :: kMinusHalo, kPlusHalo
       integer, intent(in) :: lMinusHalo, lPlusHalo
 
-      integer :: ncerr, varid
-      integer(int32) :: type_id, zero
+      integer(int32) :: type_id
       integer(int32), allocatable :: dims(:)
+      integer :: ncerr, varid
 
       if (serialisation_enabled == 0) return
       if (s%fields_grpid == -1) then
@@ -245,7 +245,6 @@ contains
       ! Python / netCDF-C reader sees `dims[0]` as the leading numpy
       ! axis. See storage_mapping.md §1 + §4.
       dims = active_dims_c_order(iSize, jSize, kSize, lSize)
-      zero = 0_int32
 
       ! pp_ser emits REGISTER outside the SELECT CASE (ppser_get_mode())
       ! that gates DATA blocks, so this directive runs in read mode too.
@@ -258,9 +257,92 @@ contains
                                         iMinusHalo, iPlusHalo, &
                                         jMinusHalo, jPlusHalo, &
                                         kMinusHalo, kPlusHalo, &
-                                        lMinusHalo, lPlusHalo)
+                                        lMinusHalo, lPlusHalo, &
+                                        context='read-mode field')
          return
       end if
+
+      ! The create path needs a writable handle. Global write mode
+      ! (ppser_get_mode() == 0) and handle writability are independent: a
+      ! `!$SER MODE read` INIT opens the store read-only, and a later
+      ! `!$SER MODE write` flips the global mode but not the handle. Guard
+      ! explicitly so this aborts with a clear message rather than letting
+      ! nf90_def_var fail with a raw netCDF error on a read-only handle —
+      ! the same failure class issue #58 fixed for the auto-register path.
+      if (.not. s%writable) then
+         write (*, '(a,a,a)') &
+            'preserf: REGISTER of field "', trim(fieldname), &
+            '" in write mode but the serializer was opened read-only'
+         error stop 1
+      end if
+
+      ! Re-registration is idempotent (Serialbox parity): a field already
+      ! present — a REGISTER directive in a per-timestep loop, or a field
+      ! already auto-registered by a first `!$SER DATA` write — is validated
+      ! for consistency and skipped, rather than aborting on a duplicate
+      ! nf90_def_var (NC_ENAMEINUSE). A mismatch (e.g. halos a REGISTER
+      ! skipped while serialization was OFF failed to record, then declared
+      ! on a later pass) aborts with a clear message.
+      ncerr = nf90_inq_varid(s%fields_grpid, trim(fieldname), varid)
+      if (ncerr == NF90_NOERR) then
+         call validate_registered_field(s, fieldname, type_id, dims, &
+                                        iMinusHalo, iPlusHalo, &
+                                        jMinusHalo, jPlusHalo, &
+                                        kMinusHalo, kPlusHalo, &
+                                        lMinusHalo, lPlusHalo, &
+                                        context='re-registered field', &
+                                        known_varid=varid)
+         return
+      else if (ncerr /= NF90_ENOTVAR) then
+         call preserf_check_nf_with_msg(ncerr, &
+                                        'inq_varid /_fields/'//trim(fieldname))
+      end if
+
+      ! Halos are named by physical direction (i/j/k/l) rather than
+      ! storage axis, so a low-rank shortcut like `IK1` (rank-2 storage
+      ! tuple (ie, ke1, 0, 0) plus kPlusHalo=1) still wants its physical
+      ! k-halo emitted. Do NOT gate halo emission by the storage rank —
+      ! pass every halo unconditionally; zero halos are omitted on disk.
+      call write_field_registry_entry(s, fieldname, type_id, dims, &
+                                      iMinusHalo=iMinusHalo, &
+                                      iPlusHalo=iPlusHalo, &
+                                      jMinusHalo=jMinusHalo, &
+                                      jPlusHalo=jPlusHalo, &
+                                      kMinusHalo=kMinusHalo, &
+                                      kPlusHalo=kPlusHalo, &
+                                      lMinusHalo=lMinusHalo, &
+                                      lPlusHalo=lPlusHalo)
+   end subroutine fs_register_field
+
+   !> Write one `/_fields/<fieldname>` registry entry: the dummy
+   !> attribute-carrier scalar variable (rank-0 NF90_INT, value 0) plus
+   !> its `type_id` and C-order `dims` attributes and any non-zero halo
+   !> attributes — the on-disk layout from storage_mapping.md §1
+   !> (def_var → type_id att → dims att → [halos] → put_var). Single
+   !> source of truth for the `/_fields` entry layout: both explicit
+   !> registration (fs_register_field create branch) and first-write
+   !> auto-registration (autoregister_field) go through it, so the two
+   !> paths cannot drift (issue #57). write_tracer_descriptor mirrors
+   !> the same carrier skeleton for `/_tracers`; keep them in sync.
+   !>
+   !> The halo dummies mirror validate_registered_field; put_halo_attr
+   !> omits zero values (§4 compactness), so auto-registration passes
+   !> zeros and its entry is byte-identical to an explicit zero-halo
+   !> registration.
+   subroutine write_field_registry_entry(s, fieldname, type_id, dims, &
+                                         iMinusHalo, iPlusHalo, &
+                                         jMinusHalo, jPlusHalo, &
+                                         kMinusHalo, kPlusHalo, &
+                                         lMinusHalo, lPlusHalo)
+      type(t_serializer), intent(in) :: s
+      character(len=*), intent(in) :: fieldname
+      integer(int32), intent(in) :: type_id
+      integer(int32), intent(in) :: dims(:)
+      integer, intent(in) :: iMinusHalo, iPlusHalo
+      integer, intent(in) :: jMinusHalo, jPlusHalo
+      integer, intent(in) :: kMinusHalo, kPlusHalo
+      integer, intent(in) :: lMinusHalo, lPlusHalo
+      integer :: ncerr, varid
 
       ! Create the dummy attribute-carrier scalar variable.
       ncerr = nf90_def_var(s%fields_grpid, trim(fieldname), NF90_INT, varid)
@@ -272,12 +354,6 @@ contains
       call preserf_check_nf_with_msg(ncerr, 'put_att dims')
 
       ! Emit only non-zero halos (put_halo_attr skips zeros).
-      ! Halos are named by physical direction (i/j/k/l) rather than
-      ! storage axis, so a low-rank shortcut like `IK1` (rank-2
-      ! storage tuple (ie, ke1, 0, 0) plus kPlusHalo=1) still wants
-      ! its physical k-halo emitted. Do NOT gate halo emission by the
-      ! storage rank — emit every non-zero halo unconditionally and
-      ! let the writer convention (§4) handle the rest.
       call put_halo_attr(s%fields_grpid, varid, 'iminushalo', iMinusHalo)
       call put_halo_attr(s%fields_grpid, varid, 'iplushalo', iPlusHalo)
       call put_halo_attr(s%fields_grpid, varid, 'jminushalo', jMinusHalo)
@@ -288,9 +364,9 @@ contains
       call put_halo_attr(s%fields_grpid, varid, 'lplushalo', lPlusHalo)
 
       ! Write the scalar value (0) so the variable has a representable payload.
-      ncerr = nf90_put_var(s%fields_grpid, varid, zero)
+      ncerr = nf90_put_var(s%fields_grpid, varid, 0_int32)
       call preserf_check_nf_with_msg(ncerr, 'put_var (registry placeholder)')
-   end subroutine fs_register_field
+   end subroutine write_field_registry_entry
 
    ! ========================================================================
    ! SAVEPOINT
@@ -639,7 +715,8 @@ contains
 
    !> Write one `/_tracers/<name>` descriptor: a scalar NF90_INT carrier
    !> (value 0) holding type_id, C-order dims, stype, and the 1-based
-   !> tracer_index — mirroring fs_register_field's `/_fields` carrier.
+   !> tracer_index — mirroring the `/_fields` carrier skeleton written by
+   !> write_field_registry_entry; keep the two in sync.
    subroutine write_tracer_descriptor(grpid, entry, tracer_index)
       integer, intent(in) :: grpid
       type(t_tracer_entry), intent(in) :: entry
@@ -2717,15 +2794,21 @@ contains
       error stop 1
    end subroutine metainfo_value_mismatch
 
-   !> Read-mode counterpart to the create path in fs_register_field:
-   !> resolve the existing /_fields/<fieldname> registry entry and abort
+   !> Resolve the existing /_fields/<fieldname> registry entry and abort
    !> if any registered property (type_id, C-order dims, or a
    !> per-direction halo) disagrees with the runtime REGISTER arguments.
+   !> Shared by two callers: the read-mode branch of fs_register_field
+   !> (validate the store against this run) and its write-mode idempotent
+   !> re-registration check (confirm a re-declared field matches what is
+   !> already on disk). `context` labels the field in error messages
+   !> ('read-mode field' vs 're-registered field') so the abort names the
+   !> situation the caller is in.
    subroutine validate_registered_field(s, fieldname, type_id, dims, &
                                         iMinusHalo, iPlusHalo, &
                                         jMinusHalo, jPlusHalo, &
                                         kMinusHalo, kPlusHalo, &
-                                        lMinusHalo, lPlusHalo)
+                                        lMinusHalo, lPlusHalo, context, &
+                                        known_varid)
       type(t_serializer), intent(in) :: s
       character(len=*), intent(in) :: fieldname
       integer(int32), intent(in) :: type_id
@@ -2734,25 +2817,34 @@ contains
       integer, intent(in) :: jMinusHalo, jPlusHalo
       integer, intent(in) :: kMinusHalo, kPlusHalo
       integer, intent(in) :: lMinusHalo, lPlusHalo
+      character(len=*), intent(in) :: context
+      ! When the caller already holds the varid from a prior nf90_inq_varid
+      ! (e.g. the re-registration path in fs_register_field), pass it here to
+      ! avoid a redundant second lookup.
+      integer, intent(in), optional :: known_varid
       integer :: ncerr, varid, attr_len, axis
       integer(int32) :: stored_tid
       integer(int32), allocatable :: stored_dims(:)
 
-      ncerr = nf90_inq_varid(s%fields_grpid, trim(fieldname), varid)
-      if (ncerr == NF90_ENOTVAR) then
-         write (*, '(a,a,a)') &
-            'preserf: read-mode field "', trim(fieldname), &
-            '" is not present in the store registry'
-         error stop 1
+      if (present(known_varid)) then
+         varid = known_varid
+      else
+         ncerr = nf90_inq_varid(s%fields_grpid, trim(fieldname), varid)
+         if (ncerr == NF90_ENOTVAR) then
+            write (*, '(a,a,a,a)') &
+               'preserf: ', trim(context)//' "', trim(fieldname), &
+               '" is not present in the store registry'
+            error stop 1
+         end if
+         call preserf_check_nf_with_msg(ncerr, &
+                                        'inq_varid /_fields/'//trim(fieldname))
       end if
-      call preserf_check_nf_with_msg(ncerr, &
-                                     'inq_varid /_fields/'//trim(fieldname))
 
       ncerr = nf90_get_att(s%fields_grpid, varid, 'type_id', stored_tid)
       call preserf_check_nf_with_msg(ncerr, 'get_att type_id')
       if (stored_tid /= type_id) then
-         write (*, '(a,a,a,i0,a,i0)') &
-            'preserf: read-mode field "', trim(fieldname), &
+         write (*, '(a,a,a,a,i0,a,i0)') &
+            'preserf: ', trim(context)//' "', trim(fieldname), &
             '" type_id mismatch: store has ', stored_tid, &
             ', run expects ', type_id
          error stop 1
@@ -2764,16 +2856,16 @@ contains
       ncerr = nf90_get_att(s%fields_grpid, varid, 'dims', stored_dims)
       call preserf_check_nf_with_msg(ncerr, 'get_att dims')
       if (attr_len /= size(dims)) then
-         write (*, '(a,a,a,i0,a,i0)') &
-            'preserf: read-mode field "', trim(fieldname), &
+         write (*, '(a,a,a,a,i0,a,i0)') &
+            'preserf: ', trim(context)//' "', trim(fieldname), &
             '" dims mismatch: store rank ', attr_len, &
             ', run rank ', size(dims)
          error stop 1
       end if
       do axis = 1, attr_len
          if (stored_dims(axis) /= dims(axis)) then
-            write (*, '(a,a,a)') &
-               'preserf: read-mode field "', trim(fieldname), &
+            write (*, '(a,a,a,a)') &
+               'preserf: ', trim(context)//' "', trim(fieldname), &
                '" dims mismatch with registered shape.'
             write (*, '(a,*(i0,1x))') '  store (C-order): ', stored_dims
             write (*, '(a,*(i0,1x))') '  run   (C-order): ', dims
@@ -2783,27 +2875,28 @@ contains
 
       ! Halos: the writer emits only non-zero halos (put_halo_attr skips
       ! zeros), so an absent attribute means a 0 extent.
-      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, context, &
                               'iminushalo', iMinusHalo)
-      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, context, &
                               'iplushalo', iPlusHalo)
-      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, context, &
                               'jminushalo', jMinusHalo)
-      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, context, &
                               'jplushalo', jPlusHalo)
-      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, context, &
                               'kminushalo', kMinusHalo)
-      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, context, &
                               'kplushalo', kPlusHalo)
-      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, context, &
                               'lminushalo', lMinusHalo)
-      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, context, &
                               'lplushalo', lPlusHalo)
    end subroutine validate_registered_field
 
-   subroutine validate_halo_attr(grpid, varid, fieldname, name, expected)
+   subroutine validate_halo_attr(grpid, varid, fieldname, context, name, &
+                                 expected)
       integer, intent(in) :: grpid, varid
-      character(len=*), intent(in) :: fieldname, name
+      character(len=*), intent(in) :: fieldname, context, name
       integer, intent(in) :: expected
       integer :: ncerr
       integer(int32) :: stored
@@ -2816,7 +2909,7 @@ contains
       end if
       if (int(stored) /= expected) then
          write (*, '(a,a,a,a,a,i0,a,i0)') &
-            'preserf: read-mode field "', trim(fieldname), '" halo "', &
+            'preserf: '//trim(context)//' "', trim(fieldname), '" halo "', &
             trim(name), '" mismatch: store has ', int(stored), &
             ', run expects ', expected
          error stop 1
@@ -2859,14 +2952,14 @@ contains
          ! whereas the global mode is DATA-mode state independent of this
          ! handle's writability. A read-only handle falls through to the
          ! abort below.
-         if (trim(op) == 'write' .and. s%writable) then
-            call autoregister_field(s, fieldname, fortran_shape, expected_tid)
+         if (to_lower(trim(op)) == 'write' .and. s%writable) then
             ! The entry we just wrote matches the runtime shape and type
-            ! by construction, so hand the C-order dims back (a read never
-            ! takes this branch, but keep the contract consistent) and
-            ! return without re-validating.
-            if (present(registered_dims_out)) &
-               registered_dims_out = fortran_shape_to_c_order(fortran_shape)
+            ! by construction, so let autoregister_field hand the C-order
+            ! dims it already inferred straight back (a read never takes
+            ! this branch, but keep the contract consistent) and return
+            ! without re-validating or recomputing the shape reversal.
+            call autoregister_field(s, fieldname, fortran_shape, expected_tid, &
+                                    registered_dims_out=registered_dims_out)
             return
          end if
          write (*, '(a,a,a,a,a)') &
@@ -2943,7 +3036,25 @@ contains
       r = size(fortran_shape)
       allocate (dims(r))
       do axis = 1, r
+         ! Reject a zero (or negative) extent before it reaches the
+         ! registry. The explicit REGISTER tuple cannot express a zero-size
+         ! array (a 0 there marks an inactive trailing axis, not a zero
+         ! extent — active_dims_c_order enforces a contiguous non-zero
+         ! prefix), so an auto-registered zero-size array would be a shape
+         ! the explicit path can never produce; worse, its 0 extent reaches
+         ! nf90_def_dim, where netCDF reads length 0 as NF90_UNLIMITED and
+         ! silently creates an unlimited dimension. A zero-element field
+         ! also carries no data to round-trip, so abort with a clear
+         ! message rather than write a malformed entry. Check the same
+         ! Fortran axis this iteration converts (r - axis + 1), so the
+         ! guard and the conversion below index one element in lockstep.
          ! C-axis (axis-1) is the slowest-varying = last Fortran axis.
+         if (fortran_shape(r - axis + 1) <= 0) then
+            write (*, '(a,*(i0,1x))') &
+               'preserf: cannot auto-register a field with a non-positive '// &
+               'extent; runtime shape was: ', fortran_shape
+            error stop 1
+         end if
          call require_fits_int32(fortran_shape(r - axis + 1), 'field extent')
          dims(axis) = int(fortran_shape(r - axis + 1), int32)
       end do
@@ -2954,34 +3065,33 @@ contains
    !> Serialbox's `fs_write_field` registers a field on first write, so
    !> pp_ser `!$SER DATA` / `!$SER ACCDATA` call sites (which never emit a
    !> `!$SER REGISTER`) can write without an explicit registration. This
-   !> mirrors the create branch of fs_register_field, minus the halo
-   !> attributes: a write site carries no halo metadata, so the inferred
-   !> entry records zero halos (an absent halo attribute reads back as 0).
-   !> See issue #43.
-   subroutine autoregister_field(s, fieldname, fortran_shape, type_id)
+   !> shares the registry-entry writer (write_field_registry_entry) with the
+   !> create branch of fs_register_field, passing zero halos: a write site
+   !> carries no halo metadata, and a zero halo is omitted on disk (an
+   !> absent halo attribute reads back as 0), so the inferred entry is
+   !> byte-identical to an explicit zero-halo registration. See issues
+   !> #43 and #57.
+   !> When `registered_dims_out` is present it returns the C-order `dims`
+   !> this routine inferred (matching the entry just written), so the
+   !> caller can reuse them instead of recomputing fortran_shape_to_c_order.
+   subroutine autoregister_field(s, fieldname, fortran_shape, type_id, &
+                                 registered_dims_out)
       type(t_serializer), intent(in) :: s
       character(len=*), intent(in) :: fieldname
       integer, intent(in) :: fortran_shape(:)
       integer(int32), intent(in) :: type_id
-      integer :: ncerr, varid
-      integer(int32) :: zero
+      integer(int32), allocatable, intent(out), optional :: registered_dims_out(:)
       integer(int32), allocatable :: dims(:)
 
       dims = fortran_shape_to_c_order(fortran_shape)
-      zero = 0_int32
 
-      ! Create the dummy attribute-carrier scalar variable, matching the
-      ! explicit-REGISTER layout (storage_mapping.md §1) so Python readers
-      ! decode an auto-registered field identically to a registered one.
-      ncerr = nf90_def_var(s%fields_grpid, trim(fieldname), NF90_INT, varid)
-      call preserf_check_nf_with_msg(ncerr, &
-                                     'def_var /_fields/'//trim(fieldname))
-      ncerr = nf90_put_att(s%fields_grpid, varid, 'type_id', type_id)
-      call preserf_check_nf_with_msg(ncerr, 'put_att type_id')
-      ncerr = nf90_put_att(s%fields_grpid, varid, 'dims', dims)
-      call preserf_check_nf_with_msg(ncerr, 'put_att dims')
-      ncerr = nf90_put_var(s%fields_grpid, varid, zero)
-      call preserf_check_nf_with_msg(ncerr, 'put_var (registry placeholder)')
+      ! A write site carries no halo metadata, so record zero halos.
+      call write_field_registry_entry(s, fieldname, type_id, dims, &
+                                      iMinusHalo=0, iPlusHalo=0, &
+                                      jMinusHalo=0, jPlusHalo=0, &
+                                      kMinusHalo=0, kPlusHalo=0, &
+                                      lMinusHalo=0, lPlusHalo=0)
+      if (present(registered_dims_out)) registered_dims_out = dims
    end subroutine autoregister_field
 
    !> Ensure per-field dimensions exist on `grpid` and return their dim ids.

@@ -225,6 +225,27 @@ embedded in each spec's Problem section.
 - The Fortran helper sources moved from `src/preserf-fortran/` to
   `src/preserf/fortran/` (no API or behaviour change; updated CMake
   `add_subdirectory` paths, `pixi` fprettify paths, and docs).
+- The `/_fields/<name>` registry-entry layout (`def_var` NF90_INT carrier
+  → `type_id` att → `dims` att → non-zero halos → scalar `put_var`,
+  storage_mapping.md §1) now lives in a single private helper
+  `write_field_registry_entry`. Both explicit registration
+  (`fs_register_field`) and first-write auto-registration
+  (`autoregister_field`) emit through it, so the shared registry-entry
+  layout cannot drift between the two paths. Auto-registration records
+  zero halos (omitted on disk), so its bytes match an explicit zero-halo
+  registration. Pure refactor; on-disk bytes unchanged
+  (verified by the existing `test_fortran_wire_compat.py` suite)
+  ([#57](https://github.com/grAItools/preserf/issues/57)).
+- `ppser_initialize` now validates the `realtype` keyword at the init
+  boundary, mirroring the existing `backend` allowlist check. An
+  unrecognised name (e.g. the typo `'flaot'`) aborts in `ppser_initialize`
+  with a clear, `!$SER INIT`-attributable message naming the bad value and
+  listing the recognised names (`float` / `single` / `double` / `real`,
+  case-insensitive) — before any field is registered — rather than being
+  stored verbatim and blowing up much later inside `type_id_from_datatype`
+  when `fs_register_field` runs. The four recognised names continue to set
+  `ppser_realtype` / `ppser_reallength` consistently. Covered by the
+  `realtype-bad` / `realtype-valid` ctest scenarios (#56).
 - Test layout reorganized into `tests/unit_tests/`,
   `tests/integration_tests/`, and `tests-fortran/unit/m_preserf/`
   ([#17](https://github.com/grAItools/preserf/pull/17)).
@@ -240,6 +261,49 @@ embedded in each spec's Problem section.
 
 ### Fixed
 
+- `fs_register_field` no longer aborts with a raw netCDF error when a field
+  is registered more than once or on a read-only handle. Re-registering a
+  field (a `!$SER REGISTER` in a per-timestep loop, or a field already
+  auto-registered by a first `!$SER DATA` write) is now idempotent: the
+  existing `/_fields/<name>` entry is validated against the new arguments
+  and skipped, matching Serialbox, and a mismatch (including a halo a
+  REGISTER skipped while serialization was OFF failed to record) aborts
+  with a clear `re-registered field` message instead of crashing on a
+  duplicate `def_var` (`NC_ENAMEINUSE`). A REGISTER that reaches the create
+  path on a read-only handle (global write mode but a read-opened
+  serializer) now aborts with a clear `opened read-only` message rather
+  than a low-level `def_var` failure — the explicit-registration
+  counterpart of the auto-register gate added in
+  [#59](https://github.com/grAItools/preserf/pull/59)
+  ([#57](https://github.com/grAItools/preserf/issues/57)).
+- Auto-registration of a zero-size array (a `0` runtime extent) now aborts
+  with a clear message instead of writing a malformed `/_fields/<name>`
+  entry: the explicit REGISTER tuple cannot express such a shape, and a `0`
+  extent reaching `nf90_def_dim` is read by netCDF as `NF90_UNLIMITED`,
+  silently creating an unlimited dimension
+  ([#57](https://github.com/grAItools/preserf/issues/57)).
+- `resolve_abs_dir` (the relative-directory → absolute-path helper used by
+  the `nczarr-v2` backend) no longer corrupts the resolved CWD under
+  **nvfortran**. The `getcwd` copy loop appended the `char()` _function
+  result_ straight onto a deferred-length allocatable string
+  (`cwd = cwd//char(...)`); nvfortran (nvhpc — the production ICON compiler
+  on CSCS) miscompiles this, treating the function result as having a bogus
+  length and padding each character with ~98 spaces, so the resolved CWD
+  became garbage and `nczarr-v2` with a relative `directory` failed. No
+  nvfortran flag fixes it; staging the converted character through an
+  explicit `character(len=1)` temporary before concatenation sidesteps the
+  codegen bug. gfortran was unaffected. A new `resolve-relpath` ctest
+  scenario locks in the byte-exact `<CWD>/<reldir>` resolution so a future
+  regression (corrupted length / stray padding) fails the gate
+  ([#63](https://github.com/grAItools/preserf/issues/63)).
+- Line-continuation detection for `!$SER` directives is now comment-aware: a
+  `&` that appears inside a **trailing inline comment** (e.g.
+  `!$SER DATA vn=vn ! foo &`) is no longer mistaken for a line continuation,
+  so the comment is dropped and the following source line is not swallowed
+  into the directive. Genuine continuations (a `&` outside any comment) are
+  unaffected. This reuses the quote-aware comment stripper to drop the
+  trailing comment before checking for the `&` marker
+  ([#55](https://github.com/grAItools/preserf/issues/55)).
 - The `nczarr-v2` backend now resolves a **relative** `directory` (e.g.
   `./ser_data`) to an absolute path against the process CWD (via POSIX
   `getcwd`) before building its `file://...#mode=nczarr,zarr2` URL, instead

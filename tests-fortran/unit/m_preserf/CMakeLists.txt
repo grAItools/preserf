@@ -65,6 +65,35 @@ set_tests_properties(preserf_fortran_init_keywords PROPERTIES
     TIMEOUT 60
 )
 
+# Issue #56 negative: an unrecognised realtype (a typo like 'flaot') must
+# abort at the ppser_initialize boundary — mirroring the backend allowlist
+# check — with a clear message naming the bad value, before any field is
+# registered, rather than blowing up much later inside fs_register_field.
+add_test(
+    NAME preserf_fortran_realtype_bad
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" realtype-bad
+)
+set_tests_properties(preserf_fortran_realtype_bad PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "unknown realtype"
+    TIMEOUT 60
+)
+
+# Issue #56 positive: the four recognised realtype names (case-insensitive)
+# continue to set ppser_realtype / ppser_reallength consistently after the
+# boundary check is added.
+add_test(
+    NAME preserf_fortran_realtype_valid
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" realtype-valid
+)
+set_tests_properties(preserf_fortran_realtype_valid PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: realtype-valid OK"
+    TIMEOUT 60
+)
+
 # Slice E: NCZarr V2 backend selector. backend='nczarr-v2' writes a
 # `.zarr` directory store via netcdf-c's NCZarr backend; the scenario
 # round-trips one real64 field through it.
@@ -118,6 +147,32 @@ add_test(
 set_tests_properties(preserf_fortran_backend_nczarr_relpath PROPERTIES
     FIXTURES_REQUIRED "preserf_fortran_output_dir;preserf_fortran_relpath_dir"
     PASS_REGULAR_EXPRESSION "preserf-fortran: backend-nczarr-relpath OK"
+    TIMEOUT 60
+)
+
+# Issue #63: regression guard for resolve_abs_dir's getcwd copy loop against
+# the nvfortran char()-concat miscompile (see utils_preserf.f90). Round-trips a
+# field through a MULTI-SEGMENT relative directory and asserts the store lands
+# at exactly <CWD>/resolve_rel_dir/leaf/fres.zarr, so a corrupted resolution
+# fails the gate. The setup fixture pre-creates the nested relative dir under
+# the pinned WORKING_DIRECTORY (nf90_create does not make parent directories).
+add_test(
+    NAME preserf_fortran_resolve_relpath_setup
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output/resolve_rel_dir/leaf"
+)
+set_tests_properties(preserf_fortran_resolve_relpath_setup PROPERTIES
+    FIXTURES_SETUP preserf_fortran_resolve_relpath_dir
+)
+add_test(
+    NAME preserf_fortran_resolve_relpath
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" resolve-relpath
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-output"
+)
+set_tests_properties(preserf_fortran_resolve_relpath PROPERTIES
+    FIXTURES_REQUIRED "preserf_fortran_output_dir;preserf_fortran_resolve_relpath_dir"
+    PASS_REGULAR_EXPRESSION "preserf-fortran: resolve-relpath OK"
     TIMEOUT 60
 )
 
@@ -638,5 +693,73 @@ add_test(
 set_tests_properties(preserf_fortran_write_writable_mode1_autoregister PROPERTIES
     FIXTURES_REQUIRED preserf_fortran_output_dir
     PASS_REGULAR_EXPRESSION "preserf-fortran: writable-mode1 autoregister OK"
+    TIMEOUT 60
+)
+
+# Re-registering a field with identical metadata is idempotent (Serialbox
+# parity): the duplicate REGISTER validates and returns instead of aborting
+# on a duplicate def_var (NC_ENAMEINUSE).
+add_test(
+    NAME preserf_fortran_register_duplicate_ok
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" register-duplicate-ok
+)
+set_tests_properties(preserf_fortran_register_duplicate_ok PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: register-duplicate-ok OK"
+    TIMEOUT 60
+)
+
+# Re-registering a field with a different shape aborts with a clear
+# "re-registered field" mismatch rather than a duplicate def_var crash.
+add_test(
+    NAME preserf_fortran_register_duplicate_mismatch
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" register-duplicate-mismatch
+)
+set_tests_properties(preserf_fortran_register_duplicate_mismatch PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "re-registered field"
+    TIMEOUT 60
+)
+
+# A first-write auto-register records zero halos; a later REGISTER that
+# declares a non-zero halo must surface the dropped halo as a
+# "re-registered field" halo mismatch.
+add_test(
+    NAME preserf_fortran_register_after_autowrite_halo
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" register-after-autowrite-halo
+)
+set_tests_properties(preserf_fortran_register_after_autowrite_halo PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "re-registered field"
+    TIMEOUT 60
+)
+
+# REGISTER reaching the create path on a read-only handle (global write
+# mode, non-writable handle) must abort with a clear "opened read-only"
+# message, not a raw netCDF def_var error.
+add_test(
+    NAME preserf_fortran_register_readonly_handle
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" register-readonly-handle
+)
+set_tests_properties(preserf_fortran_register_readonly_handle PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "opened read-only"
+    TIMEOUT 60
+)
+
+# Auto-registering a zero-size array (a 0 runtime extent) must abort with a
+# clear message rather than write a malformed entry / NF90_UNLIMITED dim.
+add_test(
+    NAME preserf_fortran_autoregister_zero_extent
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" autoregister-zero-extent
+)
+set_tests_properties(preserf_fortran_autoregister_zero_extent PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "non-positive extent"
     TIMEOUT 60
 )

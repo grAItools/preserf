@@ -707,6 +707,42 @@ def test_fortran_realtype_too_long_aborts(tmp_path: Path, fortran_binary: Path) 
     )
 
 
+def test_fortran_unknown_realtype_aborts(tmp_path: Path, fortran_binary: Path) -> None:
+    """An unrecognised ``realtype`` aborts at the init boundary (issue #56).
+
+    ``ppser_initialize`` validates ``realtype`` against the recognised
+    real-type names the same way it validates ``backend`` — a typo such as
+    ``'flaot'`` aborts here with a clear message naming the bad value,
+    before any field is registered, rather than being stored verbatim and
+    blowing up much later inside ``type_id_from_datatype`` when
+    ``fs_register_field`` runs. The Fortran ``realtype-bad`` scenario in
+    ``test_minimal.f90`` triggers the guard.
+    """
+    out_dir = tmp_path / "fortran_out"
+    out_dir.mkdir()
+
+    result = subprocess.run(
+        [str(fortran_binary), str(out_dir), "realtype-bad"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode != 0, (
+        "binary should have aborted on an unknown realtype\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    combined = result.stdout + result.stderr
+    assert "unknown realtype" in combined, (
+        "abort should name the realtype allowlist guard\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "flaot" in combined, (
+        "abort message should name the bad realtype value\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Slice B: full (rank x dtype) type-coverage matrix.
 #
