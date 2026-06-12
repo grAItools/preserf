@@ -218,6 +218,27 @@ embedded in each spec's Problem section.
 
 ### Fixed
 
+- `fs_register_field` no longer aborts with a raw netCDF error when a field
+  is registered more than once or on a read-only handle. Re-registering a
+  field (a `!$SER REGISTER` in a per-timestep loop, or a field already
+  auto-registered by a first `!$SER DATA` write) is now idempotent: the
+  existing `/_fields/<name>` entry is validated against the new arguments
+  and skipped, matching Serialbox, and a mismatch (including a halo a
+  REGISTER skipped while serialization was OFF failed to record) aborts
+  with a clear `re-registered field` message instead of crashing on a
+  duplicate `def_var` (`NC_ENAMEINUSE`). A REGISTER that reaches the create
+  path on a read-only handle (global write mode but a read-opened
+  serializer) now aborts with a clear `opened read-only` message rather
+  than a low-level `def_var` failure — the explicit-registration
+  counterpart of the auto-register gate added in
+  [#59](https://github.com/grAItools/preserf/pull/59)
+  ([#57](https://github.com/grAItools/preserf/issues/57)).
+- Auto-registration of a zero-size array (a `0` runtime extent) now aborts
+  with a clear message instead of writing a malformed `/_fields/<name>`
+  entry: the explicit REGISTER tuple cannot express such a shape, and a `0`
+  extent reaching `nf90_def_dim` is read by netCDF as `NF90_UNLIMITED`,
+  silently creating an unlimited dimension
+  ([#57](https://github.com/grAItools/preserf/issues/57)).
 - `resolve_abs_dir` (the relative-directory → absolute-path helper used by
   the `nczarr-v2` backend) no longer corrupts the resolved CWD under
   **nvfortran**. The `getcwd` copy loop appended the `char()` _function

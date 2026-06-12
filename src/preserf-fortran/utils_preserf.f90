@@ -441,6 +441,12 @@ contains
       if (len(rel) >= 2) then
          if (rel(1:2) == './') rel = rel(3:)
       end if
+      ! '.' by itself (or './' stripped to empty) means CWD; avoid producing
+      ! <cwd>/. or <cwd>/ in the URL.
+      if (trim(rel) == '.' .or. len_trim(rel) == 0) then
+         abs_dir = cwd
+         return
+      end if
 
       abs_dir = cwd//'/'//rel
    end subroutine resolve_abs_dir

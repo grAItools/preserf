@@ -1892,6 +1892,92 @@ program test_minimal
                   'preserf-fortran: writable-mode1 autoregister OK'
                stop
             end block
+         else if (scenario == 'register-duplicate-ok') then
+            ! Re-registering a field with identical metadata is idempotent
+            ! (Serialbox parity): the second REGISTER validates the existing
+            ! entry and returns instead of aborting on a duplicate def_var.
+            ! Models a `!$SER REGISTER` directive in a per-timestep loop.
+            block
+               real(real64) :: u_w(3)
+               integer :: i
+               do i = 1, 3
+                  u_w(i) = real(i, real64)
+               end do
+               call ppser_initialize(out_dir, 'fdupok', 'w')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u_w)
+               call ppser_finalize()
+               write (*, '(a)') &
+                  'preserf-fortran: register-duplicate-ok OK'
+               stop
+            end block
+         else if (scenario == 'register-duplicate-mismatch') then
+            ! Re-registering a field with a different shape must abort with
+            ! a clear "re-registered field" mismatch, not a duplicate
+            ! def_var crash.
+            block
+               call ppser_initialize(out_dir, 'fdupmm', 'w')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 5, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call abort_unexpected('register-duplicate-mismatch')
+            end block
+         else if (scenario == 'register-after-autowrite-halo') then
+            ! A first `!$SER DATA` write auto-registers the field with zero
+            ! halos; a later explicit REGISTER that declares a non-zero halo
+            ! must surface the dropped halo as a "re-registered field" halo
+            ! mismatch rather than silently disagreeing or crashing.
+            block
+               real(real64) :: u_w(3)
+               integer :: i
+               do i = 1, 3
+                  u_w(i) = real(i, real64)
+               end do
+               call ppser_initialize(out_dir, 'fawh', 'w')
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u_w)
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      1, 0, 0, 0, 0, 0, 0, 0)
+               call abort_unexpected('register-after-autowrite-halo')
+            end block
+         else if (scenario == 'register-readonly-handle') then
+            ! REGISTER reaching the create path (global write mode) on a
+            ! read-only handle must abort with a clear "opened read-only"
+            ! message, not a raw netCDF def_var error. Build a store, reopen
+            ! it read-only, force write mode, then REGISTER.
+            block
+               call write_store(out_dir, 'frohandle', 7.0_real64)
+               call ppser_initialize(out_dir, 'frohandle', 'r')
+               call ppser_set_mode(0)
+               if (ppser_get_mode() /= 0) error stop &
+                  'register-readonly-handle: set_mode(0) failed'
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      1, 2, 0, 0, 0, 0, 0, 0)
+               call abort_unexpected('register-readonly-handle')
+            end block
+         else if (scenario == 'autoregister-zero-extent') then
+            ! Auto-registering a zero-size array (a 0 runtime extent) must
+            ! abort with a clear message: the explicit REGISTER tuple cannot
+            ! express such a shape, and a 0 extent would otherwise reach
+            ! nf90_def_dim where netCDF reads it as NF90_UNLIMITED.
+            block
+               real(real64) :: z(0)
+               call ppser_initialize(out_dir, 'fze', 'w')
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'z', z)
+               call abort_unexpected('autoregister-zero-extent')
+            end block
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &
@@ -2156,23 +2242,10 @@ contains
    !> shells via the ctest COMMAND list).
    subroutine delete_dir_if_exists(path)
       character(len=*), intent(in) :: path
-      integer :: exitstat, cmdstat
-      ! `--` stops `rm` from treating a path that starts with `-` as an
-      ! option flag. exitstat captures the shell's exit code (non-zero if
-      ! `rm` failed, e.g. on a permissions error); cmdstat captures the
-      ! command-execution status (non-zero if the command could not be
-      ! run at all). A failed delete that we ignored could leave a stale
-      ! `.zarr` directory behind and let a later existence check pass
-      ! spuriously, so abort loudly on any failure.
-      exitstat = 0
-      cmdstat = 0
-      call execute_command_line('rm -rf -- '''//path//'''', &
-                                exitstat=exitstat, cmdstat=cmdstat)
-      if (cmdstat /= 0 .or. exitstat /= 0) then
-         write (*, '(a,a)') 'preserf-test_minimal: failed to delete ', path
-         write (*, '(a,i0,a,i0)') '  cmdstat=', cmdstat, ' exitstat=', exitstat
-         error stop 1
-      end if
+      ! Delegate to remove_dir_recursive which single-quotes the path and
+      ! escapes embedded single quotes via the '\'' idiom, preventing shell
+      ! metacharacter injection for any path the test harness could produce.
+      call remove_dir_recursive(path)
    end subroutine delete_dir_if_exists
 
    !> Round-trip a `real64` field of length `n` (values `base + i`) through a
