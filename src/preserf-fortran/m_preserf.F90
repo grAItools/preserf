@@ -2943,13 +2943,13 @@ contains
          ! handle's writability. A read-only handle falls through to the
          ! abort below.
          if (trim(op) == 'write' .and. s%writable) then
-            call autoregister_field(s, fieldname, fortran_shape, expected_tid)
             ! The entry we just wrote matches the runtime shape and type
-            ! by construction, so hand the C-order dims back (a read never
-            ! takes this branch, but keep the contract consistent) and
-            ! return without re-validating.
-            if (present(registered_dims_out)) &
-               registered_dims_out = fortran_shape_to_c_order(fortran_shape)
+            ! by construction, so let autoregister_field hand the C-order
+            ! dims it already inferred straight back (a read never takes
+            ! this branch, but keep the contract consistent) and return
+            ! without re-validating or recomputing the shape reversal.
+            call autoregister_field(s, fieldname, fortran_shape, expected_tid, &
+                                    registered_dims_out=registered_dims_out)
             return
          end if
          write (*, '(a,a,a,a,a)') &
@@ -3035,14 +3035,16 @@ contains
          ! nf90_def_dim, where netCDF reads length 0 as NF90_UNLIMITED and
          ! silently creates an unlimited dimension. A zero-element field
          ! also carries no data to round-trip, so abort with a clear
-         ! message rather than write a malformed entry.
-         if (fortran_shape(axis) <= 0) then
+         ! message rather than write a malformed entry. Check the same
+         ! Fortran axis this iteration converts (r - axis + 1), so the
+         ! guard and the conversion below index one element in lockstep.
+         ! C-axis (axis-1) is the slowest-varying = last Fortran axis.
+         if (fortran_shape(r - axis + 1) <= 0) then
             write (*, '(a,*(i0,1x))') &
                'preserf: cannot auto-register a field with a non-positive '// &
                'extent; runtime shape was: ', fortran_shape
             error stop 1
          end if
-         ! C-axis (axis-1) is the slowest-varying = last Fortran axis.
          call require_fits_int32(fortran_shape(r - axis + 1), 'field extent')
          dims(axis) = int(fortran_shape(r - axis + 1), int32)
       end do
@@ -3059,11 +3061,16 @@ contains
    !> absent halo attribute reads back as 0), so the inferred entry is
    !> byte-identical to an explicit zero-halo registration. See issues
    !> #43 and #57.
-   subroutine autoregister_field(s, fieldname, fortran_shape, type_id)
+   !> When `registered_dims_out` is present it returns the C-order `dims`
+   !> this routine inferred (matching the entry just written), so the
+   !> caller can reuse them instead of recomputing fortran_shape_to_c_order.
+   subroutine autoregister_field(s, fieldname, fortran_shape, type_id, &
+                                 registered_dims_out)
       type(t_serializer), intent(in) :: s
       character(len=*), intent(in) :: fieldname
       integer, intent(in) :: fortran_shape(:)
       integer(int32), intent(in) :: type_id
+      integer(int32), allocatable, intent(out), optional :: registered_dims_out(:)
       integer(int32), allocatable :: dims(:)
 
       dims = fortran_shape_to_c_order(fortran_shape)
@@ -3074,6 +3081,7 @@ contains
                                       jMinusHalo=0, jPlusHalo=0, &
                                       kMinusHalo=0, kPlusHalo=0, &
                                       lMinusHalo=0, lPlusHalo=0)
+      if (present(registered_dims_out)) registered_dims_out = dims
    end subroutine autoregister_field
 
    !> Ensure per-field dimensions exist on `grpid` and return their dim ids.
