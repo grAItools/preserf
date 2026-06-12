@@ -150,16 +150,12 @@ set_tests_properties(preserf_fortran_backend_nczarr_relpath PROPERTIES
     TIMEOUT 60
 )
 
-# Issue #63: resolve_abs_dir copies the getcwd(3) buffer char-by-char into a
-# deferred-length allocatable. Appending the char() function result straight
-# onto the allocatable miscompiles under nvfortran (each char padded with ~98
-# spaces), corrupting the resolved CWD and breaking nczarr-v2 with a relative
-# directory. The fix stages the char through a character(len=1) temporary.
-# This scenario round-trips a field through a MULTI-SEGMENT relative directory
-# and asserts the store lands at exactly <CWD>/resolve_rel_dir/leaf/fres.zarr,
-# so a corrupted resolution (padded/garbage path) fails the gate. The setup
-# fixture pre-creates the nested relative dir under the pinned WORKING_DIRECTORY
-# (nf90_create does not make parent directories).
+# Issue #63: regression guard for resolve_abs_dir's getcwd copy loop against
+# the nvfortran char()-concat miscompile (see utils_preserf.f90). Round-trips a
+# field through a MULTI-SEGMENT relative directory and asserts the store lands
+# at exactly <CWD>/resolve_rel_dir/leaf/fres.zarr, so a corrupted resolution
+# fails the gate. The setup fixture pre-creates the nested relative dir under
+# the pinned WORKING_DIRECTORY (nf90_create does not make parent directories).
 add_test(
     NAME preserf_fortran_resolve_relpath_setup
     COMMAND ${CMAKE_COMMAND} -E make_directory

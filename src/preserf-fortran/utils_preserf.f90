@@ -385,10 +385,8 @@ contains
       integer, parameter :: cwd_cap = 4096
       character(kind=c_char) :: cbuf(cwd_cap)
       character(len=:), allocatable :: cwd, rel
-      ! Explicit length-1 temporary for the converted character (see the
-      ! concat loop below): nvfortran miscompiles concatenating the
-      ! `char()` *function result* straight onto a deferred-length
-      ! allocatable, so we stage it through `ch` first.
+      ! Length-1 staging temporary for the converted character; see the
+      ! concat loop below for the nvfortran codegen bug it works around.
       character(len=1) :: ch
       integer :: i
 
