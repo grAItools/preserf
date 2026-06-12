@@ -228,8 +228,7 @@ contains
       integer, intent(in) :: kMinusHalo, kPlusHalo
       integer, intent(in) :: lMinusHalo, lPlusHalo
 
-      integer :: ncerr, varid
-      integer(int32) :: type_id, zero
+      integer(int32) :: type_id
       integer(int32), allocatable :: dims(:)
 
       if (serialisation_enabled == 0) return
@@ -245,7 +244,6 @@ contains
       ! Python / netCDF-C reader sees `dims[0]` as the leading numpy
       ! axis. See storage_mapping.md §1 + §4.
       dims = active_dims_c_order(iSize, jSize, kSize, lSize)
-      zero = 0_int32
 
       ! pp_ser emits REGISTER outside the SELECT CASE (ppser_get_mode())
       ! that gates DATA blocks, so this directive runs in read mode too.
@@ -262,6 +260,52 @@ contains
          return
       end if
 
+      ! Halos are named by physical direction (i/j/k/l) rather than
+      ! storage axis, so a low-rank shortcut like `IK1` (rank-2 storage
+      ! tuple (ie, ke1, 0, 0) plus kPlusHalo=1) still wants its physical
+      ! k-halo emitted. Do NOT gate halo emission by the storage rank —
+      ! pass every halo unconditionally; zero halos are omitted on disk.
+      call write_field_registry_entry(s, fieldname, type_id, dims, &
+                                      iMinusHalo=iMinusHalo, &
+                                      iPlusHalo=iPlusHalo, &
+                                      jMinusHalo=jMinusHalo, &
+                                      jPlusHalo=jPlusHalo, &
+                                      kMinusHalo=kMinusHalo, &
+                                      kPlusHalo=kPlusHalo, &
+                                      lMinusHalo=lMinusHalo, &
+                                      lPlusHalo=lPlusHalo)
+   end subroutine fs_register_field
+
+   !> Write one `/_fields/<fieldname>` registry entry: the dummy
+   !> attribute-carrier scalar variable (rank-0 NF90_INT, value 0) plus
+   !> its `type_id` and C-order `dims` attributes and any non-zero halo
+   !> attributes — the on-disk layout from storage_mapping.md §1
+   !> (def_var → type_id att → dims att → [halos] → put_var). Single
+   !> source of truth for the `/_fields` entry layout: both explicit
+   !> registration (fs_register_field create branch) and first-write
+   !> auto-registration (autoregister_field) go through it, so the two
+   !> paths cannot drift (issue #57). write_tracer_descriptor mirrors
+   !> the same carrier skeleton for `/_tracers`; keep them in sync.
+   !>
+   !> The halo dummies mirror validate_registered_field; put_halo_attr
+   !> omits zero values (§4 compactness), so auto-registration passes
+   !> zeros and its entry is byte-identical to an explicit zero-halo
+   !> registration.
+   subroutine write_field_registry_entry(s, fieldname, type_id, dims, &
+                                         iMinusHalo, iPlusHalo, &
+                                         jMinusHalo, jPlusHalo, &
+                                         kMinusHalo, kPlusHalo, &
+                                         lMinusHalo, lPlusHalo)
+      type(t_serializer), intent(in) :: s
+      character(len=*), intent(in) :: fieldname
+      integer(int32), intent(in) :: type_id
+      integer(int32), intent(in) :: dims(:)
+      integer, intent(in) :: iMinusHalo, iPlusHalo
+      integer, intent(in) :: jMinusHalo, jPlusHalo
+      integer, intent(in) :: kMinusHalo, kPlusHalo
+      integer, intent(in) :: lMinusHalo, lPlusHalo
+      integer :: ncerr, varid
+
       ! Create the dummy attribute-carrier scalar variable.
       ncerr = nf90_def_var(s%fields_grpid, trim(fieldname), NF90_INT, varid)
       call preserf_check_nf_with_msg(ncerr, &
@@ -272,12 +316,6 @@ contains
       call preserf_check_nf_with_msg(ncerr, 'put_att dims')
 
       ! Emit only non-zero halos (put_halo_attr skips zeros).
-      ! Halos are named by physical direction (i/j/k/l) rather than
-      ! storage axis, so a low-rank shortcut like `IK1` (rank-2
-      ! storage tuple (ie, ke1, 0, 0) plus kPlusHalo=1) still wants
-      ! its physical k-halo emitted. Do NOT gate halo emission by the
-      ! storage rank — emit every non-zero halo unconditionally and
-      ! let the writer convention (§4) handle the rest.
       call put_halo_attr(s%fields_grpid, varid, 'iminushalo', iMinusHalo)
       call put_halo_attr(s%fields_grpid, varid, 'iplushalo', iPlusHalo)
       call put_halo_attr(s%fields_grpid, varid, 'jminushalo', jMinusHalo)
@@ -288,9 +326,9 @@ contains
       call put_halo_attr(s%fields_grpid, varid, 'lplushalo', lPlusHalo)
 
       ! Write the scalar value (0) so the variable has a representable payload.
-      ncerr = nf90_put_var(s%fields_grpid, varid, zero)
+      ncerr = nf90_put_var(s%fields_grpid, varid, 0_int32)
       call preserf_check_nf_with_msg(ncerr, 'put_var (registry placeholder)')
-   end subroutine fs_register_field
+   end subroutine write_field_registry_entry
 
    ! ========================================================================
    ! SAVEPOINT
@@ -639,7 +677,8 @@ contains
 
    !> Write one `/_tracers/<name>` descriptor: a scalar NF90_INT carrier
    !> (value 0) holding type_id, C-order dims, stype, and the 1-based
-   !> tracer_index — mirroring fs_register_field's `/_fields` carrier.
+   !> tracer_index — mirroring the `/_fields` carrier skeleton written by
+   !> write_field_registry_entry; keep the two in sync.
    subroutine write_tracer_descriptor(grpid, entry, tracer_index)
       integer, intent(in) :: grpid
       type(t_tracer_entry), intent(in) :: entry
@@ -2954,34 +2993,27 @@ contains
    !> Serialbox's `fs_write_field` registers a field on first write, so
    !> pp_ser `!$SER DATA` / `!$SER ACCDATA` call sites (which never emit a
    !> `!$SER REGISTER`) can write without an explicit registration. This
-   !> mirrors the create branch of fs_register_field, minus the halo
-   !> attributes: a write site carries no halo metadata, so the inferred
-   !> entry records zero halos (an absent halo attribute reads back as 0).
-   !> See issue #43.
+   !> shares the registry-entry writer (write_field_registry_entry) with the
+   !> create branch of fs_register_field, passing zero halos: a write site
+   !> carries no halo metadata, and a zero halo is omitted on disk (an
+   !> absent halo attribute reads back as 0), so the inferred entry is
+   !> byte-identical to an explicit zero-halo registration. See issues
+   !> #43 and #57.
    subroutine autoregister_field(s, fieldname, fortran_shape, type_id)
       type(t_serializer), intent(in) :: s
       character(len=*), intent(in) :: fieldname
       integer, intent(in) :: fortran_shape(:)
       integer(int32), intent(in) :: type_id
-      integer :: ncerr, varid
-      integer(int32) :: zero
       integer(int32), allocatable :: dims(:)
 
       dims = fortran_shape_to_c_order(fortran_shape)
-      zero = 0_int32
 
-      ! Create the dummy attribute-carrier scalar variable, matching the
-      ! explicit-REGISTER layout (storage_mapping.md §1) so Python readers
-      ! decode an auto-registered field identically to a registered one.
-      ncerr = nf90_def_var(s%fields_grpid, trim(fieldname), NF90_INT, varid)
-      call preserf_check_nf_with_msg(ncerr, &
-                                     'def_var /_fields/'//trim(fieldname))
-      ncerr = nf90_put_att(s%fields_grpid, varid, 'type_id', type_id)
-      call preserf_check_nf_with_msg(ncerr, 'put_att type_id')
-      ncerr = nf90_put_att(s%fields_grpid, varid, 'dims', dims)
-      call preserf_check_nf_with_msg(ncerr, 'put_att dims')
-      ncerr = nf90_put_var(s%fields_grpid, varid, zero)
-      call preserf_check_nf_with_msg(ncerr, 'put_var (registry placeholder)')
+      ! A write site carries no halo metadata, so record zero halos.
+      call write_field_registry_entry(s, fieldname, type_id, dims, &
+                                      iMinusHalo=0, iPlusHalo=0, &
+                                      jMinusHalo=0, jPlusHalo=0, &
+                                      kMinusHalo=0, kPlusHalo=0, &
+                                      lMinusHalo=0, lPlusHalo=0)
    end subroutine autoregister_field
 
    !> Ensure per-field dimensions exist on `grpid` and return their dim ids.
