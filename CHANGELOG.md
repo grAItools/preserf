@@ -193,6 +193,16 @@ embedded in each spec's Problem section.
   registration. Pure refactor; on-disk bytes unchanged
   (verified by the existing `test_fortran_wire_compat.py` suite)
   ([#57](https://github.com/grAItools/preserf/issues/57)).
+- `ppser_initialize` now validates the `realtype` keyword at the init
+  boundary, mirroring the existing `backend` allowlist check. An
+  unrecognised name (e.g. the typo `'flaot'`) aborts in `ppser_initialize`
+  with a clear, `!$SER INIT`-attributable message naming the bad value and
+  listing the recognised names (`float` / `single` / `double` / `real`,
+  case-insensitive) — before any field is registered — rather than being
+  stored verbatim and blowing up much later inside `type_id_from_datatype`
+  when `fs_register_field` runs. The four recognised names continue to set
+  `ppser_realtype` / `ppser_reallength` consistently. Covered by the
+  `realtype-bad` / `realtype-valid` ctest scenarios (#56).
 - Test layout reorganized into `tests/unit_tests/`,
   `tests/integration_tests/`, and `tests-fortran/unit/m_preserf/`
   ([#17](https://github.com/grAItools/preserf/pull/17)).
@@ -208,6 +218,14 @@ embedded in each spec's Problem section.
 
 ### Fixed
 
+- Line-continuation detection for `!$SER` directives is now comment-aware: a
+  `&` that appears inside a **trailing inline comment** (e.g.
+  `!$SER DATA vn=vn ! foo &`) is no longer mistaken for a line continuation,
+  so the comment is dropped and the following source line is not swallowed
+  into the directive. Genuine continuations (a `&` outside any comment) are
+  unaffected. This reuses the quote-aware comment stripper to drop the
+  trailing comment before checking for the `&` marker
+  ([#55](https://github.com/grAItools/preserf/issues/55)).
 - The `nczarr-v2` backend now resolves a **relative** `directory` (e.g.
   `./ser_data`) to an absolute path against the process CWD (via POSIX
   `getcwd`) before building its `file://...#mode=nczarr,zarr2` URL, instead
@@ -230,6 +248,24 @@ embedded in each spec's Problem section.
   `test_fortran_wire_compat.py` scenario asserts the inferred registry
   entries decode through the Python reference reader
   ([#43](https://github.com/grAItools/preserf/issues/43)).
+- First-write auto-registration (above) is now gated on the serializer
+  handle's own **writability** (`s%writable`), not merely on the
+  `op == 'write'` code path. A direct `fs_write_field` against a serializer
+  opened in **read** mode on a field that was never registered now aborts
+  with the clear
+  `write on unregistered field "..."; call fs_register_field first` message
+  again, instead of a raw low-level netCDF `def_var` error from
+  auto-registration attempting an `nf90_def_var` on the read-only handle.
+  `s%writable` is the authoritative per-handle test of whether
+  `nf90_def_var` can succeed; the global `ppser_get_mode()` is DATA-mode
+  state, not this handle's writability, so it is deliberately _not_ part of
+  the gate — a writable handle still auto-registers a first write
+  regardless of the global mode (issue #43 parity). Generated code never
+  reaches the read-mode case (pp_ser's mode `SELECT` gates DATA blocks); it
+  is reachable only via direct API use. New `write-readmode-unregistered`,
+  `write-readhandle-mode0-unregistered`, and
+  `write-writable-mode1-autoregister` ctest scenarios cover it
+  ([#58](https://github.com/grAItools/preserf/issues/58)).
 - `ppser_initialize` now creates the output `directory` (`mkdir -p`
   semantics) before `nf90_create` on the write path, restoring drop-in
   compatibility with Serialbox: its serializer creation made the output

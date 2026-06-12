@@ -2891,11 +2891,14 @@ contains
 
       ncerr = nf90_inq_varid(s%fields_grpid, trim(fieldname), varid)
       if (ncerr == NF90_ENOTVAR) then
-         ! A write to a field that was never registered: auto-register it
-         ! from the runtime shape + type_id (Serialbox parity, issue #43)
-         ! rather than abort. A read cannot auto-register — there is no
-         ! field to read — so it still aborts.
-         if (trim(op) == 'write') then
+         ! A write to a never-registered field auto-registers it from the
+         ! runtime shape + type_id (Serialbox parity); a read cannot, so it
+         ! aborts. Gate on s%writable, not ppser_get_mode(): autoregister
+         ! calls nf90_def_var / nf90_put_*, which fail on a read-only handle,
+         ! whereas the global mode is DATA-mode state independent of this
+         ! handle's writability. A read-only handle falls through to the
+         ! abort below.
+         if (trim(op) == 'write' .and. s%writable) then
             call autoregister_field(s, fieldname, fortran_shape, expected_tid)
             ! The entry we just wrote matches the runtime shape and type
             ! by construction, so hand the C-order dims back (a read never
