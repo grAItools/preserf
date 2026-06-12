@@ -231,6 +231,53 @@ program test_minimal
             ! Unreachable: the length guard must abort before returning.
             error stop &
                'preserf-test_minimal: over-long realtype was accepted'
+         else if (scenario == 'realtype-bad') then
+            ! Issue #56: an unrecognised realtype (e.g. the typo 'flaot')
+            ! must abort at the ppser_initialize boundary, before any field
+            ! is registered, with a clear message naming the bad value —
+            ! mirroring the backend allowlist check. Without this guard the
+            ! bad name is stored verbatim and only blows up much later inside
+            ! type_id_from_datatype when fs_register_field runs.
+            call ppser_initialize(out_dir, 'frtbad', 'w', realtype='flaot')
+            ! Unreachable: the realtype allowlist must abort first.
+            error stop &
+               'preserf-test_minimal: unknown realtype was accepted'
+         else if (scenario == 'realtype-valid') then
+            ! Issue #56: the four recognised names (case-insensitive) keep
+            ! setting ppser_realtype / ppser_reallength consistently after
+            ! the boundary check is added. 'single' → 4 bytes; 'real' → 8.
+            call ppser_initialize(out_dir, 'frtv1', 'w', realtype='single')
+            if (trim(ppser_realtype) /= 'single') error stop &
+               'realtype-valid: single did not update ppser_realtype'
+            if (ppser_reallength /= 4) error stop &
+               'realtype-valid: single did not derive ppser_reallength=4'
+            call ppser_finalize()
+            call ppser_initialize(out_dir, 'frtv2', 'w', realtype='REAL')
+            if (trim(ppser_realtype) /= 'REAL') error stop &
+               'realtype-valid: REAL did not update ppser_realtype'
+            if (ppser_reallength /= 8) error stop &
+               'realtype-valid: REAL did not derive ppser_reallength=8'
+            call ppser_finalize()
+            call ppser_initialize(out_dir, 'frtv3', 'w', realtype='Double')
+            if (ppser_reallength /= 8) error stop &
+               'realtype-valid: Double did not derive ppser_reallength=8'
+            call ppser_finalize()
+            call ppser_initialize(out_dir, 'frtv4', 'w', realtype='float')
+            if (ppser_reallength /= 4) error stop &
+               'realtype-valid: float did not derive ppser_reallength=4'
+            call ppser_finalize()
+            ! A padded actual (leading/trailing blanks, as a fixed-length
+            ! character variable can carry) must be normalised with
+            ! trim(adjustl(...)) like `backend`, so it is accepted and stored
+            ! blank-free in ppser_realtype.
+            call ppser_initialize(out_dir, 'frtv5', 'w', realtype='  double  ')
+            if (trim(ppser_realtype) /= 'double') error stop &
+               'realtype-valid: padded realtype not normalised in ppser_realtype'
+            if (ppser_reallength /= 8) error stop &
+               'realtype-valid: padded realtype did not derive ppser_reallength=8'
+            call ppser_finalize()
+            write (*, '(a)') 'preserf-fortran: realtype-valid OK'
+            stop
          else if (scenario == 'backend-nczarr') then
             ! Slice E: ppser_initialize(..., backend='nczarr-v2') makes
             ! the helper emit an NCZarr V2 `.zarr` directory store (via a
@@ -1852,6 +1899,91 @@ program test_minimal
                   'autoregister: real32 4-D mismatch'
                call ppser_finalize()
                write (*, '(a)') 'preserf-fortran: autoregister OK'
+               stop
+            end block
+         else if (scenario == 'write-readmode-unregistered') then
+            ! A direct fs_write_field on a read-opened serializer, for a
+            ! never-registered field, must abort with the friendly
+            ! "call fs_register_field first" message rather than auto-register
+            ! (which would def_var on the read-only handle). Build a store,
+            ! re-open read-only, then write an unregistered field.
+            block
+               real(real64) :: nf(3)
+               integer :: i
+               do i = 1, 3
+                  nf(i) = real(i, real64)
+               end do
+               call write_store(out_dir, 'frmwrite', 7.0_real64)
+               call ppser_initialize(out_dir, 'frmwrite', 'r')
+               if (ppser_get_mode() /= 1) error stop &
+                  'write-readmode-unregistered: "r" should set mode 1'
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, &
+                                   'never_registered', nf)
+               ! Reached only if the guard regressed: emit a non-matching
+               ! line so PASS_REGULAR_EXPRESSION fails.
+               call ppser_finalize()
+               write (*, '(a)') &
+                  'write-readmode-unregistered: FAILED (no abort)'
+               stop
+            end block
+         else if (scenario == 'write-readhandle-mode0-unregistered') then
+            ! The gate keys on the handle's writable flag, not the global
+            ! ppser_get_mode(): a read-only handle with the global mode
+            ! forced to 0 (write) must STILL abort, never reaching
+            ! autoregister_field on the read-only handle.
+            block
+               real(real64) :: nf(3)
+               integer :: i
+               do i = 1, 3
+                  nf(i) = real(i, real64)
+               end do
+               call write_store(out_dir, 'frhm0', 7.0_real64)
+               call ppser_initialize(out_dir, 'frhm0', 'r')
+               ! Resolve the savepoint in read mode so the only write
+               ! attempt comes from fs_write_field.
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_set_mode(0)
+               if (ppser_get_mode() /= 0) error stop &
+                  'write-readhandle-mode0-unregistered: set_mode(0) failed'
+               call fs_write_field(ppser_serializer, ppser_savepoint, &
+                                   'never_registered', nf)
+               ! Reached only if the writable gate regressed.
+               call ppser_finalize()
+               write (*, '(a)') &
+                  'write-readhandle-mode0-unregistered: FAILED (no abort)'
+               stop
+            end block
+         else if (scenario == 'write-writable-mode1-autoregister') then
+            ! The converse: a writable handle must auto-register a first
+            ! write regardless of the global mode. Open 'w', force the
+            ! global mode to 1 (read), write an unregistered field, and
+            ! assert it round-trips losslessly rather than aborting.
+            block
+               real(real64) :: nf(3), nfb(3)
+               integer :: i
+               do i = 1, 3
+                  nf(i) = real(i, real64) + 0.5_real64
+               end do
+               call ppser_initialize(out_dir, 'fwm1', 'w')
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_set_mode(1)
+               if (ppser_get_mode() /= 1) error stop &
+                  'write-writable-mode1-autoregister: set_mode(1) failed'
+               call fs_write_field(ppser_serializer, ppser_savepoint, &
+                                   'auto_in_mode1', nf)
+               call ppser_finalize()
+               ! A read resolves the field only through the registry, so a
+               ! lossless read-back proves the write auto-registered it.
+               call ppser_initialize(out_dir, 'fwm1', 'r')
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'auto_in_mode1', nfb)
+               if (any(nfb /= nf)) error stop &
+                  'write-writable-mode1-autoregister: round-trip mismatch'
+               call ppser_finalize()
+               write (*, '(a)') &
+                  'preserf-fortran: writable-mode1 autoregister OK'
                stop
             end block
          else

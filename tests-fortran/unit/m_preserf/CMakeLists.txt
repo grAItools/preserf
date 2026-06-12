@@ -65,6 +65,35 @@ set_tests_properties(preserf_fortran_init_keywords PROPERTIES
     TIMEOUT 60
 )
 
+# Issue #56 negative: an unrecognised realtype (a typo like 'flaot') must
+# abort at the ppser_initialize boundary — mirroring the backend allowlist
+# check — with a clear message naming the bad value, before any field is
+# registered, rather than blowing up much later inside fs_register_field.
+add_test(
+    NAME preserf_fortran_realtype_bad
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" realtype-bad
+)
+set_tests_properties(preserf_fortran_realtype_bad PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "unknown realtype"
+    TIMEOUT 60
+)
+
+# Issue #56 positive: the four recognised realtype names (case-insensitive)
+# continue to set ppser_realtype / ppser_reallength consistently after the
+# boundary check is added.
+add_test(
+    NAME preserf_fortran_realtype_valid
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" realtype-valid
+)
+set_tests_properties(preserf_fortran_realtype_valid PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: realtype-valid OK"
+    TIMEOUT 60
+)
+
 # Slice E: NCZarr V2 backend selector. backend='nczarr-v2' writes a
 # `.zarr` directory store via netcdf-c's NCZarr backend; the scenario
 # round-trips one real64 field through it.
@@ -626,5 +655,47 @@ add_test(
 set_tests_properties(preserf_fortran_autoregister PROPERTIES
     FIXTURES_REQUIRED preserf_fortran_output_dir
     PASS_REGULAR_EXPRESSION "preserf-fortran: autoregister OK"
+    TIMEOUT 60
+)
+
+# A direct fs_write_field against a read-mode serializer on an unregistered
+# field must abort with the friendly "call fs_register_field first" message
+# rather than a raw netCDF def_var error from auto-registration.
+add_test(
+    NAME preserf_fortran_write_readmode_unregistered
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" write-readmode-unregistered
+)
+set_tests_properties(preserf_fortran_write_readmode_unregistered PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "call fs_register_field first"
+    TIMEOUT 60
+)
+
+# The gate keys on the handle's `writable` flag, not the global
+# ppser_get_mode(): a read-only handle with the global mode forced to 0
+# (write) must still abort rather than reach auto-registration.
+add_test(
+    NAME preserf_fortran_write_readhandle_mode0_unregistered
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" write-readhandle-mode0-unregistered
+)
+set_tests_properties(preserf_fortran_write_readhandle_mode0_unregistered PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "call fs_register_field first"
+    TIMEOUT 60
+)
+
+# The converse: a writable handle must auto-register a first write
+# regardless of the global mode. Open 'w', force global mode to 1 (read),
+# write an unregistered field, and assert it round-trips losslessly.
+add_test(
+    NAME preserf_fortran_write_writable_mode1_autoregister
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" write-writable-mode1-autoregister
+)
+set_tests_properties(preserf_fortran_write_writable_mode1_autoregister PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: writable-mode1 autoregister OK"
     TIMEOUT 60
 )
