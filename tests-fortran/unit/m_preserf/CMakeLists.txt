@@ -640,3 +640,71 @@ set_tests_properties(preserf_fortran_write_writable_mode1_autoregister PROPERTIE
     PASS_REGULAR_EXPRESSION "preserf-fortran: writable-mode1 autoregister OK"
     TIMEOUT 60
 )
+
+# Re-registering a field with identical metadata is idempotent (Serialbox
+# parity): the duplicate REGISTER validates and returns instead of aborting
+# on a duplicate def_var (NC_ENAMEINUSE).
+add_test(
+    NAME preserf_fortran_register_duplicate_ok
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" register-duplicate-ok
+)
+set_tests_properties(preserf_fortran_register_duplicate_ok PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: register-duplicate-ok OK"
+    TIMEOUT 60
+)
+
+# Re-registering a field with a different shape aborts with a clear
+# "re-registered field" mismatch rather than a duplicate def_var crash.
+add_test(
+    NAME preserf_fortran_register_duplicate_mismatch
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" register-duplicate-mismatch
+)
+set_tests_properties(preserf_fortran_register_duplicate_mismatch PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "re-registered field"
+    TIMEOUT 60
+)
+
+# A first-write auto-register records zero halos; a later REGISTER that
+# declares a non-zero halo must surface the dropped halo as a
+# "re-registered field" halo mismatch.
+add_test(
+    NAME preserf_fortran_register_after_autowrite_halo
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" register-after-autowrite-halo
+)
+set_tests_properties(preserf_fortran_register_after_autowrite_halo PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "re-registered field"
+    TIMEOUT 60
+)
+
+# REGISTER reaching the create path on a read-only handle (global write
+# mode, non-writable handle) must abort with a clear "opened read-only"
+# message, not a raw netCDF def_var error.
+add_test(
+    NAME preserf_fortran_register_readonly_handle
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" register-readonly-handle
+)
+set_tests_properties(preserf_fortran_register_readonly_handle PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "opened read-only"
+    TIMEOUT 60
+)
+
+# Auto-registering a zero-size array (a 0 runtime extent) must abort with a
+# clear message rather than write a malformed entry / NF90_UNLIMITED dim.
+add_test(
+    NAME preserf_fortran_autoregister_zero_extent
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" autoregister-zero-extent
+)
+set_tests_properties(preserf_fortran_autoregister_zero_extent PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "non-positive extent"
+    TIMEOUT 60
+)

@@ -230,6 +230,7 @@ contains
 
       integer(int32) :: type_id
       integer(int32), allocatable :: dims(:)
+      integer :: ncerr, varid
 
       if (serialisation_enabled == 0) return
       if (s%fields_grpid == -1) then
@@ -256,8 +257,44 @@ contains
                                         iMinusHalo, iPlusHalo, &
                                         jMinusHalo, jPlusHalo, &
                                         kMinusHalo, kPlusHalo, &
-                                        lMinusHalo, lPlusHalo)
+                                        lMinusHalo, lPlusHalo, &
+                                        context='read-mode field')
          return
+      end if
+
+      ! The create path needs a writable handle. Global write mode
+      ! (ppser_get_mode() == 0) and handle writability are independent: a
+      ! `!$SER MODE read` INIT opens the store read-only, and a later
+      ! `!$SER MODE write` flips the global mode but not the handle. Guard
+      ! explicitly so this aborts with a clear message rather than letting
+      ! nf90_def_var fail with a raw netCDF error on a read-only handle —
+      ! the same failure class issue #58 fixed for the auto-register path.
+      if (.not. s%writable) then
+         write (*, '(a,a,a)') &
+            'preserf: REGISTER of field "', trim(fieldname), &
+            '" in write mode but the serializer was opened read-only'
+         error stop 1
+      end if
+
+      ! Re-registration is idempotent (Serialbox parity): a field already
+      ! present — a REGISTER directive in a per-timestep loop, or a field
+      ! already auto-registered by a first `!$SER DATA` write — is validated
+      ! for consistency and skipped, rather than aborting on a duplicate
+      ! nf90_def_var (NC_ENAMEINUSE). A mismatch (e.g. halos a REGISTER
+      ! skipped while serialization was OFF failed to record, then declared
+      ! on a later pass) aborts with a clear message.
+      ncerr = nf90_inq_varid(s%fields_grpid, trim(fieldname), varid)
+      if (ncerr == NF90_NOERR) then
+         call validate_registered_field(s, fieldname, type_id, dims, &
+                                        iMinusHalo, iPlusHalo, &
+                                        jMinusHalo, jPlusHalo, &
+                                        kMinusHalo, kPlusHalo, &
+                                        lMinusHalo, lPlusHalo, &
+                                        context='re-registered field')
+         return
+      else if (ncerr /= NF90_ENOTVAR) then
+         call preserf_check_nf_with_msg(ncerr, &
+                                        'inq_varid /_fields/'//trim(fieldname))
       end if
 
       ! Halos are named by physical direction (i/j/k/l) rather than
@@ -2756,15 +2793,20 @@ contains
       error stop 1
    end subroutine metainfo_value_mismatch
 
-   !> Read-mode counterpart to the create path in fs_register_field:
-   !> resolve the existing /_fields/<fieldname> registry entry and abort
+   !> Resolve the existing /_fields/<fieldname> registry entry and abort
    !> if any registered property (type_id, C-order dims, or a
    !> per-direction halo) disagrees with the runtime REGISTER arguments.
+   !> Shared by two callers: the read-mode branch of fs_register_field
+   !> (validate the store against this run) and its write-mode idempotent
+   !> re-registration check (confirm a re-declared field matches what is
+   !> already on disk). `context` labels the field in error messages
+   !> ('read-mode field' vs 're-registered field') so the abort names the
+   !> situation the caller is in.
    subroutine validate_registered_field(s, fieldname, type_id, dims, &
                                         iMinusHalo, iPlusHalo, &
                                         jMinusHalo, jPlusHalo, &
                                         kMinusHalo, kPlusHalo, &
-                                        lMinusHalo, lPlusHalo)
+                                        lMinusHalo, lPlusHalo, context)
       type(t_serializer), intent(in) :: s
       character(len=*), intent(in) :: fieldname
       integer(int32), intent(in) :: type_id
@@ -2773,14 +2815,15 @@ contains
       integer, intent(in) :: jMinusHalo, jPlusHalo
       integer, intent(in) :: kMinusHalo, kPlusHalo
       integer, intent(in) :: lMinusHalo, lPlusHalo
+      character(len=*), intent(in) :: context
       integer :: ncerr, varid, attr_len, axis
       integer(int32) :: stored_tid
       integer(int32), allocatable :: stored_dims(:)
 
       ncerr = nf90_inq_varid(s%fields_grpid, trim(fieldname), varid)
       if (ncerr == NF90_ENOTVAR) then
-         write (*, '(a,a,a)') &
-            'preserf: read-mode field "', trim(fieldname), &
+         write (*, '(a,a,a,a)') &
+            'preserf: ', trim(context)//' "', trim(fieldname), &
             '" is not present in the store registry'
          error stop 1
       end if
@@ -2790,8 +2833,8 @@ contains
       ncerr = nf90_get_att(s%fields_grpid, varid, 'type_id', stored_tid)
       call preserf_check_nf_with_msg(ncerr, 'get_att type_id')
       if (stored_tid /= type_id) then
-         write (*, '(a,a,a,i0,a,i0)') &
-            'preserf: read-mode field "', trim(fieldname), &
+         write (*, '(a,a,a,a,i0,a,i0)') &
+            'preserf: ', trim(context)//' "', trim(fieldname), &
             '" type_id mismatch: store has ', stored_tid, &
             ', run expects ', type_id
          error stop 1
@@ -2803,16 +2846,16 @@ contains
       ncerr = nf90_get_att(s%fields_grpid, varid, 'dims', stored_dims)
       call preserf_check_nf_with_msg(ncerr, 'get_att dims')
       if (attr_len /= size(dims)) then
-         write (*, '(a,a,a,i0,a,i0)') &
-            'preserf: read-mode field "', trim(fieldname), &
+         write (*, '(a,a,a,a,i0,a,i0)') &
+            'preserf: ', trim(context)//' "', trim(fieldname), &
             '" dims mismatch: store rank ', attr_len, &
             ', run rank ', size(dims)
          error stop 1
       end if
       do axis = 1, attr_len
          if (stored_dims(axis) /= dims(axis)) then
-            write (*, '(a,a,a)') &
-               'preserf: read-mode field "', trim(fieldname), &
+            write (*, '(a,a,a,a)') &
+               'preserf: ', trim(context)//' "', trim(fieldname), &
                '" dims mismatch with registered shape.'
             write (*, '(a,*(i0,1x))') '  store (C-order): ', stored_dims
             write (*, '(a,*(i0,1x))') '  run   (C-order): ', dims
@@ -2822,27 +2865,28 @@ contains
 
       ! Halos: the writer emits only non-zero halos (put_halo_attr skips
       ! zeros), so an absent attribute means a 0 extent.
-      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, context, &
                               'iminushalo', iMinusHalo)
-      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, context, &
                               'iplushalo', iPlusHalo)
-      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, context, &
                               'jminushalo', jMinusHalo)
-      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, context, &
                               'jplushalo', jPlusHalo)
-      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, context, &
                               'kminushalo', kMinusHalo)
-      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, context, &
                               'kplushalo', kPlusHalo)
-      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, context, &
                               'lminushalo', lMinusHalo)
-      call validate_halo_attr(s%fields_grpid, varid, fieldname, &
+      call validate_halo_attr(s%fields_grpid, varid, fieldname, context, &
                               'lplushalo', lPlusHalo)
    end subroutine validate_registered_field
 
-   subroutine validate_halo_attr(grpid, varid, fieldname, name, expected)
+   subroutine validate_halo_attr(grpid, varid, fieldname, context, name, &
+                                 expected)
       integer, intent(in) :: grpid, varid
-      character(len=*), intent(in) :: fieldname, name
+      character(len=*), intent(in) :: fieldname, context, name
       integer, intent(in) :: expected
       integer :: ncerr
       integer(int32) :: stored
@@ -2855,7 +2899,7 @@ contains
       end if
       if (int(stored) /= expected) then
          write (*, '(a,a,a,a,a,i0,a,i0)') &
-            'preserf: read-mode field "', trim(fieldname), '" halo "', &
+            'preserf: '//trim(context)//' "', trim(fieldname), '" halo "', &
             trim(name), '" mismatch: store has ', int(stored), &
             ', run expects ', expected
          error stop 1
@@ -2982,6 +3026,22 @@ contains
       r = size(fortran_shape)
       allocate (dims(r))
       do axis = 1, r
+         ! Reject a zero (or negative) extent before it reaches the
+         ! registry. The explicit REGISTER tuple cannot express a zero-size
+         ! array (a 0 there marks an inactive trailing axis, not a zero
+         ! extent — active_dims_c_order enforces a contiguous non-zero
+         ! prefix), so an auto-registered zero-size array would be a shape
+         ! the explicit path can never produce; worse, its 0 extent reaches
+         ! nf90_def_dim, where netCDF reads length 0 as NF90_UNLIMITED and
+         ! silently creates an unlimited dimension. A zero-element field
+         ! also carries no data to round-trip, so abort with a clear
+         ! message rather than write a malformed entry.
+         if (fortran_shape(axis) <= 0) then
+            write (*, '(a,*(i0,1x))') &
+               'preserf: cannot auto-register a field with a non-positive '// &
+               'extent; runtime shape was: ', fortran_shape
+            error stop 1
+         end if
          ! C-axis (axis-1) is the slowest-varying = last Fortran axis.
          call require_fits_int32(fortran_shape(r - axis + 1), 'field extent')
          dims(axis) = int(fortran_shape(r - axis + 1), int32)
