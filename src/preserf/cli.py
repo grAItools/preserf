@@ -1,6 +1,7 @@
 """Command-line interface for the preserf preprocessor."""
 
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
 
@@ -39,19 +40,20 @@ def _version_callback(value: bool) -> None:
         raise typer.Exit()
 
 
-def _fortran_dir_callback(value: bool) -> None:
+def _make_path_callback(getter: Callable[[], Path]) -> Callable[[bool], None]:
     # A bare ``print`` (not the rich Console) keeps the path on one line with
     # no width-based soft-wrapping, so ``$(preserf --fortran-dir)`` captures a
     # clean, single-token path.
-    if value:
-        print(get_fortran_dir())
-        raise typer.Exit()
+    def _callback(value: bool) -> None:
+        if value:
+            print(getter())
+            raise typer.Exit()
+
+    return _callback
 
 
-def _cmake_helper_callback(value: bool) -> None:
-    if value:
-        print(get_cmake_helper())
-        raise typer.Exit()
+_fortran_dir_callback = _make_path_callback(get_fortran_dir)
+_cmake_helper_callback = _make_path_callback(get_cmake_helper)
 
 
 def _is_fortran(path: Path) -> bool:
