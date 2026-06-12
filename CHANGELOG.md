@@ -193,6 +193,16 @@ embedded in each spec's Problem section.
   registration. Pure refactor; on-disk bytes unchanged
   (verified by the existing `test_fortran_wire_compat.py` suite)
   ([#57](https://github.com/grAItools/preserf/issues/57)).
+- `ppser_initialize` now validates the `realtype` keyword at the init
+  boundary, mirroring the existing `backend` allowlist check. An
+  unrecognised name (e.g. the typo `'flaot'`) aborts in `ppser_initialize`
+  with a clear, `!$SER INIT`-attributable message naming the bad value and
+  listing the recognised names (`float` / `single` / `double` / `real`,
+  case-insensitive) — before any field is registered — rather than being
+  stored verbatim and blowing up much later inside `type_id_from_datatype`
+  when `fs_register_field` runs. The four recognised names continue to set
+  `ppser_realtype` / `ppser_reallength` consistently. Covered by the
+  `realtype-bad` / `realtype-valid` ctest scenarios (#56).
 - Test layout reorganized into `tests/unit_tests/`,
   `tests/integration_tests/`, and `tests-fortran/unit/m_preserf/`
   ([#17](https://github.com/grAItools/preserf/pull/17)).
@@ -229,6 +239,14 @@ embedded in each spec's Problem section.
   extent reaching `nf90_def_dim` is read by netCDF as `NF90_UNLIMITED`,
   silently creating an unlimited dimension
   ([#57](https://github.com/grAItools/preserf/issues/57)).
+- Line-continuation detection for `!$SER` directives is now comment-aware: a
+  `&` that appears inside a **trailing inline comment** (e.g.
+  `!$SER DATA vn=vn ! foo &`) is no longer mistaken for a line continuation,
+  so the comment is dropped and the following source line is not swallowed
+  into the directive. Genuine continuations (a `&` outside any comment) are
+  unaffected. This reuses the quote-aware comment stripper to drop the
+  trailing comment before checking for the `&` marker
+  ([#55](https://github.com/grAItools/preserf/issues/55)).
 - The `nczarr-v2` backend now resolves a **relative** `directory` (e.g.
   `./ser_data`) to an absolute path against the process CWD (via POSIX
   `getcwd`) before building its `file://...#mode=nczarr,zarr2` URL, instead
