@@ -2274,23 +2274,10 @@ contains
    !> shells via the ctest COMMAND list).
    subroutine delete_dir_if_exists(path)
       character(len=*), intent(in) :: path
-      integer :: exitstat, cmdstat
-      ! `--` stops `rm` from treating a path that starts with `-` as an
-      ! option flag. exitstat captures the shell's exit code (non-zero if
-      ! `rm` failed, e.g. on a permissions error); cmdstat captures the
-      ! command-execution status (non-zero if the command could not be
-      ! run at all). A failed delete that we ignored could leave a stale
-      ! `.zarr` directory behind and let a later existence check pass
-      ! spuriously, so abort loudly on any failure.
-      exitstat = 0
-      cmdstat = 0
-      call execute_command_line('rm -rf -- '''//path//'''', &
-                                exitstat=exitstat, cmdstat=cmdstat)
-      if (cmdstat /= 0 .or. exitstat /= 0) then
-         write (*, '(a,a)') 'preserf-test_minimal: failed to delete ', path
-         write (*, '(a,i0,a,i0)') '  cmdstat=', cmdstat, ' exitstat=', exitstat
-         error stop 1
-      end if
+      ! Delegate to remove_dir_recursive which single-quotes the path and
+      ! escapes embedded single quotes via the '\'' idiom, preventing shell
+      ! metacharacter injection for any path the test harness could produce.
+      call remove_dir_recursive(path)
    end subroutine delete_dir_if_exists
 
    !> Recursively remove a directory subtree (`rm -rf`) if it exists. The

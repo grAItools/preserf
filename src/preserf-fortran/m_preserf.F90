@@ -290,7 +290,8 @@ contains
                                         jMinusHalo, jPlusHalo, &
                                         kMinusHalo, kPlusHalo, &
                                         lMinusHalo, lPlusHalo, &
-                                        context='re-registered field')
+                                        context='re-registered field', &
+                                        known_varid=varid)
          return
       else if (ncerr /= NF90_ENOTVAR) then
          call preserf_check_nf_with_msg(ncerr, &
@@ -2806,7 +2807,8 @@ contains
                                         iMinusHalo, iPlusHalo, &
                                         jMinusHalo, jPlusHalo, &
                                         kMinusHalo, kPlusHalo, &
-                                        lMinusHalo, lPlusHalo, context)
+                                        lMinusHalo, lPlusHalo, context, &
+                                        known_varid)
       type(t_serializer), intent(in) :: s
       character(len=*), intent(in) :: fieldname
       integer(int32), intent(in) :: type_id
@@ -2816,19 +2818,27 @@ contains
       integer, intent(in) :: kMinusHalo, kPlusHalo
       integer, intent(in) :: lMinusHalo, lPlusHalo
       character(len=*), intent(in) :: context
+      ! When the caller already holds the varid from a prior nf90_inq_varid
+      ! (e.g. the re-registration path in fs_register_field), pass it here to
+      ! avoid a redundant second lookup.
+      integer, intent(in), optional :: known_varid
       integer :: ncerr, varid, attr_len, axis
       integer(int32) :: stored_tid
       integer(int32), allocatable :: stored_dims(:)
 
-      ncerr = nf90_inq_varid(s%fields_grpid, trim(fieldname), varid)
-      if (ncerr == NF90_ENOTVAR) then
-         write (*, '(a,a,a,a)') &
-            'preserf: ', trim(context)//' "', trim(fieldname), &
-            '" is not present in the store registry'
-         error stop 1
+      if (present(known_varid)) then
+         varid = known_varid
+      else
+         ncerr = nf90_inq_varid(s%fields_grpid, trim(fieldname), varid)
+         if (ncerr == NF90_ENOTVAR) then
+            write (*, '(a,a,a,a)') &
+               'preserf: ', trim(context)//' "', trim(fieldname), &
+               '" is not present in the store registry'
+            error stop 1
+         end if
+         call preserf_check_nf_with_msg(ncerr, &
+                                        'inq_varid /_fields/'//trim(fieldname))
       end if
-      call preserf_check_nf_with_msg(ncerr, &
-                                     'inq_varid /_fields/'//trim(fieldname))
 
       ncerr = nf90_get_att(s%fields_grpid, varid, 'type_id', stored_tid)
       call preserf_check_nf_with_msg(ncerr, 'get_att type_id')
@@ -2942,7 +2952,7 @@ contains
          ! whereas the global mode is DATA-mode state independent of this
          ! handle's writability. A read-only handle falls through to the
          ! abort below.
-         if (trim(op) == 'write' .and. s%writable) then
+         if (to_lower(trim(op)) == 'write' .and. s%writable) then
             call autoregister_field(s, fieldname, fortran_shape, expected_tid)
             ! The entry we just wrote matches the runtime shape and type
             ! by construction, so hand the C-order dims back (a read never
