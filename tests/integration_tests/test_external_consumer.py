@@ -18,13 +18,12 @@ unavailable.
 
 from __future__ import annotations
 
-import os
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from tests._support.consumer import locate_binary, require_toolchain, run
 from tests._support.serialbox import TypeID
 from tests._support.storage import read_dump
 
@@ -39,11 +38,6 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _FIXTURE = _REPO_ROOT / "tests-fortran" / "e2e" / "e2e_fixture.f90.in"
 _FIXTURE_MARKER = "preserf-fortran: e2e OK"
 _FIXTURE_PREFIX = "e2e"
-
-# Probe order matches tests/conftest.py: single-config generators drop the
-# binary directly under the build dir, multi-config ones under a per-config
-# subdir.
-_CONFIG_SUBDIRS = ("", "Debug", "Release", "RelWithDebInfo", "MinSizeRel")
 
 # A consumer's CMakeLists: discover the helper via the CLI and call it — the
 # documented integration recipe, with no reference to the in-tree checkout.
@@ -67,61 +61,8 @@ preserf_add_fortran_target(consumer
 """
 
 
-def _require_consumer_toolchain() -> None:
-    """Skip unless the full external-build toolchain is available."""
-    missing: list[str] = []
-    if shutil.which("preserf") is None:
-        missing.append("preserf CLI")
-    if shutil.which("cmake") is None:
-        missing.append("cmake")
-    # The shipped helper emits GNU-specific flags (-ffree-line-length-none,
-    # -cpp), which the long generated `fs_*` lines require, so the build
-    # genuinely needs gfortran rather than any Fortran compiler.
-    if shutil.which("gfortran") is None:
-        missing.append("gfortran")
-    if shutil.which("pkg-config") is None:
-        # Check the tool exists before invoking it, so a host without
-        # pkg-config skips cleanly instead of raising FileNotFoundError.
-        missing.append("pkg-config")
-    elif (
-        subprocess.run(
-            ["pkg-config", "--exists", "netcdf-fortran"], check=False
-        ).returncode
-        != 0
-    ):
-        missing.append("netcdf-fortran (pkg-config)")
-    if missing:
-        message = "external-consumer toolchain unavailable: " + ", ".join(missing)
-        # Mirror the wire-compat philosophy: a CI run that opts in via
-        # PRESERF_REQUIRE_FORTRAN=1 turns a missing toolchain into a failure
-        # instead of a silent skip.
-        if os.environ.get("PRESERF_REQUIRE_FORTRAN") == "1":
-            pytest.fail(message)
-        pytest.skip(message)
-
-
-def _run(cmd: list[str], cwd: Path) -> None:
-    result = subprocess.run(
-        cmd, cwd=cwd, capture_output=True, text=True, check=False, timeout=300
-    )
-    assert result.returncode == 0, (
-        f"command failed: {' '.join(cmd)}\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-
-
-def _locate_binary(build: Path, name: str) -> Path | None:
-    """Find the built executable across single- and multi-config generators."""
-    for config in _CONFIG_SUBDIRS:
-        base = build / config if config else build
-        for candidate in (base / name, base / f"{name}.exe"):
-            if candidate.is_file():
-                return candidate
-    return None
-
-
 def test_external_project_builds_against_bundled_runtime(tmp_path: Path) -> None:
-    _require_consumer_toolchain()
+    require_toolchain("external-consumer", need_preserf_cli=True)
 
     project = tmp_path / "project"
     project.mkdir()
@@ -132,10 +73,10 @@ def test_external_project_builds_against_bundled_runtime(tmp_path: Path) -> None
     out_dir = tmp_path / "store"
     out_dir.mkdir()
 
-    _run(["cmake", "-S", str(project), "-B", str(build)], cwd=tmp_path)
-    _run(["cmake", "--build", str(build)], cwd=tmp_path)
+    run(["cmake", "-S", str(project), "-B", str(build)], cwd=tmp_path)
+    run(["cmake", "--build", str(build)], cwd=tmp_path)
 
-    binary = _locate_binary(build, "consumer")
+    binary = locate_binary(build, "consumer")
     assert binary is not None, f"consumer binary not built under {build}"
 
     result = subprocess.run(

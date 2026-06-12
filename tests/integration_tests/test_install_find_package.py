@@ -22,24 +22,18 @@ Marked ``consumer`` so it is deselected from the fast ``verify`` gate (see the
 
 from __future__ import annotations
 
-import os
-import shutil
 import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
 
 import preserf
+from tests._support.consumer import locate_binary, require_toolchain, run
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 pytestmark = pytest.mark.consumer
-
-# Probe order matches tests/conftest.py: single-config generators drop the
-# binary directly under the build dir, multi-config ones under a per-config
-# subdir.
-_CONFIG_SUBDIRS = ("", "Debug", "Release", "RelWithDebInfo", "MinSizeRel")
 
 # A minimal downstream program: it `use`s the installed module (forcing the
 # `.mod` interface to resolve) and calls into the library (forcing the link),
@@ -72,57 +66,8 @@ target_link_libraries(consumer PRIVATE preserf::preserf_fortran)
 """
 
 
-def _require_toolchain() -> None:
-    """Skip unless the full Fortran build/install toolchain is available."""
-    missing: list[str] = []
-    if shutil.which("cmake") is None:
-        missing.append("cmake")
-    # The runtime library is built with GNU-specific flags (-cpp,
-    # -ffree-line-length-none) the generated overload matrix requires, so the
-    # build genuinely needs gfortran rather than any Fortran compiler.
-    if shutil.which("gfortran") is None:
-        missing.append("gfortran")
-    if shutil.which("pkg-config") is None:
-        missing.append("pkg-config")
-    elif (
-        subprocess.run(
-            ["pkg-config", "--exists", "netcdf-fortran"], check=False
-        ).returncode
-        != 0
-    ):
-        missing.append("netcdf-fortran (pkg-config)")
-    if missing:
-        message = "install/find_package toolchain unavailable: " + ", ".join(missing)
-        # Mirror the wire-compat philosophy: a CI run that opts in via
-        # PRESERF_REQUIRE_FORTRAN=1 turns a missing toolchain into a failure
-        # instead of a silent skip.
-        if os.environ.get("PRESERF_REQUIRE_FORTRAN") == "1":
-            pytest.fail(message)
-        pytest.skip(message)
-
-
-def _run(cmd: list[str], cwd: Path) -> None:
-    result = subprocess.run(
-        cmd, cwd=cwd, capture_output=True, text=True, check=False, timeout=300
-    )
-    assert result.returncode == 0, (
-        f"command failed: {' '.join(cmd)}\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-
-
-def _locate_binary(build: Path, name: str) -> Path | None:
-    """Find the built executable across single- and multi-config generators."""
-    for config in _CONFIG_SUBDIRS:
-        base = build / config if config else build
-        for candidate in (base / name, base / f"{name}.exe"):
-            if candidate.is_file():
-                return candidate
-    return None
-
-
 def test_install_then_find_package(tmp_path: Path) -> None:
-    _require_toolchain()
+    require_toolchain("install/find_package")
 
     fortran_src = preserf.get_fortran_dir()
     prefix = tmp_path / "prefix"
@@ -130,7 +75,7 @@ def test_install_then_find_package(tmp_path: Path) -> None:
     # 1. Build and install the runtime through its own CMakeLists — the exact
     #    `cmake -S "$(preserf --fortran-dir)" ...` workflow.
     runtime_build = tmp_path / "runtime-build"
-    _run(
+    run(
         [
             "cmake",
             "-S",
@@ -141,7 +86,7 @@ def test_install_then_find_package(tmp_path: Path) -> None:
         ],
         cwd=tmp_path,
     )
-    _run(["cmake", "--build", str(runtime_build), "--target", "install"], cwd=tmp_path)
+    run(["cmake", "--build", str(runtime_build), "--target", "install"], cwd=tmp_path)
 
     # The install laid down the package config and at least one `.mod`. Locate
     # them with rglob rather than a hard-coded lib/: GNUInstallDirs resolves
@@ -157,7 +102,7 @@ def test_install_then_find_package(tmp_path: Path) -> None:
     (project / "CMakeLists.txt").write_text(_CONSUMER_CMAKE)
 
     build = tmp_path / "consumer-build"
-    _run(
+    run(
         [
             "cmake",
             "-S",
@@ -168,9 +113,9 @@ def test_install_then_find_package(tmp_path: Path) -> None:
         ],
         cwd=tmp_path,
     )
-    _run(["cmake", "--build", str(build)], cwd=tmp_path)
+    run(["cmake", "--build", str(build)], cwd=tmp_path)
 
-    binary = _locate_binary(build, "consumer")
+    binary = locate_binary(build, "consumer")
     assert binary is not None, f"consumer binary not built under {build}"
 
     result = subprocess.run(
