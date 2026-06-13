@@ -424,5 +424,4 @@ common shapes.
   document; initial project scaffolding (Python ≥3.12, pixi, MIT
   license) ([#1](https://github.com/grAItools/preserf/pull/1), [#2](https://github.com/grAItools/preserf/pull/2), [#5](https://github.com/grAItools/preserf/pull/5)).
 
-[Unreleased]: https://github.com/grAItools/preserf/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/grAItools/preserf/releases/tag/v0.1.0
+<!-- Compare/release links intentionally omitted until the `v0.1.0` tag is published. -->
