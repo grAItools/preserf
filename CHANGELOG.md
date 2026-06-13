@@ -4,13 +4,7 @@ All notable changes to `preserf` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-Per-slice spec / plan dirs live under [`specs/`](specs/) (overview in
-[`specs/README.md`](specs/README.md)). v0.1 gaps the specs close are
-embedded in each spec's Problem section.
-
-## [0.2.0-dev] — post-v0.1.0 main, unreleased
+## [Unreleased] — post-v0.1.0 main
 
 ### Added
 
@@ -409,6 +403,5 @@ common shapes.
   document; initial project scaffolding (Python ≥3.12, pixi, MIT
   license) ([#1](https://github.com/grAItools/preserf/pull/1), [#2](https://github.com/grAItools/preserf/pull/2), [#5](https://github.com/grAItools/preserf/pull/5)).
 
-[Unreleased]: https://github.com/grAItools/preserf/compare/v0.2.0-dev...HEAD
-[0.2.0-dev]: https://github.com/grAItools/preserf/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/grAItools/preserf/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/grAItools/preserf/releases/tag/v0.1.0

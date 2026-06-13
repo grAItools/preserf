@@ -4,12 +4,11 @@
 
 `preserf` is a preprocessor for Fortran data serialization directives.
 `!$SER` directives embedded in Fortran source are expanded into explicit
-calls into a Fortran runtime API; that API writes to NetCDF4 stores in
-v0.1, with NCZarr V2 (and eventually V3) targets designed by ADR 0002
-but not yet wired up — see the Storage backend bullet below. The project
-ships both the preprocessor (Python) and the runtime API (Fortran), so
-a pp_ser-annotated source can be compiled and run end-to-end against
-preserf alone.
+calls into a Fortran runtime API; that API writes to NetCDF4 stores
+(default) or NCZarr V2 stores, both using the same `nf90_*` code path
+as designed by ADR 0002. The project ships both the preprocessor
+(Python) and the runtime API (Fortran), so a pp_ser-annotated source
+can be compiled and run end-to-end against preserf alone.
 
 ## Module map
 
@@ -26,10 +25,18 @@ preserf alone.
     (`preserf -r -d out/ src/`, where `--recursive` requires
     `--output-dir`).
   - `errors.py` — `DirectiveError` carries file/line context.
-- `src/preserf/fortran/` — Fortran runtime helper.
-  - `m_preserf.F90` — canonical API (`fs_register_field`,
+  - `fortran_dist.py` — exposes `get_fortran_dir()` / `get_cmake_helper()`
+    (numpy `get_include()` pattern) so build systems can locate the
+    bundled runtime without knowing install internals. Also surfaced as
+    `preserf --fortran-dir` / `--cmake-helper` CLI flags.
+- `src/preserf/fortran/` — Fortran runtime (shipped inside the wheel as
+  package data).
+  - `m_preserf.F90` — canonical API: `fs_register_field`,
     `fs_create_savepoint`, `fs_add_*_metainfo`, `fs_write_field`,
-    `fs_read_field`, enable/disable/status).
+    `fs_read_field` (full type-coverage matrix: bool / i32 / i64 / f32 /
+    f64, 0D–4D), `fs_write_kbuff` (`!$SER DATA_KBUFF`), tracer write API
+    (`fs_RegisterAllTracers`, `ppser_write_tracer_*`), `fs_Option`, and
+    enable/disable/status.
   - `utils_preserf.f90` — lifecycle (`ppser_initialize`, `ppser_finalize`,
     `ppser_set_mode`, `ppser_get_mode`) and module-level state
     pp_ser-generated code relies on (`ppser_serializer`,
@@ -37,6 +44,8 @@ preserf alone.
     `ppser_zrperturb`).
   - `m_serialize.f90`, `utils_ppser.f90` — alias modules so legacy
     pp_ser-generated source compiles unchanged against preserf.
+  - `cmake/PreserfFortran.cmake` — CMake helper providing
+    `preserf_add_fortran_target()` / `preserf_fortran_library()`.
   - `CMakeLists.txt` + `preserf_version.f90.in` — CMake 3.20+, pkg-config
     discovery of netcdf-fortran, gfortran `-std=f2008`.
 
@@ -47,8 +56,8 @@ preserf alone.
 - `netcdf-fortran` (≥4.6.0, conda-forge) — the Fortran helper writes via
   `nf90_*`. Introduced by ADR
   [`docs/adr/0002-storage-model-mapping.md`](adr/0002-storage-model-mapping.md);
-  in v0.1 only the NetCDF4 path is wired up, with NCZarr V2 / Zarr URL
-  targets planned for Slice E.
+  both the NetCDF4 and NCZarr V2 paths are wired up, selected by the
+  `backend` keyword on `ppser_initialize` or the `PRESERF_BACKEND` env var.
 - Dev-only: `ruff`, `mypy`, `pytest`, `dprint`, `fprettify`, `cmake`,
   `fortran-compiler` (conda-forge). All managed via `pixi.toml`.
 
@@ -61,19 +70,20 @@ preserf alone.
   `preserf_*` routines exported from `m_preserf` / `utils_preserf`.
   pp_ser-generated source binds to those by `USE m_serialize` /
   `USE utils_ppser` (the alias modules).
-- **Storage backend.** v0.1 of the Fortran helper writes
-  `<dir>/<prefix>.nc` via `NF90_NETCDF4` only — `preserf_open_serializer`
-  in `src/preserf/fortran/utils_preserf.f90` hardcodes that path and
-  flag. ADR
-  [`docs/adr/0002-storage-model-mapping.md`](adr/0002-storage-model-mapping.md)
-  designs the format choice as a URL / mode string
-  (`file://<dir>/<prefix>.zarr#mode=nczarr,zarr2` for NCZarr V2) so that
-  both backends share the same `nf90_*` code path; wiring up that
-  selector is tracked as Slice E in the roadmap, closing v0.1 gap §7.
+- **Storage backend.** The Fortran helper supports two backends, both
+  using the same `nf90_*` code path as designed by ADR
+  [`docs/adr/0002-storage-model-mapping.md`](adr/0002-storage-model-mapping.md):
+  - `netcdf4` (default) — writes `<dir>/<prefix>.nc`.
+  - `nczarr-v2` — writes `<dir>/<prefix>.zarr` as an NCZarr V2 directory
+    store via the `file://<path>#mode=nczarr,zarr2` URL.
+  The backend is selected by the `backend=` keyword on `ppser_initialize`,
+  overridable at runtime by the `PRESERF_BACKEND` environment variable.
   Either backend uses the same group-per-savepoint layout, with
   `/_fields` registry and `/savepoints/sp_NNNNNN` subgroups; the concrete
   attribute and dtype mapping is in
   [`docs/references/storage_mapping.md`](references/storage_mapping.md).
+  Zarr V3 stays forward-compatible but is deferred until netcdf-c's NCZarr V3
+  support lands.
 
 ## See also
 
