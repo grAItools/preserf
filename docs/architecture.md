@@ -76,14 +76,14 @@ can be compiled and run end-to-end against preserf alone.
   - `netcdf4` (default) — writes `<dir>/<prefix>.nc`.
   - `nczarr-v2` — writes `<dir>/<prefix>.zarr` as an NCZarr V2 directory
     store via the `file://<path>#mode=nczarr,zarr2` URL.
-  The backend is selected by the `backend=` keyword on `ppser_initialize`,
-  overridable at runtime by the `PRESERF_BACKEND` environment variable.
-  Either backend uses the same group-per-savepoint layout, with
-  `/_fields` registry and `/savepoints/sp_NNNNNN` subgroups; the concrete
-  attribute and dtype mapping is in
-  [`docs/references/storage_mapping.md`](references/storage_mapping.md).
-  Zarr V3 stays forward-compatible but is deferred until netcdf-c's NCZarr V3
-  support lands.
+    The backend is selected by the `backend=` keyword on `ppser_initialize`,
+    overridable at runtime by the `PRESERF_BACKEND` environment variable.
+    Either backend uses the same group-per-savepoint layout, with
+    `/_fields` registry and `/savepoints/sp_NNNNNN` subgroups; the concrete
+    attribute and dtype mapping is in
+    [`docs/references/storage_mapping.md`](references/storage_mapping.md).
+    Zarr V3 stays forward-compatible but is deferred until netcdf-c's NCZarr V3
+    support lands.
 
 ## See also
 
