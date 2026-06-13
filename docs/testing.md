@@ -48,7 +48,8 @@ into three layers:
     helper and reads it back with `tests/_support/storage.py`. Skips
     with `pytest.skip` when the Fortran test binary hasn't been built;
     the `fortran_binary` fixture in `tests/conftest.py` probes
-    `build/preserf-fortran/unit/m_preserf/`.
+    `build/preserf-fortran/unit/m_preserf/` plus the per-config subdirs
+    that multi-config CMake generators produce.
   - `test_preprocessor_e2e.py` — end-to-end preprocessor pipeline test.
   - `test_packaging_distribution.py` — asserts the wheel ships the
     Fortran runtime sources and CMake helper.
@@ -57,7 +58,7 @@ into three layers:
     bundled runtime; deselected from `verify` but run by `test-consumer`
     and in CI.
 - `tests-fortran/unit/m_preserf/` — native Fortran via CMake/ctest.
-  `test_minimal.f90` covers ~30 ctest scenarios: lifecycle, savepoint
+  `test_minimal.f90` covers ~50 ctest scenarios: lifecycle, savepoint
   creation, the full type-coverage matrix (logical / i32 / i64 / f32 /
   f64, 0D–4D), scalar and array metainfo, tracer I/O, k-buffer writes,
   `fs_Option`, both backends, and negative scenarios (bad backend,
