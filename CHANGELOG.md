@@ -261,6 +261,17 @@ embedded in each spec's Problem section.
 
 ### Fixed
 
+- `ppser_initialize` called twice in one process without an intervening
+  `ppser_finalize` (e.g. ICON-style multi-domain runs that re-init per
+  domain) now auto-closes the previous session instead of leaking its open
+  netCDF handle and abandoning its store. Auto-close flushes the previous
+  store's `_preserf_savepoint_count` (so the store no longer silently
+  advertises `0` savepoints to the reader contract) and releases the file
+  handle. The module-level `ppser_savepoint` is also reset to its empty
+  sentinel on every init, matching `ppser_finalize`, so a stale savepoint
+  carrying the previous serializer's `owner_ncid` can no longer defeat
+  `require_savepoint_owner` and pass a dangling group id into
+  `nf90_put_var` ([#67](https://github.com/grAItools/preserf/issues/67)).
 - `fs_register_field` no longer aborts with a raw netCDF error when a field
   is registered more than once or on a read-only handle. Re-registering a
   field (a `!$SER REGISTER` in a per-timestep loop, or a field already
