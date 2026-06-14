@@ -15,6 +15,11 @@ project(preserf_fortran
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(NETCDF_FORTRAN REQUIRED IMPORTED_TARGET netcdf-fortran)
 
+# Single source of truth for the per-compiler preprocessing / F2008 / warning
+# flags (GNU + Intel/IntelLLVM + NVHPC/PGI; FATAL_ERROR on anything else, so a
+# non-GNU build can never silently get no flags — issue #78).
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/PreserfFortranFlags.cmake)
+
 # -----------------------------------------------------------------------------
 # Library
 # -----------------------------------------------------------------------------
@@ -35,8 +40,9 @@ target_sources(preserf_fortran PRIVATE
     # m_preserf.F90 (uppercase) is compiled through the C preprocessor:
     # the field / read-perturb / array-metainfo overload matrix is
     # generated from `#include` templates (see
-    # docs/adr/0004-fortran-cpp-templates.md). The `-cpp` flag is added in
-    # the GNU block below.
+    # docs/adr/0004-fortran-cpp-templates.md). The preprocessing flag
+    # (`-cpp` / `-fpp` / `-Mpreprocess`, per compiler) is added below via
+    # preserf_fortran_compile_flags(... PREPROCESS).
     m_preserf.F90
     # Drop-in re-exports of the names Serialbox / pp_ser historically use.
     utils_ppser.f90
@@ -66,7 +72,8 @@ ${CMAKE_CURRENT_SOURCE_DIR}/preserf_write_kbuff.inc"
 # CMake/compiler combo that knows how to translate it (recent ifort/
 # ifx, nvfortran, future CMake-gfortran integrations) — current
 # CMake (3.28) does NOT translate it for gfortran, so we also
-# explicitly add `-std=f2008` in the GNU block below as a fall-back.
+# explicitly add the standards flag (`-std=f2008` / per-compiler
+# equivalent) below as a fall-back.
 set_target_properties(preserf_fortran PROPERTIES
     Fortran_MODULE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/modules
     POSITION_INDEPENDENT_CODE ON
@@ -85,18 +92,15 @@ target_link_libraries(preserf_fortran PUBLIC PkgConfig::NETCDF_FORTRAN)
 # installed package.
 add_library(preserf::preserf_fortran ALIAS preserf_fortran)
 
-# Warnings + explicit F2008 standard for gfortran (the
-# Fortran_STANDARD property above is a no-op for gfortran in
-# CMake 3.28; this is the working enforcement).
-if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(preserf_fortran PRIVATE
-        # -cpp preprocesses m_preserf.F90's `#include` overload templates.
-        # -ffree-line-length-none lifts the 132-column free-form limit so a
-        # macro instantiation that expands wide does not get truncated
-        # (same rationale as the e2e target).
-        -Wall -Wextra -fimplicit-none -std=f2008 -cpp -ffree-line-length-none
-    )
-endif()
+# Warnings + explicit F2008 standard + the C preprocessor. The
+# Fortran_STANDARD property above is a no-op for gfortran in CMake 3.28, so
+# the explicit `-std=` (and per-compiler equivalents) here is the working
+# enforcement. PREPROCESS turns on the C preprocessor that expands
+# m_preserf.F90's `#include` overload templates (`-cpp` / `-fpp` /
+# `-Mpreprocess` depending on the compiler); WARNINGS adds the compiler's
+# warning set. Resolved per-compiler, never gated to GNU only (issue #78).
+preserf_fortran_compile_flags(_preserf_fortran_flags PREPROCESS WARNINGS)
+target_compile_options(preserf_fortran PRIVATE ${_preserf_fortran_flags})
 
 # -----------------------------------------------------------------------------
 # Installation

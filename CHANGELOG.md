@@ -261,6 +261,23 @@ embedded in each spec's Problem section.
 
 ### Fixed
 
+- Non-GNU Fortran compilers no longer silently get **no** required build
+  flags. The preprocessing (`-cpp`) and F2008 standards flags were gated
+  behind `if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")` in the runtime
+  library build (`src/preserf/fortran/CMakeLists.txt`) and the shipped
+  consumer helper (`cmake/PreserfFortran.cmake`), so under Intel
+  (`ifort`/`ifx`) or NVHPC (`nvfortran`) the C preprocessor was never enabled
+  — `m_preserf.F90`'s `#include` overload templates and the generated
+  `#ifdef SERIALIZE` guards went unexpanded, producing a silently
+  misconfigured build. A new single-source-of-truth CMake module
+  (`cmake/PreserfFortranFlags.cmake`, shipped in the wheel) resolves the
+  per-compiler preprocessing / standards / warning flags for GNU,
+  Intel/IntelLLVM and NVHPC/PGI, and `FATAL_ERROR`s on any other compiler so
+  there is no longer a no-flag path; the library build, the consumer helper,
+  and the native test target all route through it
+  ([#78](https://github.com/grAItools/preserf/issues/78)). A non-GNU CI
+  runner lane (Intel oneAPI / NVIDIA HPC SDK) is deferred — the available CI
+  cannot provide or validate those toolchains.
 - `fs_register_field` no longer aborts with a raw netCDF error when a field
   is registered more than once or on a read-only handle. Re-registering a
   field (a `!$SER REGISTER` in a per-timestep loop, or a field already
