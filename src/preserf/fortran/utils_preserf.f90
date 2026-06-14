@@ -188,6 +188,14 @@ module utils_preserf
       integer :: slice_size = 0
       integer :: k_size = 0
       integer :: filled = 0
+      ! `buffer` holds the whole field (slice_size * k_size real64 elements).
+      ! For ICON-scale fields this product can exceed 2^31, so the size and
+      ! offset arithmetic in m_preserf.F90 / preserf_write_kbuff.inc promotes
+      ! its operands to int64 before multiplying (a default-integer product
+      ! would silently wrap past ~2.1e9 elements and under-allocate / corrupt
+      ! the buffer). Fortran allocates and subscripts the array with whatever
+      ! integer kind the bound/index expression carries, so an int64 bound
+      ! here lets the buffer exceed 2^31 elements.
       real(real64), allocatable :: buffer(:)
    end type t_kbuff_entry
 

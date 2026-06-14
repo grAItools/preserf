@@ -261,6 +261,18 @@ embedded in each spec's Problem section.
 
 ### Fixed
 
+- K-buffer size and offset arithmetic no longer overflows default-kind
+  integers for ICON-scale fields (issue #72). The whole-field buffer count
+  (`slice_size * k_size`) and the per-level offsets (`(k-1) * slice_size`) in
+  `fs_write_kbuff` / `kbuff_accumulate` were evaluated in default (32-bit)
+  integer, so a field with more than ~2^31 elements (e.g. a 17 GB `real64`
+  field, ~2.1e9 elements) would silently wrap and under-allocate or
+  mis-index the buffer. The operands are now promoted to `integer(int64)`
+  before multiplying, the buffer is allocated and indexed with `int64`
+  bounds, and a guard `error stop`s naming the field if even the `int64`
+  product would overflow — the wire-boundary integer pattern from
+  `docs/style.md`. A `kbuff-offset` Fortran regression test pins the
+  column-major layout the int64 offsets must preserve across many levels.
 - `fs_register_field` no longer aborts with a raw netCDF error when a field
   is registered more than once or on a read-only handle. Re-registering a
   field (a `!$SER REGISTER` in a per-timestep loop, or a field already
