@@ -43,6 +43,11 @@ subroutine PRESERF_SUB(grpid, entry, mode, timelevel, has_timelevel)
          error stop 1
       end if
       call preserf_check_nf_with_msg(ncerr, 'inq_varid tracer '//trim(entry%name))
+      ! Reject a store whose on-disk variable disagrees with the expected
+      ! double dtype / Fortran-order shape before nf90_get_var silently
+      ! coerces or sub-samples it (issue #70).
+      call require_variable_layout(grpid, varid, trim(entry%name), NF90_DOUBLE, &
+                                   shape(entry%PRESERF_PTR))
       ncerr = nf90_get_var(grpid, varid, entry%PRESERF_PTR)
       call preserf_check_nf_with_msg(ncerr, 'get_var tracer '//trim(entry%name))
    end if

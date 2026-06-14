@@ -44,10 +44,18 @@ into three layers:
   scalar and array form across both backends
   (`test_storage_round_trip.py`).
 - `tests/integration_tests/` — five cross-language and packaging tests:
-  - `test_fortran_wire_compat.py` — builds a store with the Fortran
-    helper and reads it back with `tests/_support/storage.py`. Skips
-    with `pytest.skip` when the Fortran test binary hasn't been built;
-    the `fortran_binary` fixture in `tests/conftest.py` probes
+  - `test_fortran_wire_compat.py` — cross-language wire-compat in both
+    directions. "Fortran writes -> Python reads" (the bulk of the file)
+    builds a store with the Fortran helper and reads it back with
+    `tests/_support/storage.py`; and — reverse-direction, issue #68 —
+    "Python writes -> Fortran reads"
+    (`test_fortran_reads_python_written_store`) has `write_dump` produce
+    the store and drives the Fortran binary's `read-python-store` scenario
+    to read it back via `fs_read_field`, for both backends. The reverse
+    test exists so a symmetric encoding quirk shared by the Fortran writer
+    and reader is not masked by only ever reading Fortran-written stores.
+    Skips with `pytest.skip` when the Fortran test binary hasn't been
+    built; the `fortran_binary` fixture in `tests/conftest.py` probes
     `build/preserf-fortran/unit/m_preserf/` plus the per-config subdirs
     that multi-config CMake generators produce.
   - `test_preprocessor_e2e.py` — end-to-end preprocessor pipeline test.

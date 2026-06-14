@@ -15,8 +15,12 @@ from preserf.errors import DirectiveError
 from preserf.fortran_dist import get_cmake_helper, get_fortran_dir
 from preserf.preprocessor import Options, Preprocessor
 
-# Extensions treated as Fortran source when expanding a directory.
-_FORTRAN_SUFFIXES = frozenset({".f90", ".f", ".f03", ".inc", ".incf"})
+# Extensions treated as Fortran source when expanding a directory. Covers the
+# free-form (.f90/.f95/.f03/.f08) and fixed-form (.f/.f77/.for) standards plus
+# the include-file conventions used in the wild (.inc/.incf).
+_FORTRAN_SUFFIXES = frozenset(
+    {".f90", ".f95", ".f03", ".f08", ".f", ".f77", ".for", ".inc", ".incf"}
+)
 
 # Diagnostics and progress go to stderr so they never corrupt the
 # preprocessed source written to stdout.
@@ -251,6 +255,9 @@ def main(
         sp_as_var=sp_as_var,
         modules=tuple(m.strip() for m in modules.split(",") if m.strip()),
     )
+
+    if output is not None and output_dir is not None:
+        raise _fail("--output and --output-dir are mutually exclusive")
 
     if recursive and output_dir is None:
         raise _fail("--recursive requires --output-dir")
