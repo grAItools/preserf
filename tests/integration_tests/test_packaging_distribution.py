@@ -40,6 +40,9 @@ _EXPECTED_RUNTIME_FILES = (
     "preserf/fortran/preserf_version.f90.in",
     "preserf/fortran/CMakeLists.txt",
     "preserf/fortran/cmake/PreserfFortran.cmake",
+    # PreserfFortran.cmake includes this for the per-compiler preprocessing /
+    # standards flags, so a consumer build breaks if it is not shipped too.
+    "preserf/fortran/cmake/PreserfFortranFlags.cmake",
     "preserf/fortran/cmake/preserf_fortranConfig.cmake.in",
 )
 

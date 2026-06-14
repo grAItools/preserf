@@ -12,12 +12,13 @@ set_target_properties(preserf_fortran_test_minimal PROPERTIES
     Fortran_STANDARD 2008
     Fortran_STANDARD_REQUIRED ON
 )
-# Belt-and-braces for gfortran (see top-level CMakeLists.txt note):
-# CMake 3.28 doesn't translate Fortran_STANDARD into a `-std=` flag
-# for gfortran, so we add it explicitly.
-if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(preserf_fortran_test_minimal PRIVATE -std=f2008)
-endif()
+# Belt-and-braces (see top-level CMakeLists.txt note): CMake 3.28 doesn't
+# translate Fortran_STANDARD into a `-std=` flag for gfortran, so we add the
+# standards flag explicitly via the shared per-compiler resolver. No
+# PREPROCESS: test_minimal.f90 is plain `.f90` and needs no C preprocessor.
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../../src/preserf/fortran/cmake/PreserfFortranFlags.cmake)
+preserf_fortran_compile_flags(_preserf_test_flags)
+target_compile_options(preserf_fortran_test_minimal PRIVATE ${_preserf_test_flags})
 
 # Pre-create the output directory and then run the test binary.
 # Using `cmake -E make_directory` rather than a shell `mkdir -p` makes
