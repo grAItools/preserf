@@ -272,8 +272,11 @@ embedded in each spec's Problem section.
   after reversing its C-order registry dims. Negative ctests
   (`preserf_fortran_tracer_read_bad_xtype`, `preserf_fortran_kbuff_read_bad_xtype`)
   hand each read path a store whose savepoint variable is `FLOAT32` while its
-  descriptor/registry records `FLOAT64` and assert the abort
-  ([#70](https://github.com/grAItools/preserf/issues/70)).
+  descriptor/registry records `FLOAT64` and assert the abort; a further
+  `preserf_fortran_kbuff_read_bad_extent` test keeps the dtype correct but
+  makes the on-disk variable strictly larger than the registry shape, covering
+  the second failure mode (silent sub-sampling of a larger extent) named in
+  the issue ([#70](https://github.com/grAItools/preserf/issues/70)).
 - `fs_register_field` no longer aborts with a raw netCDF error when a field
   is registered more than once or on a read-only handle. Re-registering a
   field (a `!$SER REGISTER` in a per-timestep loop, or a field already

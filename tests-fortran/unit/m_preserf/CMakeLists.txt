@@ -480,6 +480,22 @@ set_tests_properties(preserf_fortran_kbuff_read_bad_xtype PROPERTIES
     TIMEOUT 60
 )
 
+# Issue #70: the other failure mode the field path was hardened against is
+# a *larger* on-disk extent that nf90_get_var would silently sub-sample.
+# This store keeps the dtype correct (FLOAT64) but makes the on-disk
+# variable strictly larger than the registry shape, so require_variable_layout
+# must reject it on the dimension-length branch rather than the xtype branch.
+add_test(
+    NAME preserf_fortran_kbuff_read_bad_extent
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" kbuff-read-bad-extent
+)
+set_tests_properties(preserf_fortran_kbuff_read_bad_extent PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "dimension lengths disagree"
+    TIMEOUT 60
+)
+
 # Slice C Phase 1: tracers. The 'tracers' scenario registers three real64
 # tracers and writes them through every TRACER entry point; the Python
 # cross-language test asserts the on-disk descriptors and data. The native
