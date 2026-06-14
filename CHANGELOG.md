@@ -222,6 +222,18 @@ embedded in each spec's Problem section.
 
 ### Changed
 
+- Test-suite polish (no behaviour change): the subprocess-driving wire-compat
+  integration tests now share a single `run_scenario()` helper (run + assert
+  exit 0 + OK marker) instead of repeating the same `subprocess.run` /
+  returncode / marker block; the `m_preserf` ctest scenarios each get their own
+  isolated `test-output/<scenario>` subdirectory (registered through a
+  `preserf_scenario_test()` CMake helper) so `ctest -j` is race-free regardless
+  of per-scenario store prefixes; and `tests/unit_tests/test_cli.py` now
+  exercises every CLI flag end-to-end through the typer plumbing (`--module` /
+  `--no-prefix` / `--acc-if` / `--sp-as-var` / `--ifdef` / `--real`, asserting
+  the effect in the generated output) plus a directory-without-`--recursive`
+  error path and a non-Fortran-extension `_collect` case
+  ([#84](https://github.com/grAItools/preserf/issues/84)).
 - The Fortran helper sources moved from `src/preserf-fortran/` to
   `src/preserf/fortran/` (no API or behaviour change; updated CMake
   `add_subdirectory` paths, `pixi` fprettify paths, and docs).
