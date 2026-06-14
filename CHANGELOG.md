@@ -252,6 +252,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   silently skipping the wire-compat test. Closes roadmap Slice F
   ([#14](https://github.com/grAItools/preserf/pull/14), [#15](https://github.com/grAItools/preserf/pull/15)).
 - `.devcontainer/`: pixi-based dev container ([#10](https://github.com/grAItools/preserf/pull/10), [#12](https://github.com/grAItools/preserf/pull/12)).
+- `tests/unit_tests/test_storage_read_validation.py`: a
+  `test_read_dump_rejects_*` family pinning every validation branch in the
+  test-support reader `tests/_support/storage.py` `read_dump()` — the trusted
+  oracle the round-trip and wire-compat tests ride on. Each test builds a valid
+  store with the shared `_make_dump`/`write_dump` helpers, corrupts one
+  invariant (bad/missing schema version, missing `/_fields` or `/savepoints`
+  group, odd-length/duplicate/inconsistent/non-dense field ids, savepoint
+  variable absent from both registries), and asserts the branch-specific
+  failure. Runs in the fast pytest selection ([#77](https://github.com/grAItools/preserf/issues/77)).
 
 ### Documentation
 
