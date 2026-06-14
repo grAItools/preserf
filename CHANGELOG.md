@@ -261,6 +261,13 @@ embedded in each spec's Problem section.
 
 ### Fixed
 
+- The preprocessor no longer hard-errors at EOF when a `MODULE`/`PROGRAM`
+  unit is closed with a bare `END` (legal Fortran) instead of `END MODULE`
+  / `END PROGRAM`. The scope tracker now recognises `END` as closing the
+  current open unit, so such a file preprocesses successfully rather than
+  raising "Unterminated module or program unit encountered". A bare `END`
+  outside an open unit (e.g. closing a subroutine) is still ignored
+  ([#74](https://github.com/grAItools/preserf/issues/74)).
 - `fs_register_field` no longer aborts with a raw netCDF error when a field
   is registered more than once or on a read-only handle. Re-registering a
   field (a `!$SER REGISTER` in a per-timestep loop, or a field already
