@@ -23,6 +23,7 @@ The helper targets a POSIX environment:
 - **Relative-directory resolution** for the `nczarr-v2` `file://` URL binds
   the libc `getcwd(3)` directly (`utils_preserf.f90`, the `c_getcwd`
   interface) — there is no F2008-standard CWD intrinsic.
+
 ## Thread safety — serial use only
 
 **The serialization runtime is not thread-safe.** Run `!$SER` directives
