@@ -37,7 +37,7 @@ subroutine PRESERF_SUB(grpid, entry, mode, timelevel, has_timelevel)
    else
       ncerr = nf90_inq_varid(grpid, trim(entry%name), varid)
       if (ncerr == NF90_ENOTVAR) then
-         write (*, '(a,a,a)') &
+         write (error_unit, '(a,a,a)') &
             'preserf: read-mode tracer "', trim(entry%name), &
             '" is not present at this savepoint'
          error stop 1
