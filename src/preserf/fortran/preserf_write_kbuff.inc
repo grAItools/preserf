@@ -28,8 +28,12 @@ subroutine PRESERF_SUB(s, sp, fieldname, data, k, k_size, mode)
       call kbuff_accumulate(s, sp, fieldname, reshape(data, [size(data)]), &
                             shape(data), k, k_size)
    else
+      ! Read / read-perturb load from the REFERENCE serializer, matching the
+      ! DATA read path; resolve_savepoint_grpid re-resolves the savepoint
+      ! group under the reference (a no-op when it aliases the primary).
       ss = size(data)
-      idx = kbuff_load(sp%grpid, fieldname, shape(data), ss, k, k_size)
+      idx = kbuff_load(resolve_savepoint_grpid(ppser_serializer_ref, sp), &
+                       fieldname, shape(data), ss, k, k_size)
       off = int(k - 1, int64)*int(ss, int64)
       data = reshape(ppser_kbuffers(idx)%buffer(off + 1:off + ss), shape(data))
       if (k == k_size) call kbuff_free(idx)

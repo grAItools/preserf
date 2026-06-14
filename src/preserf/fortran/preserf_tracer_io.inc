@@ -20,6 +20,7 @@ subroutine PRESERF_SUB(grpid, entry, mode, timelevel, has_timelevel)
       ncerr = nf90_put_var(grpid, varid, entry%PRESERF_PTR)
       call preserf_check_nf_with_msg(ncerr, 'put_var tracer '//trim(entry%name))
       if (has_timelevel) then
+         call require_fits_int32(timelevel, 'timelevel')
          tl = int(timelevel, int32)
          ncerr = nf90_put_att(grpid, varid, 'timelevel', tl)
          call preserf_check_nf_with_msg(ncerr, &

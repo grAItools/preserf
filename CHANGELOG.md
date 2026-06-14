@@ -359,6 +359,39 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Wire / validation correctness nits in the Fortran helper
+  ([#81](https://github.com/grAItools/preserf/issues/81)):
+  - The three remaining unguarded `int(...)→int32` casts at the netCDF wire
+    (`unique_id` in `utils_preserf`, `verbosity` in `fs_Option`, tracer
+    `timelevel` in `preserf_tracer_io.inc`) now route through a
+    `require_fits_int32` guard that `error stop`s with the offending value
+    named, instead of silently wrapping under `-fdefault-integer-8` (the
+    `docs/style.md` anti-pattern; matches the existing guard on dim / halo
+    sizes). `utils_preserf` grows its own `require_fits_int32` (mirroring the
+    `m_preserf` one) since the cast there lives in a different module.
+  - Read-mode metainfo validation no longer aborts a perfect round-trip of a
+    NaN float value. Plain `/=` flagged a mismatch because `NaN /= NaN` by
+    IEEE rules; scalar and array `real32` / `real64` comparisons now treat
+    two NaNs as equal (`ieee_is_nan`), honouring the documented
+    "an unmodified round-trip always matches" contract. Covered by the
+    `nan-metainfo-roundtrip` Fortran scenario.
+  - Read-mode string validation (savepoint `name`, string metainfo) now
+    compares length-then-bytes so trailing blanks are significant, matching
+    the storage contract rather than blank-padding via Fortran `/=`. Note:
+    the netCDF `NC_CHAR` attribute encoding the writer uses stores
+    `nelems = len_trim`, so it physically cannot carry a trailing blank — the
+    distinction never arises through the normal write path and the change is a
+    defensive hardening (and protection against non-conforming external
+    stores); it is therefore not exercised by a dedicated test.
+  - TRACER and KBUFF reads now resolve against the reference serializer
+    (`ppser_serializer_ref`) in read / read-perturb mode, matching the DATA
+    read path. Previously, with an explicit `directory_ref` / `prefix_ref`,
+    DATA reads came from the reference store while TRACER / KBUFF reads came
+    from the primary — an inconsistency. A new `explicit-ref-tracer-kbuff`
+    scenario covers DATA, TRACER, and KBUFF reads consistently against an
+    explicit reference store (the primary holds deliberately wrong values).
+    Consistent with the read path added in
+    [#70](https://github.com/grAItools/preserf/issues/70).
 - Preprocessor / CLI robustness nits ([#83](https://github.com/grAItools/preserf/issues/83)):
   - `_declared_names` now splits a declaration fragment on top-level commas
     via a bracket-depth scanner, so a nested dimension expression

@@ -2247,6 +2247,146 @@ program test_minimal
                call fs_write_field(ppser_serializer, ppser_savepoint, 'z', z)
                call abort_unexpected('autoregister-zero-extent')
             end block
+         else if (scenario == 'nan-metainfo-roundtrip') then
+            ! Issue #81 item 2: a NaN metainfo value that round-tripped
+            ! bit-for-bit must validate on read. Plain `/=` aborts because
+            ! NaN /= NaN; the NaN-aware comparison treats two NaNs as equal.
+            ! Covers scalar real32 / real64 and a real64 array.
+            block
+               use, intrinsic :: ieee_arithmetic, only: ieee_value, &
+                                                         ieee_quiet_nan
+               real(real32) :: nan32
+               real(real64) :: nan64, nanvec(3)
+               real(real64) :: uo(3)
+               integer :: i
+               nan32 = ieee_value(0.0_real32, ieee_quiet_nan)
+               nan64 = ieee_value(0.0_real64, ieee_quiet_nan)
+               nanvec = nan64
+               do i = 1, 3
+                  uo(i) = real(i, real64)
+               end do
+               ! Write a store carrying NaN metainfo of each float flavour.
+               call ppser_initialize(out_dir, 'fnan', 'w')
+               call fs_add_serializer_metainfo(ppser_serializer, 'nan_r4', nan32)
+               call fs_add_serializer_metainfo(ppser_serializer, 'nan_r8', nan64)
+               call fs_add_serializer_metainfo(ppser_serializer, 'nan_arr', nanvec)
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_add_savepoint_metainfo(ppser_savepoint, 'sp_nan', nan64)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', uo)
+               call ppser_finalize()
+               ! Re-open read-only and replay the SAME NaN metainfo. With the
+               ! bug present, validation aborts with "value mismatch"; with
+               ! the fix it round-trips cleanly.
+               call ppser_initialize(out_dir, 'fnan', 'r')
+               call fs_add_serializer_metainfo(ppser_serializer, 'nan_r4', nan32)
+               call fs_add_serializer_metainfo(ppser_serializer, 'nan_r8', nan64)
+               call fs_add_serializer_metainfo(ppser_serializer, 'nan_arr', nanvec)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_add_savepoint_metainfo(ppser_savepoint, 'sp_nan', nan64)
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: nan-metainfo-roundtrip OK'
+               stop
+            end block
+         else if (scenario == 'explicit-ref-tracer-kbuff') then
+            ! Issue #81 item 4: with an explicit directory_ref / prefix_ref,
+            ! DATA, TRACER, and KBUFF reads must ALL resolve against the
+            ! reference store, not the primary. The primary store carries
+            ! deliberately WRONG values; only the reference holds the right
+            ! ones, so a read that returns the reference values proves all
+            ! three paths honour the ref serializer.
+            block
+               real(real64), target :: trc(3)
+               real(real64) :: u_back(3), tslice(3), cslice0(3)
+               integer, parameter :: ke = 2
+               integer :: i, kk
+               ! --- Reference store: the values the reads must recover. ---
+               call ppser_initialize(out_dir, 'fref2', 'w')
+               do i = 1, 3
+                  trc(i) = 200.0_real64 + real(i, real64)
+               end do
+               call ppser_register_tracer('q', trc, stype='tens')
+               call fs_RegisterAllTracers()
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               u_back = [201.0_real64, 202.0_real64, 203.0_real64]
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u_back)
+               call ppser_write_tracer_by_name('q', stype='tens')
+               do kk = 1, ke
+                  do i = 1, 3
+                     tslice(i) = 200.0_real64 + real(10*i + kk, real64)
+                  end do
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'c', &
+                                      tslice, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+               end do
+               call ppser_finalize()
+               ! --- Primary store: same schema, WRONG values (100-based). ---
+               call ppser_initialize(out_dir, 'fprim2', 'w')
+               do i = 1, 3
+                  trc(i) = 100.0_real64 + real(i, real64)
+               end do
+               call ppser_register_tracer('q', trc, stype='tens')
+               call fs_RegisterAllTracers()
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               u_back = [101.0_real64, 102.0_real64, 103.0_real64]
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u_back)
+               call ppser_write_tracer_by_name('q', stype='tens')
+               do kk = 1, ke
+                  do i = 1, 3
+                     tslice(i) = 100.0_real64 + real(10*i + kk, real64)
+                  end do
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'c', &
+                                      tslice, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+               end do
+               call ppser_finalize()
+               ! --- Read primary with reference; expect reference values. ---
+               trc = 0.0_real64
+               call ppser_initialize(out_dir, 'fprim2', 'r', &
+                                     directory_ref=out_dir, prefix_ref='fref2')
+               call ppser_register_tracer('q', trc, stype='tens')
+               call fs_RegisterAllTracers()
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               ! DATA read (already known to honour the ref): sanity check.
+               u_back = 0.0_real64
+               call fs_read_field(ppser_serializer_ref, ppser_savepoint, 'u', &
+                                  u_back)
+               do i = 1, 3
+                  if (u_back(i) /= 200.0_real64 + real(i, real64)) error stop &
+                     'explicit-ref: DATA read returned primary data'
+               end do
+               ! TRACER read: must land the reference values in trc.
+               call ppser_write_tracer_by_name('q', stype='tens')
+               do i = 1, 3
+                  if (trc(i) /= 200.0_real64 + real(i, real64)) error stop &
+                     'explicit-ref: TRACER read returned primary data'
+               end do
+               ! KBUFF read: each level must come from the reference store.
+               do kk = 1, ke
+                  cslice0 = 0.0_real64
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'c', &
+                                      cslice0, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+                  do i = 1, 3
+                     if (cslice0(i) /= 200.0_real64 + real(10*i + kk, real64)) &
+                        error stop 'explicit-ref: KBUFF read returned primary data'
+                  end do
+               end do
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: explicit-ref-tracer-kbuff OK'
+               stop
+            end block
          else if (scenario == 'read-python-store') then
             ! Issue #68: reverse-direction wire-compat — Python writes a
             ! preserf store (tests/_support/storage.py write_dump), then the

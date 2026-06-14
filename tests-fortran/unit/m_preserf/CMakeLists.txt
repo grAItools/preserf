@@ -378,3 +378,15 @@ preserf_scenario_test(NAME kbuff_read_bad_extent SCENARIO kbuff-read-bad-extent
 # pins the column-major layout the int64 offset formula must preserve.
 preserf_scenario_test(NAME kbuff_offset SCENARIO kbuff-offset
     PASS "preserf-fortran: kbuff-offset OK")
+
+# Issue #81 item 2: a NaN metainfo value (scalar real32/real64 + a real64
+# array) must round-trip without a spurious read-mode "value mismatch"
+# (NaN /= NaN previously aborted a perfect round-trip).
+preserf_scenario_test(NAME nan_metainfo_roundtrip SCENARIO nan-metainfo-roundtrip
+    PASS "preserf-fortran: nan-metainfo-roundtrip OK")
+
+# Issue #81 item 4: with an explicit directory_ref / prefix_ref, DATA, TRACER,
+# and KBUFF reads must all resolve against the reference store (the primary
+# holds wrong values; the read must recover the reference values).
+preserf_scenario_test(NAME explicit_ref_tracer_kbuff SCENARIO explicit-ref-tracer-kbuff
+    PASS "preserf-fortran: explicit-ref-tracer-kbuff OK")

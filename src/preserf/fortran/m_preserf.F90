@@ -25,9 +25,11 @@
 module m_preserf
    use, intrinsic :: iso_fortran_env, only: int8, int32, int64, real32, real64, &
                                                                                error_unit
+   use, intrinsic :: ieee_arithmetic, only: ieee_is_nan
    use netcdf
    use utils_preserf, only: t_serializer, t_savepoint, &
-                            ppser_serializer, ppser_savepoint, &
+                            ppser_serializer, ppser_serializer_ref, &
+                            ppser_savepoint, &
                             ppser_get_mode, &
                             preserf_check_nf_with_msg, &
                             preserf_logical_to_byte, &
@@ -498,7 +500,7 @@ contains
       allocate (character(len=name_len) :: stored_name)
       ncerr = nf90_get_att(grpid, NF90_GLOBAL, 'name', stored_name)
       call preserf_check_nf_with_msg(ncerr, 'get_att savepoint name')
-      if (stored_name /= name) then
+      if (strings_differ(stored_name, name)) then
          write (error_unit, '(a,a,a,a,a,a,a)') &
             'preserf: read-mode savepoint name mismatch at ', group_name, &
             ': store has "', trim(stored_name), '", run expects "', &
@@ -690,14 +692,19 @@ contains
       end if
 
       if (ppser_get_mode() /= 0) then
-         if (ppser_tracer_count > 0 .and. ppser_serializer%tracers_grpid == -1) then
+         ! Read / read-perturb resolve the descriptors against the REFERENCE
+         ! serializer, matching the DATA read path (which reads field data
+         ! from `ppser_serializer_ref`). With an explicit directory_ref /
+         ! prefix_ref the reference is a distinct store; without one it
+         ! aliases the primary, so this is a no-op there.
+         if (ppser_tracer_count > 0 .and. ppser_serializer_ref%tracers_grpid == -1) then
             write (error_unit, '(a)') &
                'preserf: read-mode store has no /_tracers group but tracers '// &
                'are registered'
             error stop 1
          end if
          do i = 1, ppser_tracer_count
-            call validate_registered_tracer(ppser_serializer, ppser_tracers(i), i)
+            call validate_registered_tracer(ppser_serializer_ref, ppser_tracers(i), i)
          end do
          return
       end if
@@ -893,8 +900,16 @@ contains
       has_tl = present(timelevel)
       tl = 0
       if (has_tl) tl = timelevel
-      grpid = ppser_savepoint%grpid
       mode = ppser_get_mode()
+      ! Write mode targets the writable primary store. Read / read-perturb
+      ! pull the tracer back from the REFERENCE serializer, matching the
+      ! DATA read path; resolve_savepoint_grpid re-resolves the savepoint
+      ! group under the reference (a no-op when it aliases the primary).
+      if (mode == 0) then
+         grpid = ppser_savepoint%grpid
+      else
+         grpid = resolve_savepoint_grpid(ppser_serializer_ref, ppser_savepoint)
+      end if
 
       select case (ppser_tracers(idx)%rank)
       case (1)
@@ -1314,6 +1329,7 @@ contains
       ! (a read-mode open is read-only). The runtime verbosity knob is
       ! still updated above regardless of mode.
       if (ppser_serializer%ncid /= -1 .and. ppser_serializer%writable) then
+         call require_fits_int32(verbosity, 'verbosity')
          v = int(verbosity, int32)
          ncerr = nf90_put_att(ppser_serializer%ncid, NF90_GLOBAL, &
                               '_preserf_option_verbosity', v)
@@ -2709,12 +2725,12 @@ contains
          if (.not. present(r32_val)) call missing_value_arg(key, 'r32_val')
          ncerr = nf90_get_att(grpid, NF90_GLOBAL, key, s_r32)
          call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
-         if (s_r32 /= r32_val) call metainfo_value_mismatch(key)
+         if (r32_differs(s_r32, r32_val)) call metainfo_value_mismatch(key)
       case (NF90_DOUBLE)
          if (.not. present(r64_val)) call missing_value_arg(key, 'r64_val')
          ncerr = nf90_get_att(grpid, NF90_GLOBAL, key, s_r64)
          call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
-         if (s_r64 /= r64_val) call metainfo_value_mismatch(key)
+         if (r64_differs(s_r64, r64_val)) call metainfo_value_mismatch(key)
       case (NF90_STRING)
          if (.not. present(s_val)) call missing_value_arg(key, 's_val')
          ncerr = nf90_inquire_attribute(grpid, NF90_GLOBAL, key, len=slen)
@@ -2722,7 +2738,7 @@ contains
          allocate (character(len=slen) :: stored_s)
          ncerr = nf90_get_att(grpid, NF90_GLOBAL, key, stored_s)
          call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
-         if (stored_s /= s_val) call metainfo_value_mismatch(key)
+         if (strings_differ(stored_s, s_val)) call metainfo_value_mismatch(key)
       case default
          write (error_unit, '(a,i0)') 'preserf: unsupported nc_type ', nc_type
          error stop 1
@@ -2860,14 +2876,14 @@ contains
          allocate (b_r32(alen))
          ncerr = nf90_get_att(grpid, NF90_GLOBAL, key, b_r32)
          call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
-         if (any(b_r32 /= r32_val)) call metainfo_value_mismatch(key)
+         if (any(r32_differs(b_r32, r32_val))) call metainfo_value_mismatch(key)
       case (NF90_DOUBLE)
          if (.not. present(r64_val)) call missing_value_arg(key, 'r64_val')
          if (alen /= size(r64_val)) call metainfo_value_mismatch(key)
          allocate (b_r64(alen))
          ncerr = nf90_get_att(grpid, NF90_GLOBAL, key, b_r64)
          call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
-         if (any(b_r64 /= r64_val)) call metainfo_value_mismatch(key)
+         if (any(r64_differs(b_r64, r64_val))) call metainfo_value_mismatch(key)
       case default
          write (error_unit, '(a,i0)') 'preserf: unsupported array nc_type ', nc_type
          error stop 1
@@ -2889,6 +2905,48 @@ contains
          '" value mismatch between run and store'
       error stop 1
    end subroutine metainfo_value_mismatch
+
+   !> .true. when two real32 metainfo values differ for round-trip
+   !> validation. A bit-exact write/read of an unmodified store always
+   !> matches (the doc contract of check_typed_scalar_attr), but plain
+   !> `/=` breaks that promise for NaN because `NaN /= NaN` is true by
+   !> IEEE rules — so two NaNs are treated as equal here.
+   elemental function r32_differs(a, b) result(differs)
+      real(real32), intent(in) :: a, b
+      logical :: differs
+      differs = (a /= b) .and. .not. (ieee_is_nan(a) .and. ieee_is_nan(b))
+   end function r32_differs
+
+   !> real64 counterpart of r32_differs (see its rationale).
+   elemental function r64_differs(a, b) result(differs)
+      real(real64), intent(in) :: a, b
+      logical :: differs
+      differs = (a /= b) .and. .not. (ieee_is_nan(a) .and. ieee_is_nan(b))
+   end function r64_differs
+
+   !> .true. when two strings differ with trailing blanks significant.
+   !> Fortran intrinsic `/=` blank-pads the shorter operand, so 'foo' and
+   !> 'foo ' compare equal. The writer stores savepoint names / string
+   !> metainfo untrimmed, so read validation should be as strict as the
+   !> storage contract it guards: compare length first, then the bytes.
+   !> (Note: the netCDF NC_CHAR encoding the writer uses stores
+   !> nelems = len_trim and so cannot itself carry a trailing blank — this
+   !> is a defensive strengthening against non-conforming stores.)
+   function strings_differ(a, b) result(differs)
+      character(len=*), intent(in) :: a, b
+      logical :: differs
+      integer :: i
+      differs = (len(a) /= len(b))
+      if (differs) return
+      ! Equal lengths: a plain `a /= b` still blank-pads under the standard
+      ! when one side ends in blanks, so compare byte-by-byte instead.
+      do i = 1, len(a)
+         if (a(i:i) /= b(i:i)) then
+            differs = .true.
+            return
+         end if
+      end do
+   end function strings_differ
 
    !> Resolve the existing /_fields/<fieldname> registry entry and abort
    !> if any registered property (type_id, C-order dims, or a
