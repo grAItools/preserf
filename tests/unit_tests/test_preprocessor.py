@@ -3,7 +3,12 @@
 import pytest
 
 from preserf.errors import DirectiveError
-from preserf.preprocessor import Options, Preprocessor
+from preserf.preprocessor import (
+    Options,
+    Preprocessor,
+    _split_top_level,
+    _strip_subscript,
+)
 
 
 def expand(source: str, **opts: object) -> str:
@@ -214,6 +219,81 @@ def test_mode_if_keyword_without_value_is_error() -> None:
 def test_mode_rejects_extra_arguments() -> None:
     with pytest.raises(DirectiveError, match="exactly one serialization mode"):
         expand("!$SER MODE write extra\n")
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        ("WRITE", "0"),
+        ("Read", "1"),
+        ("READ-PERTURB", "2"),
+        ("cpu", "0"),
+        ("Gpu", "1"),
+        ("GPU", "1"),
+    ],
+)
+def test_mode_lookup_is_case_insensitive(mode: str, expected: str) -> None:
+    # Both the symbolic-word modes and the CPU/GPU aliases resolve regardless
+    # of case, so `!$SER MODE WRITE` and `!$SER MODE cpu` behave consistently.
+    assert f"call ppser_set_mode({expected})" in expand(f"!$SER MODE {mode}\n")
+
+
+# --- declaration-fragment parsing helpers ----------------------------------
+
+
+def test_split_top_level_ignores_nested_commas() -> None:
+    assert _split_top_level("a(b(1,2)), c") == ["a(b(1,2))", "c"]
+
+
+def test_split_top_level_plain_list() -> None:
+    assert _split_top_level("a, b , c") == ["a", "b", "c"]
+
+
+def test_strip_subscript_drops_first_subscript() -> None:
+    assert _strip_subscript("a(i)") == "a"
+
+
+def test_strip_subscript_preserves_derived_type_base() -> None:
+    # The greedy regex this replaced collapsed `a(i)%b(j)` to `a`; the base
+    # name is `a`, but the helper must keep it rather than over-strip.
+    assert _strip_subscript("a(i)%b(j)") == "a"
+
+
+def test_strip_subscript_no_subscript() -> None:
+    assert _strip_subscript("field") == "field"
+
+
+def test_declared_names_handles_nested_dimensions() -> None:
+    # `b(c(1,2))` must not be split at the inner comma when stripping a list.
+    assert Preprocessor._declared_names("a, b(c(1,2)), d") == {"a", "b", "d"}
+
+
+def test_intent_in_stripped_for_nested_dimension_field() -> None:
+    # The field declared with a nested dimension expression is read back, so
+    # its INTENT(IN) must be removed even though its dimension nests commas.
+    src = (
+        "subroutine s(a, c)\n"
+        "real, intent(in) :: a(b(1,2)), c\n"
+        "!$SER DATA a=a\n"
+        "end subroutine s\n"
+    )
+    out = expand(src)
+    assert "real :: a(b(1,2)), c" in out
+
+
+def test_intent_in_stripped_for_derived_type_data_value() -> None:
+    # The DATA value is a derived-type component reference; its base name `a`
+    # must be tracked so the INTENT(IN) on `a` is stripped (the old greedy
+    # regex turned `a(i)%b(j)` into `a` correctly here but mangled the path
+    # for nested subscripts).
+    src = (
+        "subroutine s(a)\n"
+        "type(t), intent(in) :: a\n"
+        "!$SER DATA comp=a(i)%b(j)\n"
+        "end subroutine s\n"
+    )
+    out = expand(src)
+    assert "type(t) :: a" in out
 
 
 # --- REGISTER --------------------------------------------------------------

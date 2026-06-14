@@ -57,13 +57,15 @@ _LANGUAGE = {
     "off": ("OFF",),
 }
 
-# Symbolic serialization modes accepted by the MODE directive.
+# Symbolic serialization modes accepted by the MODE directive. Keys are
+# lower-case; the lookup lower-cases the directive argument so spellings are
+# matched case-insensitively (``WRITE``, ``Cpu``, ``gpu`` all resolve).
 _MODES = {
     "write": 0,
     "read": 1,
     "read-perturb": 2,
-    "CPU": 0,
-    "GPU": 1,
+    "cpu": 0,
+    "gpu": 1,
 }
 
 # Field-registration dimension shortcuts. Each expands to the 12 values
@@ -153,6 +155,39 @@ def _strip_trailing_comment(text: str) -> str:
         elif ch == "!" and not in_single and not in_double:
             return text[:i].rstrip()
     return text
+
+
+def _split_top_level(text: str) -> list[str]:
+    """Split ``text`` on commas that sit outside any parenthesis.
+
+    A simple ``str.split(",")`` would break ``a(b(1,2)), c`` apart at the
+    inner commas; a bracket-depth scan tracks ``(`` / ``)`` nesting so only
+    the top-level commas separate declared entities.
+    """
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(text):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        elif ch == "," and depth == 0:
+            parts.append(text[start:i].strip())
+            start = i + 1
+    parts.append(text[start:].strip())
+    return parts
+
+
+def _strip_subscript(text: str) -> str:
+    """Return the base name of ``text``, dropping the first subscript onward.
+
+    ``a(i)`` -> ``a`` and ``a(i)%b(j)`` -> ``a`` (the base of a derived-type
+    reference). Everything from the first ``(`` is removed, which is safe
+    because a Fortran entity name never contains a parenthesis.
+    """
+    idx = text.find("(")
+    return text if idx < 0 else text[:idx]
 
 
 def _ser_continuation(line: str) -> str | None:
@@ -426,10 +461,8 @@ class Preprocessor:
     @staticmethod
     def _declared_names(text: str) -> set[str]:
         """Variable names from a comma-separated Fortran declaration fragment."""
-        var_with_dim = (
-            x.strip().replace(" ", "") for x in re.split(r",(?![^(]*\))", text)
-        )
-        return {re.sub(r"\(.*?\)", "", x) for x in var_with_dim}
+        var_with_dim = (x.replace(" ", "") for x in _split_top_level(text))
+        return {_strip_subscript(x) for x in var_with_dim if x}
 
     # -- USE statement ------------------------------------------------------
 
@@ -765,7 +798,7 @@ class Preprocessor:
             tab = "  "
         self._calls.add(_METHODS["mode"])
         value = positionals[0]
-        rendered = str(_MODES[value]) if value in _MODES else value
+        rendered = str(_MODES.get(value.lower(), value))
         out += tab + f"call {_METHODS['mode']}({rendered})\n"
         if if_statement:
             out += "ENDIF\n"
@@ -941,7 +974,7 @@ class Preprocessor:
     def _track_intentin(self, values: list[str]) -> None:
         """Record DATA value variables whose INTENT(IN) must later be stripped."""
         for value in values:
-            base = re.sub(r"\(.+\)", "", value)
+            base = _strip_subscript(value.replace(" ", ""))
             if base not in self.intentin_to_remove:
                 self.intentin_to_remove.append(base)
 

@@ -261,6 +261,21 @@ embedded in each spec's Problem section.
 
 ### Fixed
 
+- Preprocessor / CLI robustness nits ([#83](https://github.com/grAItools/preserf/issues/83)):
+  - `_declared_names` now splits a declaration fragment on top-level commas
+    via a bracket-depth scanner, so a nested dimension expression
+    (`a(b(1,2)), c`) is no longer split at its inner commas when stripping
+    `INTENT(IN)` from a field read back by `!$SER DATA`.
+  - `_track_intentin` records a DATA value's base name by dropping only from
+    the first subscript (`a(i)%b(j)` → `a`); the previous greedy `(.+)`
+    removal mangled derived-type component references.
+  - The CLI now rejects `--output` together with `--output-dir` with a clear
+    "mutually exclusive" error instead of silently letting `--output` win.
+  - `.f95`, `.f08`, `.f77`, and `.for` are now recognised as Fortran source
+    during recursive directory expansion (was: `.f90 .f .f03 .inc .incf`
+    only), so those files are no longer skipped.
+  - `!$SER MODE` resolves its argument case-insensitively, so `WRITE`,
+    `Read`, `cpu`, and `GPU` all map to their numeric mode consistently.
 - `fs_register_field` no longer aborts with a raw netCDF error when a field
   is registered more than once or on a read-only handle. Re-registering a
   field (a `!$SER REGISTER` in a per-timestep loop, or a field already

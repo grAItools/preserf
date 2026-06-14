@@ -5,7 +5,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 import preserf
-from preserf.cli import _collect, app
+from preserf.cli import _collect, _is_fortran, app
 
 runner = CliRunner()
 
@@ -72,6 +72,31 @@ def test_output_dir(tmp_path: Path) -> None:
     assert (out_dir / "in.f90").is_file()
 
 
+def test_output_and_output_dir_are_mutually_exclusive(tmp_path: Path) -> None:
+    src = tmp_path / "in.f90"
+    src.write_text(_SOURCE)
+    result = runner.invoke(
+        app, [str(src), "-o", str(tmp_path / "o.f90"), "-d", str(tmp_path / "gen")]
+    )
+    assert result.exit_code == 1
+    assert "mutually exclusive" in result.stderr
+
+
+def test_collect_picks_up_f95_and_f08(tmp_path: Path) -> None:
+    src = tmp_path / "src"
+    src.mkdir()
+    for name in ("a.f95", "b.f08", "c.f77", "d.for"):
+        (src / name).write_text(_SOURCE)
+    files = _collect([src], recursive=True)
+    assert {f.name for f in files} == {"a.f95", "b.f08", "c.f77", "d.for"}
+
+
+def test_is_fortran_recognises_new_suffixes() -> None:
+    for suffix in (".f95", ".f08", ".f77", ".for"):
+        assert _is_fortran(Path(f"x{suffix}"))
+    assert not _is_fortran(Path("x.txt"))
+
+
 def test_directive_error_returns_1(tmp_path: Path) -> None:
     src = tmp_path / "bad.f90"
     src.write_text("!$SER BOGUS\n")
@@ -96,6 +121,8 @@ def test_output_with_multiple_inputs_rejected(tmp_path: Path) -> None:
 
 
 def test_output_with_recursive_dir_rejected(tmp_path: Path) -> None:
+    # `-o` together with `-d` (which `-r` requires) is now rejected up front as
+    # mutually exclusive, before reaching the single-input check.
     src = tmp_path / "src"
     src.mkdir()
     (src / "a.f90").write_text(_SOURCE)
@@ -105,7 +132,7 @@ def test_output_with_recursive_dir_rejected(tmp_path: Path) -> None:
         app, [str(src), "-r", "-d", str(out_dir), "-o", str(tmp_path / "o.f90")]
     )
     assert result.exit_code == 1
-    assert "single input" in result.stderr
+    assert "mutually exclusive" in result.stderr
 
 
 def test_recursive_requires_output_dir(tmp_path: Path) -> None:
