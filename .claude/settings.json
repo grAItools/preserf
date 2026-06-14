@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "F=\"$CLAUDE_TOOL_INPUT_FILE_PATH\"; case \"$F\" in *.py) /root/.pixi/bin/pixi run fmt-py-src -- \"$F\" 2>/dev/null || true ;; *.f90|*.F90|*.f|*.F) /root/.pixi/bin/pixi run fmt-f-src -- \"$F\" 2>/dev/null || true ;; esac"
+            "command": "F=\"$CLAUDE_TOOL_INPUT_FILE_PATH\"; case \"$F\" in *.py) pixi run fmt-py-src -- \"$F\" 2>/dev/null || true ;; *.f90|*.F90|*.f|*.F) pixi run fmt-f-src -- \"$F\" 2>/dev/null || true ;; esac"
           }
         ]
       }
@@ -47,7 +47,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); [ \"$(printf \u0027%s\u0027 \"$INPUT\" | jq -r \u0027.stop_hook_active // false\u0027)\" = \u0027true\u0027 ] \u0026\u0026 exit 0; /root/.pixi/bin/pixi run verify || exit 2"
+            "command": "INPUT=$(cat); [ \"$(printf \u0027%s\u0027 \"$INPUT\" | jq -r \u0027.stop_hook_active // false\u0027)\" = \u0027true\u0027 ] \u0026\u0026 exit 0; pixi run verify || exit 2"
           }
         ]
       }
