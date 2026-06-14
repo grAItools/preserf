@@ -49,3 +49,11 @@ jobs:
       # though local `pixi run verify` skips this layer.
       - name: Run example end-to-end suite
         run: pixi run test-examples
+
+      # Consumer tests are deselected from `verify` (slow; require a full
+      # toolchain build). PRESERF_REQUIRE_FORTRAN=1 turns the Fortran-binary
+      # skip into a hard failure, matching the behaviour of `test-py-with-fortran`.
+      - name: Run external-consumer / find_package tests
+        env:
+          PRESERF_REQUIRE_FORTRAN: "1"
+        run: pixi run test-consumer

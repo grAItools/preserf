@@ -11,17 +11,17 @@
 !> only; guard any in-OpenMP-region use with `!$omp critical` /
 !> `!$omp master`. See ADR 0005 (docs/adr/).
 !>
-!> v0.1 covers the directives needed for a hello-world flow:
-!>   * `fs_register_field` — REGISTER directive
-!>   * `fs_create_savepoint` — SAVEPOINT directive (without metainfo args)
-!>   * `fs_add_savepoint_metainfo` — SAVEPOINT key=value pairs (scalars)
-!>   * `fs_add_serializer_metainfo` — METAINFO directive (scalars)
-!>   * `fs_write_field` / `fs_read_field` — DATA directive
-!>                                          (real(real64), 1D / 2D / 3D)
-!>   * `fs_enable_serialization` / `fs_disable_serialization` — ON / OFF
-!>
-!> Other directives (DATA_KBUFF, OPTION, TRACER, ACCDATA, REGISTERTRACERS)
-!> are out of scope for this PR and will land in follow-ups.
+!> Implemented directives:
+!>   * `fs_register_field` — REGISTER (idempotent)
+!>   * `fs_create_savepoint` — SAVEPOINT
+!>   * `fs_add_savepoint_metainfo` / `fs_add_serializer_metainfo`
+!>                                  — scalar + array metainfo for all 6 TypeIDs
+!>   * `fs_write_field` / `fs_read_field` — DATA
+!>                        (full type matrix: bool/i32/i64/f32/f64, 0D–4D)
+!>   * `fs_write_kbuff` — DATA_KBUFF
+!>   * `fs_RegisterAllTracers` / `ppser_write_tracer_*` — TRACER / REGISTERTRACERS
+!>   * `fs_Option` — OPTION
+!>   * `fs_enable_serialization` / `fs_disable_serialization` / status — ON / OFF
 module m_preserf
    use, intrinsic :: iso_fortran_env, only: int8, int32, int64, real32, real64
    use netcdf
