@@ -275,6 +275,25 @@ set_tests_properties(preserf_fortran_read_roundtrip PROPERTIES
     TIMEOUT 60
 )
 
+# Issue #67: ppser_initialize called twice in one process without an
+# intervening ppser_finalize must auto-close the previous session rather
+# than leak its netCDF handle and abandon its store. The scenario writes a
+# savepoint into store A, re-inits (write) into store B with no finalize,
+# and asserts: (a) store A closed with the correct non-zero
+# _preserf_savepoint_count (the count is only flushed on close), (b)
+# ppser_savepoint was reset to its empty sentinel so no savepoint outlives
+# its serializer, and (c) store B round-trips a field end-to-end.
+add_test(
+    NAME preserf_fortran_reinit_lifecycle
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" reinit-lifecycle
+)
+set_tests_properties(preserf_fortran_reinit_lifecycle PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: reinit-lifecycle OK"
+    TIMEOUT 60
+)
+
 # Issue #32: `mode` is optional on ppser_initialize for pp_ser / Serialbox
 # `!$SER INIT` drop-in compatibility. The scenario covers the default-write
 # path (no mode, no prior set_mode), the derived read path (set_mode(1) +
@@ -494,6 +513,22 @@ add_test(
 set_tests_properties(preserf_fortran_kbuff PROPERTIES
     FIXTURES_REQUIRED preserf_fortran_output_dir
     PASS_REGULAR_EXPRESSION "preserf-fortran: kbuff OK"
+    TIMEOUT 60
+)
+
+# Issue #72: the k-buffer size/offset arithmetic was promoted to int64 so it
+# cannot wrap past 2^31 elements for ICON-scale fields. A real >2^31-element
+# buffer is too large to allocate in CI, so the 'kbuff-offset' scenario pins
+# the column-major layout the int64 offset formula must preserve across many
+# levels — the regression guard for the arithmetic the issue changed.
+add_test(
+    NAME preserf_fortran_kbuff_offset
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" kbuff-offset
+)
+set_tests_properties(preserf_fortran_kbuff_offset PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: kbuff-offset OK"
     TIMEOUT 60
 )
 

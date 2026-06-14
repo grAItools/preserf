@@ -1,6 +1,17 @@
 cmake_minimum_required(VERSION 3.20)
+# The Fortran runtime version is tracked SEPARATELY from the Python package
+# version (src/preserf/__init__.py `__version__`), deliberately. This tree is
+# a standalone, independently installable CMake project — built via
+# `cmake -S "$(preserf --fortran-dir)"` with no Python interpreter in scope —
+# so it cannot read the Python version at configure time without coupling the
+# two builds. This VERSION is the single source of truth for the helper's
+# own version: it stamps `preserf_version.f90.in` (-> PRESERF_VERSION) and the
+# installed CMake package-version file. Bump it in lockstep with the Python
+# `__version__` when releasing; keep them numerically aligned (PEP 440
+# pre-release suffixes like `.dev0` have no CMake equivalent, so the CMake
+# version omits them).
 project(preserf_fortran
-    VERSION 0.1.0
+    VERSION 0.2.0
     DESCRIPTION "Fortran helper modules for preserf"
     LANGUAGES Fortran)
 

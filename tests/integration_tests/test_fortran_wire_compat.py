@@ -35,8 +35,15 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 
-from tests._support.serialbox import TypeID, numpy_dtype_for
-from tests._support.storage import open_url_for, read_dump
+from tests._support.serialbox import (
+    FieldMetainfo,
+    MetainfoValue,
+    Savepoint,
+    SerialboxDump,
+    TypeID,
+    numpy_dtype_for,
+)
+from tests._support.storage import open_url_for, read_dump, write_dump
 from tests.conftest import _require_binary
 
 if TYPE_CHECKING:
@@ -901,3 +908,104 @@ def test_fortran_array_metainfo_matrix(matrix_store: dict[str, object]) -> None:
     assert gm["a_r4"].value == pytest.approx([1.5, 2.5])
     assert gm["a_r8"].type_id == TypeID.ArrayOfFloat64
     assert gm["a_r8"].value == [3.5, 4.5]
+
+
+# ---------------------------------------------------------------------------
+# Issue #68: reverse-direction wire-compat — Python writes, Fortran reads.
+#
+# Every test above is "Fortran writes -> Python reads". A symmetric encoding
+# quirk shared by the Fortran writer and reader (an axis-order or registry
+# convention both get consistently wrong) would slip through, because the
+# Fortran read path is only ever exercised against stores Fortran itself
+# wrote. Here Python's `write_dump` produces the store and the Fortran binary
+# reads it back via `fs_read_field` (the `read-python-store` scenario in
+# test_minimal.f90), driving the read path against an independent producer.
+# Covered for both the netcdf4 and nczarr-v2 backends.
+# ---------------------------------------------------------------------------
+
+
+def _python_written_dump() -> SerialboxDump:
+    """Build a SerialboxDump with three real64 fields at one savepoint.
+
+    Field shapes / values mirror the Fortran `read-python-store` scenario.
+    `write_dump` stores arrays in C-order (the reverse of the Fortran
+    column-major declaration), and the Fortran helper reverses again on
+    read, so the Fortran side sees:
+        u(i,j,k) = 100*i + 10*j + k   declared (4,3,2) -> C-order dims [2,3,4]
+        v(i)     = real(i)            declared (5)     -> C-order dims [5]
+        w(i,j)   = 10*i + j           declared (3,4)   -> C-order dims [4,3]
+    """
+    # u: numpy C-order (nk=2, nj=3, ni=4); u_py[k-1, j-1, i-1] = 100i+10j+k.
+    u = np.array(
+        [
+            [[100 * i + 10 * j + k for i in range(1, 5)] for j in range(1, 4)]
+            for k in range(1, 3)
+        ],
+        dtype=np.float64,
+    )
+    v = np.arange(1, 6, dtype=np.float64)
+    # w: numpy C-order (nj=4, ni=3); w_py[j-1, i-1] = 10i+j.
+    w = np.array(
+        [[10 * i + j for i in range(1, 4)] for j in range(1, 5)],
+        dtype=np.float64,
+    )
+
+    dump = SerialboxDump(prefix="fpystore")
+    dump.field_map = {
+        "u": FieldMetainfo(type_id=TypeID.Float64, dims=[2, 3, 4]),
+        "v": FieldMetainfo(type_id=TypeID.Float64, dims=[5]),
+        "w": FieldMetainfo(type_id=TypeID.Float64, dims=[4, 3]),
+    }
+    dump.field_data = {"u": {0: u}, "v": {0: v}, "w": {0: w}}
+    dump.savepoints = [
+        Savepoint(
+            name="step",
+            meta_info={
+                "ntstep": MetainfoValue(type_id=TypeID.Int32, value=1),
+                "t": MetainfoValue(type_id=TypeID.Float64, value=0.5),
+            },
+            fields={"u": 0, "v": 0, "w": 0},
+        )
+    ]
+    return dump
+
+
+@pytest.mark.parametrize("backend", ["netcdf4", "nczarr-v2"])
+def test_fortran_reads_python_written_store(
+    tmp_path: Path, fortran_binary: Path, backend: str
+) -> None:
+    """Python writes a preserf store; the Fortran binary reads it back.
+
+    Reverse-direction wire-compat (issue #68): `write_dump` is the
+    independent producer, and the Fortran `read-python-store` scenario opens
+    the store read-only, REGISTERs the three fields (which validates the
+    Python-written `/_fields` registry against the Fortran reader's
+    expectation), and asserts every field value / axis-order round-trips.
+    The scenario prints `read-python-store OK` and exits 0 only when all
+    Fortran-side assertions pass.
+    """
+    out_dir = tmp_path / "py_out"
+    out_dir.mkdir()
+
+    # Python produces the store. open_url_for + write_dump pick the on-disk
+    # form per backend (a .nc file for netcdf4, a .zarr directory store for
+    # nczarr-v2) under the prefix the Fortran scenario opens ("fpystore").
+    url = write_dump(_python_written_dump(), out_dir, backend=backend)
+    if backend == "netcdf4":
+        assert (out_dir / "fpystore.nc").is_file()
+    else:
+        assert (out_dir / "fpystore.zarr").is_dir()
+    assert url  # sanity: a URL was returned
+
+    result = subprocess.run(
+        [str(fortran_binary), str(out_dir), "read-python-store", backend],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, (
+        f"Fortran binary exited {result.returncode} reading a Python-written "
+        f"{backend} store.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "preserf-fortran: read-python-store OK" in result.stdout
