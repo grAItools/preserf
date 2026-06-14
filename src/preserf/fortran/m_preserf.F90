@@ -4,6 +4,13 @@
 !> emit. The on-disk layout is the group-per-savepoint schema documented
 !> in `docs/references/storage_mapping.md`.
 !>
+!> NOT THREAD-SAFE: the `fs_*` API mutates the `save`d module-level state
+!> in `utils_preserf` (serializer / savepoint structs, the enable gate,
+!> the tracer / k-buffer registries) and the shared `RANDOM_NUMBER` state
+!> with no synchronization. Run `!$SER` directives from serial regions
+!> only; guard any in-OpenMP-region use with `!$omp critical` /
+!> `!$omp master`. See ADR 0005 (docs/adr/).
+!>
 !> Implemented directives:
 !>   * `fs_register_field` — REGISTER (idempotent)
 !>   * `fs_create_savepoint` — SAVEPOINT
@@ -16,7 +23,8 @@
 !>   * `fs_Option` — OPTION
 !>   * `fs_enable_serialization` / `fs_disable_serialization` / status — ON / OFF
 module m_preserf
-   use, intrinsic :: iso_fortran_env, only: int8, int32, int64, real32, real64
+   use, intrinsic :: iso_fortran_env, only: int8, int32, int64, real32, real64, &
+                                                                               error_unit
    use, intrinsic :: ieee_arithmetic, only: ieee_is_nan
    use netcdf
    use utils_preserf, only: t_serializer, t_savepoint, &
@@ -236,7 +244,7 @@ contains
 
       if (serialisation_enabled == 0) return
       if (s%fields_grpid == -1) then
-         write (*, '(a)') 'preserf: fs_register_field called before ppser_initialize'
+         write (error_unit, '(a)') 'preserf: fs_register_field called before ppser_initialize'
          error stop 1
       end if
 
@@ -272,7 +280,7 @@ contains
       ! nf90_def_var fail with a raw netCDF error on a read-only handle —
       ! the same failure class issue #58 fixed for the auto-register path.
       if (.not. s%writable) then
-         write (*, '(a,a,a)') &
+         write (error_unit, '(a,a,a)') &
             'preserf: REGISTER of field "', trim(fieldname), &
             '" in write mode but the serializer was opened read-only'
          error stop 1
@@ -417,7 +425,7 @@ contains
       integer(int32) :: idx_attr
 
       if (ser%savepoints_grpid == -1) then
-         write (*, '(a)') 'preserf: fs_create_savepoint called before ppser_initialize'
+         write (error_unit, '(a)') 'preserf: fs_create_savepoint called before ppser_initialize'
          error stop 1
       end if
 
@@ -431,7 +439,7 @@ contains
       end if
 
       if (ser%next_sp_index >= PRESERF_SAVEPOINT_INDEX_LIMIT) then
-         write (*, '(a,i0)') 'preserf: savepoint index exceeds cap of ', &
+         write (error_unit, '(a,i0)') 'preserf: savepoint index exceeds cap of ', &
             PRESERF_SAVEPOINT_INDEX_LIMIT
          error stop 1
       end if
@@ -472,7 +480,7 @@ contains
       character(len=:), allocatable :: stored_name
 
       if (ser%next_sp_index >= PRESERF_SAVEPOINT_INDEX_LIMIT) then
-         write (*, '(a,i0)') 'preserf: savepoint index exceeds cap of ', &
+         write (error_unit, '(a,i0)') 'preserf: savepoint index exceeds cap of ', &
             PRESERF_SAVEPOINT_INDEX_LIMIT
          error stop 1
       end if
@@ -480,7 +488,7 @@ contains
       write (group_name, '("sp_",i6.6)') ser%next_sp_index
       ncerr = nf90_inq_ncid(ser%savepoints_grpid, group_name, grpid)
       if (ncerr /= NF90_NOERR) then
-         write (*, '(a,a,a,a,a)') &
+         write (error_unit, '(a,a,a,a,a)') &
             'preserf: read-mode savepoint "', trim(name), &
             '" could not be resolved: group ', group_name, &
             ' is not present in the store'
@@ -493,7 +501,7 @@ contains
       ncerr = nf90_get_att(grpid, NF90_GLOBAL, 'name', stored_name)
       call preserf_check_nf_with_msg(ncerr, 'get_att savepoint name')
       if (strings_differ(stored_name, name)) then
-         write (*, '(a,a,a,a,a,a,a)') &
+         write (error_unit, '(a,a,a,a,a,a,a)') &
             'preserf: read-mode savepoint name mismatch at ', group_name, &
             ': store has "', trim(stored_name), '", run expects "', &
             trim(name), '"'
@@ -599,7 +607,7 @@ contains
       integer :: n
 
       if (rank < 1 .or. rank > 4) then
-         write (*, '(a)') &
+         write (error_unit, '(a)') &
             'preserf: ppser_register_tracer supports rank 1..4 only'
          error stop 1
       end if
@@ -607,26 +615,26 @@ contains
       ! fixed-length registry components (which would then mismatch the
       ! on-disk variable name / stype attribute).
       if (len_trim(name) > PPSER_TRACER_NAME_LEN) then
-         write (*, '(a,a,a,i0,a)') &
+         write (error_unit, '(a,a,a,i0,a)') &
             'preserf: tracer name "', trim(name), '" exceeds ', &
             PPSER_TRACER_NAME_LEN, ' characters'
          error stop 1
       end if
       if (present(stype)) then
          if (len_trim(stype) > PPSER_TRACER_STYPE_LEN) then
-            write (*, '(a,a,a,i0,a)') &
+            write (error_unit, '(a,a,a,i0,a)') &
                'preserf: tracer stype "', trim(stype), '" exceeds ', &
                PPSER_TRACER_STYPE_LEN, ' characters'
             error stop 1
          end if
       end if
       if (find_tracer(name) /= 0) then
-         write (*, '(a,a,a)') &
+         write (error_unit, '(a,a,a)') &
             'preserf: tracer "', trim(name), '" is already registered'
          error stop 1
       end if
       if (ppser_tracer_count >= PPSER_MAX_TRACERS) then
-         write (*, '(a,i0)') &
+         write (error_unit, '(a,i0)') &
             'preserf: tracer registry full; cap is ', PPSER_MAX_TRACERS
          error stop 1
       end if
@@ -678,7 +686,7 @@ contains
 
       if (serialisation_enabled == 0) return
       if (ppser_serializer%ncid == -1) then
-         write (*, '(a)') &
+         write (error_unit, '(a)') &
             'preserf: fs_RegisterAllTracers called before ppser_initialize'
          error stop 1
       end if
@@ -690,7 +698,7 @@ contains
          ! prefix_ref the reference is a distinct store; without one it
          ! aliases the primary, so this is a no-op there.
          if (ppser_tracer_count > 0 .and. ppser_serializer_ref%tracers_grpid == -1) then
-            write (*, '(a)') &
+            write (error_unit, '(a)') &
                'preserf: read-mode store has no /_tracers group but tracers '// &
                'are registered'
             error stop 1
@@ -714,9 +722,15 @@ contains
          call preserf_check_nf_with_msg(ncerr, 'def_grp /_tracers')
       end if
 
+      ! Re-registration is idempotent (mirrors fs_register_field): a
+      ! REGISTERTRACERS directive in a per-timestep loop re-runs this on a
+      ! store whose descriptors already exist. Validate each existing
+      ! descriptor for consistency and skip the def_var rather than aborting
+      ! on a duplicate (NC_ENAMEINUSE); a conflicting descriptor aborts with a
+      ! clear "re-registered tracer" message. write_tracer_descriptor itself
+      ! guards on inq_varid so callers cannot bypass this.
       do i = 1, ppser_tracer_count
-         call write_tracer_descriptor(ppser_serializer%tracers_grpid, &
-                                      ppser_tracers(i), i)
+         call write_tracer_descriptor(ppser_serializer, i)
       end do
    end subroutine fs_RegisterAllTracers
 
@@ -724,33 +738,55 @@ contains
    !> (value 0) holding type_id, C-order dims, stype, and the 1-based
    !> tracer_index — mirroring the `/_fields` carrier skeleton written by
    !> write_field_registry_entry; keep the two in sync.
-   subroutine write_tracer_descriptor(grpid, entry, tracer_index)
-      integer, intent(in) :: grpid
-      type(t_tracer_entry), intent(in) :: entry
+   !>
+   !> Idempotent like the fs_register_field create branch: if the descriptor
+   !> already exists (a REGISTERTRACERS re-run, e.g. inside a timestep loop)
+   !> it is validated against the registered tracer and the def_var is
+   !> skipped, rather than aborting on NC_ENAMEINUSE. A conflicting descriptor
+   !> aborts via validate_registered_tracer with a "re-registered tracer"
+   !> message.
+   subroutine write_tracer_descriptor(s, tracer_index)
+      type(t_serializer), intent(in) :: s
       integer, intent(in) :: tracer_index
-      integer :: ncerr, varid
+      integer :: ncerr, varid, grpid
       integer(int32) :: zero, tid, idx_attr
       integer(int32), allocatable :: cdims(:)
 
-      zero = 0_int32
-      tid = entry%type_id
-      cdims = tracer_c_order_dims(entry)
+      grpid = s%tracers_grpid
+      associate (entry => ppser_tracers(tracer_index))
 
-      ncerr = nf90_def_var(grpid, trim(entry%name), NF90_INT, varid)
-      call preserf_check_nf_with_msg(ncerr, &
-                                     'def_var /_tracers/'//trim(entry%name))
-      ncerr = nf90_put_att(grpid, varid, 'type_id', tid)
-      call preserf_check_nf_with_msg(ncerr, 'put_att tracer type_id')
-      ncerr = nf90_put_att(grpid, varid, 'dims', cdims)
-      call preserf_check_nf_with_msg(ncerr, 'put_att tracer dims')
-      ncerr = nf90_put_att(grpid, varid, 'stype', trim(entry%stype))
-      call preserf_check_nf_with_msg(ncerr, 'put_att tracer stype')
-      idx_attr = int(tracer_index, int32)
-      ncerr = nf90_put_att(grpid, varid, 'tracer_index', idx_attr)
-      call preserf_check_nf_with_msg(ncerr, 'put_att tracer_index')
-      ncerr = nf90_put_var(grpid, varid, zero)
-      call preserf_check_nf_with_msg(ncerr, &
-                                     'put_var (tracer descriptor placeholder)')
+         ! Skip-and-validate a descriptor that already exists (idempotent
+         ! re-registration), mirroring the inq_varid guard in fs_register_field.
+         ncerr = nf90_inq_varid(grpid, trim(entry%name), varid)
+         if (ncerr == NF90_NOERR) then
+            call validate_registered_tracer(s, entry, tracer_index, &
+                                            context='re-registered tracer')
+            return
+         else if (ncerr /= NF90_ENOTVAR) then
+            call preserf_check_nf_with_msg(ncerr, &
+                                           'inq_varid /_tracers/'//trim(entry%name))
+         end if
+
+         zero = 0_int32
+         tid = entry%type_id
+         cdims = tracer_c_order_dims(entry)
+
+         ncerr = nf90_def_var(grpid, trim(entry%name), NF90_INT, varid)
+         call preserf_check_nf_with_msg(ncerr, &
+                                        'def_var /_tracers/'//trim(entry%name))
+         ncerr = nf90_put_att(grpid, varid, 'type_id', tid)
+         call preserf_check_nf_with_msg(ncerr, 'put_att tracer type_id')
+         ncerr = nf90_put_att(grpid, varid, 'dims', cdims)
+         call preserf_check_nf_with_msg(ncerr, 'put_att tracer dims')
+         ncerr = nf90_put_att(grpid, varid, 'stype', trim(entry%stype))
+         call preserf_check_nf_with_msg(ncerr, 'put_att tracer stype')
+         idx_attr = int(tracer_index, int32)
+         ncerr = nf90_put_att(grpid, varid, 'tracer_index', idx_attr)
+         call preserf_check_nf_with_msg(ncerr, 'put_att tracer_index')
+         ncerr = nf90_put_var(grpid, varid, zero)
+         call preserf_check_nf_with_msg(ncerr, &
+                                        'put_var (tracer descriptor placeholder)')
+      end associate
    end subroutine write_tracer_descriptor
 
    !> Read-mode counterpart to write_tracer_descriptor: confirm the
@@ -761,19 +797,30 @@ contains
    !> the stored value catches a read run that registers tracers in a
    !> different order, which would otherwise make `ppser_write_tracer_by_idx`
    !> resolve a different tracer than was written at that index.
-   subroutine validate_registered_tracer(s, entry, expected_index)
+   !>
+   !> `context` labels the tracer in error messages; it defaults to
+   !> 'read-mode tracer' (the read-mode validate path) and write-mode
+   !> idempotent re-registration passes 're-registered tracer'.
+   subroutine validate_registered_tracer(s, entry, expected_index, context)
       type(t_serializer), intent(in) :: s
       type(t_tracer_entry), intent(in) :: entry
       integer, intent(in) :: expected_index
+      character(len=*), intent(in), optional :: context
       integer :: ncerr, varid, attr_len, axis
       integer(int32) :: stored_tid, stored_idx
       integer(int32), allocatable :: stored_dims(:), cdims(:)
-      character(len=:), allocatable :: stored_stype
+      character(len=:), allocatable :: stored_stype, ctx
+
+      if (present(context)) then
+         ctx = context
+      else
+         ctx = 'read-mode tracer'
+      end if
 
       ncerr = nf90_inq_varid(s%tracers_grpid, trim(entry%name), varid)
       if (ncerr == NF90_ENOTVAR) then
-         write (*, '(a,a,a)') &
-            'preserf: read-mode tracer "', trim(entry%name), &
+         write (error_unit, '(a,a,a)') &
+            'preserf: '//ctx//' "', trim(entry%name), &
             '" is not present in the store /_tracers registry'
          error stop 1
       end if
@@ -783,8 +830,8 @@ contains
       ncerr = nf90_get_att(s%tracers_grpid, varid, 'type_id', stored_tid)
       call preserf_check_nf_with_msg(ncerr, 'get_att tracer type_id')
       if (stored_tid /= entry%type_id) then
-         write (*, '(a,a,a,i0,a,i0)') &
-            'preserf: read-mode tracer "', trim(entry%name), &
+         write (error_unit, '(a,a,a,i0,a,i0)') &
+            'preserf: '//ctx//' "', trim(entry%name), &
             '" type_id mismatch: store has ', stored_tid, &
             ', run expects ', entry%type_id
          error stop 1
@@ -797,15 +844,15 @@ contains
       ncerr = nf90_get_att(s%tracers_grpid, varid, 'dims', stored_dims)
       call preserf_check_nf_with_msg(ncerr, 'get_att tracer dims')
       if (attr_len /= size(cdims)) then
-         write (*, '(a,a,a,i0,a,i0)') &
-            'preserf: read-mode tracer "', trim(entry%name), &
+         write (error_unit, '(a,a,a,i0,a,i0)') &
+            'preserf: '//ctx//' "', trim(entry%name), &
             '" rank mismatch: store ', attr_len, ', run ', size(cdims)
          error stop 1
       end if
       do axis = 1, attr_len
          if (stored_dims(axis) /= cdims(axis)) then
-            write (*, '(a,a,a)') &
-               'preserf: read-mode tracer "', trim(entry%name), &
+            write (error_unit, '(a,a,a)') &
+               'preserf: '//ctx//' "', trim(entry%name), &
                '" dims mismatch with registered shape'
             error stop 1
          end if
@@ -817,8 +864,8 @@ contains
       ncerr = nf90_get_att(s%tracers_grpid, varid, 'stype', stored_stype)
       call preserf_check_nf_with_msg(ncerr, 'get_att tracer stype')
       if (trim(stored_stype) /= trim(entry%stype)) then
-         write (*, '(a,a,a,a,a,a)') &
-            'preserf: read-mode tracer "', trim(entry%name), &
+         write (error_unit, '(a,a,a,a,a,a)') &
+            'preserf: '//ctx//' "', trim(entry%name), &
             '" stype mismatch: store "', trim(stored_stype), &
             '", run "', trim(entry%stype)
          error stop 1
@@ -827,8 +874,8 @@ contains
       ncerr = nf90_get_att(s%tracers_grpid, varid, 'tracer_index', stored_idx)
       call preserf_check_nf_with_msg(ncerr, 'get_att tracer_index')
       if (int(stored_idx) /= expected_index) then
-         write (*, '(a,a,a,i0,a,i0)') &
-            'preserf: read-mode tracer "', trim(entry%name), &
+         write (error_unit, '(a,a,a,i0,a,i0)') &
+            'preserf: '//ctx//' "', trim(entry%name), &
             '" tracer_index mismatch: store has ', int(stored_idx), &
             ', run registered it at position ', expected_index
          error stop 1
@@ -874,7 +921,7 @@ contains
       case (4)
          call tracer_io_4d(grpid, ppser_tracers(idx), mode, tl, has_tl)
       case default
-         write (*, '(a,i0)') &
+         write (error_unit, '(a,i0)') &
             'preserf: tracer has unsupported rank ', ppser_tracers(idx)%rank
          error stop 1
       end select
@@ -890,12 +937,16 @@ contains
       character(len=*), intent(in), optional :: stype
       integer, intent(in), optional :: timelevel
       integer :: idx
+      character(len=:), allocatable :: unused_stype
 
       if (serialisation_enabled == 0) return
-      if (present(stype)) continue  ! accepted for call-shape compatibility
+      ! `stype` is accepted for pp_ser call-shape compatibility but unused;
+      ! silence the warning via the project's standard unused-symbol idiom
+      ! (an unreachable read into a discard local).
+      if (.false.) unused_stype = stype
       idx = find_tracer(name)
       if (idx == 0) then
-         write (*, '(a,a,a)') &
+         write (error_unit, '(a,a,a)') &
             'preserf: ppser_write_tracer_by_name: tracer "', trim(name), &
             '" is not registered'
          error stop 1
@@ -912,9 +963,13 @@ contains
       character(len=*), intent(in), optional :: stype
       integer, intent(in), optional :: timelevel
       integer :: lo, hi, i
+      character(len=:), allocatable :: unused_stype
 
       if (serialisation_enabled == 0) return
-      if (present(stype)) continue  ! accepted for call-shape compatibility
+      ! `stype` is accepted for pp_ser call-shape compatibility but unused;
+      ! silence the warning via the project's standard unused-symbol idiom
+      ! (an unreachable read into a discard local).
+      if (.false.) unused_stype = stype
       lo = idx
       hi = idx
       if (present(idx2)) hi = idx2
@@ -922,14 +977,14 @@ contains
       ! normalising order, so a descending range (idx2 < idx) would
       ! silently skip the do-loop and write/read nothing. Fail loudly.
       if (hi < lo) then
-         write (*, '(a,i0,a,i0,a)') &
+         write (error_unit, '(a,i0,a,i0,a)') &
             'preserf: ppser_write_tracer_by_idx: descending index range (', &
             lo, '..', hi, '); the upper bound must be >= the lower bound'
          error stop 1
       end if
       do i = lo, hi
          if (i < 1 .or. i > ppser_tracer_count) then
-            write (*, '(a,i0,a,i0,a)') &
+            write (error_unit, '(a,i0,a,i0,a)') &
                'preserf: ppser_write_tracer_by_idx: index ', i, &
                ' is out of range (1..', ppser_tracer_count, ')'
             error stop 1
@@ -992,12 +1047,12 @@ contains
    subroutine kbuff_check_k(k, k_size)
       integer, intent(in) :: k, k_size
       if (k_size < 1) then
-         write (*, '(a,i0)') &
+         write (error_unit, '(a,i0)') &
             'preserf: fs_write_kbuff k_size must be >= 1; got ', k_size
          error stop 1
       end if
       if (k < 1 .or. k > k_size) then
-         write (*, '(a,i0,a,i0)') &
+         write (error_unit, '(a,i0,a,i0)') &
             'preserf: fs_write_kbuff k=', k, ' is out of range 1..', k_size
          error stop 1
       end if
@@ -1015,7 +1070,10 @@ contains
       real(real64), intent(in) :: flat_slice(:)
       integer, intent(in) :: slice_shape(:)
       integer, intent(in) :: k, k_size
-      integer :: idx, slice_size, off
+      integer :: idx, slice_size
+      ! int64 so (k-1)*slice_size cannot wrap past 2^31 for a tall/wide
+      ! field; the buffer is indexed with this offset.
+      integer(int64) :: off
       logical :: is_new
 
       call kbuff_check_k(k, k_size)
@@ -1032,14 +1090,14 @@ contains
       ! 1,1,3 makes three calls yet never writes level 2) before the buffer
       ! flushes stale/zeroed slices.
       if (k /= ppser_kbuffers(idx)%filled + 1) then
-         write (*, '(a,a,a,i0,a,i0,a)') &
+         write (error_unit, '(a,a,a,i0,a,i0,a)') &
             'preserf: fs_write_kbuff for "', trim(fieldname), &
             '" expected level ', ppser_kbuffers(idx)%filled + 1, &
             ' but got ', k, ' (levels must be written once each, in order)'
          error stop 1
       end if
 
-      off = (k - 1)*slice_size
+      off = int(k - 1, int64)*int(slice_size, int64)
       ppser_kbuffers(idx)%buffer(off + 1:off + slice_size) = flat_slice
       ppser_kbuffers(idx)%filled = ppser_kbuffers(idx)%filled + 1
 
@@ -1084,7 +1142,7 @@ contains
       ! buffer-table component (which would then mismatch the on-disk variable
       ! name and make the per-(savepoint,field) lookup inconsistent).
       if (len_trim(fieldname) > PPSER_TRACER_NAME_LEN) then
-         write (*, '(a,a,a,i0,a)') &
+         write (error_unit, '(a,a,a,i0,a)') &
             'preserf: fs_write_kbuff field name "', trim(fieldname), &
             '" exceeds ', PPSER_TRACER_NAME_LEN, ' characters'
          error stop 1
@@ -1100,13 +1158,13 @@ contains
             ! [10,20] vs [8,25] — must be rejected, not silently merged).
             if (ppser_kbuffers(i)%k_size /= k_size .or. &
                 ppser_kbuffers(i)%full_rank /= sr + 1) then
-               write (*, '(a,a,a)') &
+               write (error_unit, '(a,a,a)') &
                   'preserf: fs_write_kbuff for "', trim(fieldname), &
                   '" has an inconsistent slice shape / k_size across levels'
                error stop 1
             end if
             if (any(ppser_kbuffers(i)%fshape(1:sr) /= slice_shape)) then
-               write (*, '(a,a,a)') &
+               write (error_unit, '(a,a,a)') &
                   'preserf: fs_write_kbuff for "', trim(fieldname), &
                   '" has an inconsistent slice shape / k_size across levels'
                error stop 1
@@ -1122,7 +1180,7 @@ contains
          idx = free_slot
       else
          if (ppser_kbuff_count >= PPSER_MAX_KBUFF) then
-            write (*, '(a,i0)') &
+            write (error_unit, '(a,i0)') &
                'preserf: too many concurrent k-buffers; cap is ', PPSER_MAX_KBUFF
             error stop 1
          end if
@@ -1131,7 +1189,7 @@ contains
       end if
 
       if (sr < 1 .or. sr > 3) then
-         write (*, '(a)') &
+         write (error_unit, '(a)') &
             'preserf: fs_write_kbuff supports slice rank 1..3 only'
          error stop 1
       end if
@@ -1146,7 +1204,12 @@ contains
       ppser_kbuffers(idx)%filled = 0
       if (allocated(ppser_kbuffers(idx)%buffer)) &
          deallocate (ppser_kbuffers(idx)%buffer)
-      allocate (ppser_kbuffers(idx)%buffer(slice_size*k_size))
+      ! int64 element count (promote before multiplying) so the buffer can
+      ! exceed 2^31 elements for ICON-scale fields; guards overflow naming
+      ! the field. The int64 upper bound makes the allocation use int64
+      ! addressing.
+      allocate (ppser_kbuffers(idx)%buffer( &
+                kbuff_total_elems(slice_size, k_size, fieldname)))
       is_new = .true.
    end subroutine kbuff_claim
 
@@ -1161,12 +1224,18 @@ contains
 
       ncerr = nf90_inq_varid(grpid, trim(fieldname), varid)
       if (ncerr == NF90_ENOTVAR) then
-         write (*, '(a,a,a)') &
+         write (error_unit, '(a,a,a)') &
             'preserf: read-mode k-buffer field "', trim(fieldname), &
             '" is not present at this savepoint'
          error stop 1
       end if
       call preserf_check_nf_with_msg(ncerr, 'inq_varid kbuff '//trim(fieldname))
+
+      ! Reject a store whose on-disk variable disagrees with the expected
+      ! double dtype / Fortran-order shape before nf90_get_var silently
+      ! coerces or sub-samples it (issue #70).
+      call require_variable_layout(grpid, varid, fieldname, NF90_DOUBLE, &
+                                   entry%fshape(1:entry%full_rank))
 
       select case (entry%full_rank)
       case (2)
@@ -1186,7 +1255,7 @@ contains
          call preserf_check_nf_with_msg(ncerr, 'get_var kbuff '//trim(fieldname))
          entry%buffer = reshape(t4, [size(t4)])
       case default
-         write (*, '(a,i0)') &
+         write (error_unit, '(a,i0)') &
             'preserf: k-buffer has unsupported full rank ', entry%full_rank
          error stop 1
       end select
@@ -1228,7 +1297,7 @@ contains
                              reshape(ppser_kbuffers(idx)%buffer, &
                                      ppser_kbuffers(idx)%fshape(1:4)))
       case default
-         write (*, '(a,i0)') &
+         write (error_unit, '(a,i0)') &
             'preserf: k-buffer has unsupported full rank ', &
             ppser_kbuffers(idx)%full_rank
          error stop 1
@@ -2236,7 +2305,7 @@ contains
       case ('string', 'character')
          tid = TID_STRING
       case default
-         write (*, '(a,a)') 'preserf: unknown datatype string: ', trim(datatype)
+         write (error_unit, '(a,a)') 'preserf: unknown datatype string: ', trim(datatype)
          error stop 1
       end select
    end function type_id_from_datatype
@@ -2245,7 +2314,7 @@ contains
       character(len=*), intent(in) :: datatype
       integer, intent(in) :: got
       character(len=*), intent(in) :: expected
-      write (*, '(a,a,a,i0,a,a)') &
+      write (error_unit, '(a,a,a,i0,a,a)') &
          'preserf: unsupported byte length for datatype "', &
          datatype, '": got ', got, &
          ' bytes/element, expected ', expected
@@ -2286,7 +2355,7 @@ contains
       ! treated as a 1-D field (because the `> 0` rank check skips
       ! jSize=-3), hiding a clearly bad REGISTER tuple.
       if (iSize < 0 .or. jSize < 0 .or. kSize < 0 .or. lSize < 0) then
-         write (*, '(a,4(i0,a))') &
+         write (error_unit, '(a,4(i0,a))') &
             'preserf: invalid dim tuple (', &
             iSize, ',', jSize, ',', kSize, ',', lSize, &
             '); negative sizes are not allowed'
@@ -2315,7 +2384,7 @@ contains
       ! non-contiguous prefix (already rejected above); a partially-zero
       ! tuple that reaches here with iSize == 0 is malformed.
       if (iSize <= 0) then
-         write (*, '(a,4(i0,a))') &
+         write (error_unit, '(a,4(i0,a))') &
             'preserf: invalid dim tuple (', &
             iSize, ',', jSize, ',', kSize, ',', lSize, &
             '); iSize must be > 0'
@@ -2354,7 +2423,7 @@ contains
 
    subroutine active_dims_inconsistent(iSize, jSize, kSize, lSize)
       integer, intent(in) :: iSize, jSize, kSize, lSize
-      write (*, '(a,4(i0,a))') &
+      write (error_unit, '(a,4(i0,a))') &
          'preserf: inconsistent dim tuple (', &
          iSize, ',', jSize, ',', kSize, ',', lSize, &
          '); non-zero sizes must form a contiguous leading prefix'
@@ -2377,13 +2446,40 @@ contains
       integer, intent(in) :: value
       character(len=*), intent(in) :: label
       if (int(value, int64) > int(huge(0_int32), int64)) then
-         write (*, '(a,a,a,i0,a,i0)') &
+         write (error_unit, '(a,a,a,i0,a,i0)') &
             'preserf: ', trim(label), &
             ' exceeds int32 capacity; got ', value, &
             ', max is ', huge(0_int32)
          error stop 1
       end if
    end subroutine require_fits_int32
+
+   !> Total element count of a k-buffer (slice_size * k_size) as int64.
+   !>
+   !> Both factors arrive as default-kind integers, so the bare product
+   !> `slice_size*k_size` is evaluated in default integer and silently wraps
+   !> past ~2^31 elements — plausible for an ICON-scale real64 field (a 17 GB
+   !> field is ~2.1e9 elements). This is the wire-boundary integer hazard the
+   !> style guide names (docs/style.md): we promote each operand to int64
+   !> *before* multiplying so the count is exact, and error_stop naming the
+   !> field if even the int64 product would overflow (the buffer allocation
+   !> and every `off + ss` index downstream use this same int64 count).
+   function kbuff_total_elems(slice_size, k_size, fieldname) result(n)
+      integer, intent(in) :: slice_size, k_size
+      character(len=*), intent(in) :: fieldname
+      integer(int64) :: n
+      ! huge(n) / k_size is the largest slice_size whose product with k_size
+      ! still fits int64; comparing before the multiply avoids the overflow
+      ! we are trying to detect. k_size >= 1 is guaranteed by kbuff_check_k.
+      if (int(slice_size, int64) > huge(n)/int(k_size, int64)) then
+         write (*, '(a,a,a,i0,a,i0,a)') &
+            'preserf: fs_write_kbuff for "', trim(fieldname), &
+            '" has too many elements (slice_size=', slice_size, &
+            ', k_size=', k_size, '); product overflows int64'
+         error stop 1
+      end if
+      n = int(slice_size, int64)*int(k_size, int64)
+   end function kbuff_total_elems
 
    subroutine put_halo_attr(grpid, varid, name, value)
       integer, intent(in) :: grpid, varid
@@ -2396,7 +2492,7 @@ contains
       ! writing nonsensical metadata that readers would round-trip
       ! without complaint.
       if (value < 0) then
-         write (*, '(a,a,a,i0)') &
+         write (error_unit, '(a,a,a,i0)') &
             'preserf: negative halo extent for "', name, '": ', value
          error stop 1
       end if
@@ -2507,7 +2603,7 @@ contains
          if (.not. present(s_val)) call missing_value_arg(key, 's_val')
          ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, s_val)
       case default
-         write (*, '(a,i0)') 'preserf: unsupported nc_type ', nc_type
+         write (error_unit, '(a,i0)') 'preserf: unsupported nc_type ', nc_type
          error stop 1
       end select
       call preserf_check_nf_with_msg(ncerr, 'put_att '//key)
@@ -2522,7 +2618,7 @@ contains
 
    subroutine missing_value_arg(key, expected)
       character(len=*), intent(in) :: key, expected
-      write (*, '(a,a,a,a,a)') &
+      write (error_unit, '(a,a,a,a,a)') &
          'preserf: put_typed_scalar_attr("', trim(key), &
          '") requires the ', trim(expected), &
          ' optional argument for the requested nc_type'
@@ -2545,21 +2641,21 @@ contains
 
       if (tlen >= len(prefix)) then
          if (tkey(1:len(prefix)) == prefix) then
-            write (*, '(a,a,a)') 'preserf: metainfo key "', tkey, &
+            write (error_unit, '(a,a,a)') 'preserf: metainfo key "', tkey, &
                '" collides with reserved prefix "_preserf_"'
             error stop 1
          end if
       end if
       if (tlen >= len(suffix)) then
          if (tkey(tlen - len(suffix) + 1:tlen) == suffix) then
-            write (*, '(a,a,a)') 'preserf: metainfo key "', tkey, &
+            write (error_unit, '(a,a,a)') 'preserf: metainfo key "', tkey, &
                '" collides with reserved suffix "__preserf_type_id"'
             error stop 1
          end if
       end if
       if (present(extra_reserved)) then
          if (tkey == trim(extra_reserved)) then
-            write (*, '(a,a,a,a,a)') 'preserf: metainfo key "', &
+            write (error_unit, '(a,a,a,a,a)') 'preserf: metainfo key "', &
                tkey, '" collides with the schema attribute "', &
                trim(extra_reserved), '" on this target group'
             error stop 1
@@ -2602,7 +2698,7 @@ contains
       if (ncerr == NF90_ENOTATT) call metainfo_absent(key)
       call preserf_check_nf_with_msg(ncerr, 'get_att '//shadow)
       if (stored_tid /= tid) then
-         write (*, '(a,a,a,i0,a,i0)') &
+         write (error_unit, '(a,a,a,i0,a,i0)') &
             'preserf: read-mode metainfo "', trim(key), &
             '" type-id mismatch: store has ', stored_tid, &
             ', run expects ', tid
@@ -2644,7 +2740,7 @@ contains
          call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
          if (strings_differ(stored_s, s_val)) call metainfo_value_mismatch(key)
       case default
-         write (*, '(a,i0)') 'preserf: unsupported nc_type ', nc_type
+         write (error_unit, '(a,i0)') 'preserf: unsupported nc_type ', nc_type
          error stop 1
       end select
    end subroutine check_typed_scalar_attr
@@ -2702,7 +2798,7 @@ contains
          if (.not. present(r64_val)) call missing_value_arg(key, 'r64_val')
          ncerr = nf90_put_att(grpid, NF90_GLOBAL, key, r64_val)
       case default
-         write (*, '(a,i0)') 'preserf: unsupported array nc_type ', nc_type
+         write (error_unit, '(a,i0)') 'preserf: unsupported array nc_type ', nc_type
          error stop 1
       end select
       call preserf_check_nf_with_msg(ncerr, 'put_att '//key)
@@ -2741,7 +2837,7 @@ contains
       if (ncerr == NF90_ENOTATT) call metainfo_absent(key)
       call preserf_check_nf_with_msg(ncerr, 'get_att '//shadow)
       if (stored_tid /= array_tid) then
-         write (*, '(a,a,a,i0,a,i0)') &
+         write (error_unit, '(a,a,a,i0,a,i0)') &
             'preserf: read-mode metainfo "', trim(key), &
             '" type-id mismatch: store has ', stored_tid, &
             ', run expects ', array_tid
@@ -2789,14 +2885,14 @@ contains
          call preserf_check_nf_with_msg(ncerr, 'get_att '//key)
          if (any(r64_differs(b_r64, r64_val))) call metainfo_value_mismatch(key)
       case default
-         write (*, '(a,i0)') 'preserf: unsupported array nc_type ', nc_type
+         write (error_unit, '(a,i0)') 'preserf: unsupported array nc_type ', nc_type
          error stop 1
       end select
    end subroutine check_typed_array_attr
 
    subroutine metainfo_absent(key)
       character(len=*), intent(in) :: key
-      write (*, '(a,a,a)') &
+      write (error_unit, '(a,a,a)') &
          'preserf: read-mode metainfo "', trim(key), &
          '" is not present in the store'
       error stop 1
@@ -2804,7 +2900,7 @@ contains
 
    subroutine metainfo_value_mismatch(key)
       character(len=*), intent(in) :: key
-      write (*, '(a,a,a)') &
+      write (error_unit, '(a,a,a)') &
          'preserf: read-mode metainfo "', trim(key), &
          '" value mismatch between run and store'
       error stop 1
@@ -2889,7 +2985,7 @@ contains
       else
          ncerr = nf90_inq_varid(s%fields_grpid, trim(fieldname), varid)
          if (ncerr == NF90_ENOTVAR) then
-            write (*, '(a,a,a,a)') &
+            write (error_unit, '(a,a,a,a)') &
                'preserf: ', trim(context)//' "', trim(fieldname), &
                '" is not present in the store registry'
             error stop 1
@@ -2901,7 +2997,7 @@ contains
       ncerr = nf90_get_att(s%fields_grpid, varid, 'type_id', stored_tid)
       call preserf_check_nf_with_msg(ncerr, 'get_att type_id')
       if (stored_tid /= type_id) then
-         write (*, '(a,a,a,a,i0,a,i0)') &
+         write (error_unit, '(a,a,a,a,i0,a,i0)') &
             'preserf: ', trim(context)//' "', trim(fieldname), &
             '" type_id mismatch: store has ', stored_tid, &
             ', run expects ', type_id
@@ -2914,7 +3010,7 @@ contains
       ncerr = nf90_get_att(s%fields_grpid, varid, 'dims', stored_dims)
       call preserf_check_nf_with_msg(ncerr, 'get_att dims')
       if (attr_len /= size(dims)) then
-         write (*, '(a,a,a,a,i0,a,i0)') &
+         write (error_unit, '(a,a,a,a,i0,a,i0)') &
             'preserf: ', trim(context)//' "', trim(fieldname), &
             '" dims mismatch: store rank ', attr_len, &
             ', run rank ', size(dims)
@@ -2922,11 +3018,11 @@ contains
       end if
       do axis = 1, attr_len
          if (stored_dims(axis) /= dims(axis)) then
-            write (*, '(a,a,a,a)') &
+            write (error_unit, '(a,a,a,a)') &
                'preserf: ', trim(context)//' "', trim(fieldname), &
                '" dims mismatch with registered shape.'
-            write (*, '(a,*(i0,1x))') '  store (C-order): ', stored_dims
-            write (*, '(a,*(i0,1x))') '  run   (C-order): ', dims
+            write (error_unit, '(a,*(i0,1x))') '  store (C-order): ', stored_dims
+            write (error_unit, '(a,*(i0,1x))') '  run   (C-order): ', dims
             error stop 1
          end if
       end do
@@ -2966,7 +3062,7 @@ contains
          call preserf_check_nf_with_msg(ncerr, 'get_att '//name)
       end if
       if (int(stored) /= expected) then
-         write (*, '(a,a,a,a,a,i0,a,i0)') &
+         write (error_unit, '(a,a,a,a,a,i0,a,i0)') &
             'preserf: '//trim(context)//' "', trim(fieldname), '" halo "', &
             trim(name), '" mismatch: store has ', int(stored), &
             ', run expects ', expected
@@ -3020,7 +3116,7 @@ contains
                                     registered_dims_out=registered_dims_out)
             return
          end if
-         write (*, '(a,a,a,a,a)') &
+         write (error_unit, '(a,a,a,a,a)') &
             'preserf: ', trim(op), ' on unregistered field "', &
             trim(fieldname), '"; call fs_register_field first'
          error stop 1
@@ -3037,7 +3133,7 @@ contains
       ncerr = nf90_get_att(s%fields_grpid, varid, 'type_id', registered_tid)
       call preserf_check_nf_with_msg(ncerr, 'get_att type_id')
       if (registered_tid /= expected_tid) then
-         write (*, '(a,a,a,a,a,i0,a,i0,a)') &
+         write (error_unit, '(a,a,a,a,a,i0,a,i0,a)') &
             'preserf: ', trim(op), ' on field "', trim(fieldname), &
             '" via type-id=', expected_tid, &
             ' overload but the field was registered with type_id=', &
@@ -3052,7 +3148,7 @@ contains
       call preserf_check_nf_with_msg(ncerr, 'get_att dims')
 
       if (size(fortran_shape) /= attr_len) then
-         write (*, '(a,a,a,a,a,i0,a,i0,a)') &
+         write (error_unit, '(a,a,a,a,a,i0,a,i0,a)') &
             'preserf: ', trim(op), ' on field "', trim(fieldname), &
             '" has Fortran rank ', size(fortran_shape), &
             ' but was registered with C-order rank ', attr_len, '.'
@@ -3064,13 +3160,13 @@ contains
       do axis = 1, attr_len
          if (int(registered_dims(axis)) /= &
              fortran_shape(attr_len - axis + 1)) then
-            write (*, '(a,a,a,a,a)') &
+            write (error_unit, '(a,a,a,a,a)') &
                'preserf: ', trim(op), ' on field "', &
                trim(fieldname), &
                '" runtime shape disagrees with registered dims.'
-            write (*, '(a,*(i0,1x))') &
+            write (error_unit, '(a,*(i0,1x))') &
                '  registered (C-order): ', registered_dims
-            write (*, '(a,*(i0,1x))') &
+            write (error_unit, '(a,*(i0,1x))') &
                '  runtime (Fortran):    ', fortran_shape
             error stop 1
          end if
@@ -3108,7 +3204,7 @@ contains
          ! guard and the conversion below index one element in lockstep.
          ! C-axis (axis-1) is the slowest-varying = last Fortran axis.
          if (fortran_shape(r - axis + 1) <= 0) then
-            write (*, '(a,*(i0,1x))') &
+            write (error_unit, '(a,*(i0,1x))') &
                'preserf: cannot auto-register a field with a non-positive '// &
                'extent; runtime shape was: ', fortran_shape
             error stop 1
@@ -3219,7 +3315,7 @@ contains
       type(t_serializer), intent(in) :: s
       character(len=*), intent(in) :: where
       if (s%ncid == -1) then
-         write (*, '(a,a,a)') 'preserf: ', trim(where), &
+         write (error_unit, '(a,a,a)') 'preserf: ', trim(where), &
             ' called before ppser_initialize'
          error stop 1
       end if
@@ -3234,7 +3330,7 @@ contains
       type(t_savepoint), intent(in) :: sp
       character(len=*), intent(in) :: where
       if (sp%grpid == -1) then
-         write (*, '(a,a,a)') 'preserf: ', trim(where), &
+         write (error_unit, '(a,a,a)') 'preserf: ', trim(where), &
             ' called with an uninitialised savepoint '// &
             '(call fs_create_savepoint first)'
          error stop 1
@@ -3254,7 +3350,7 @@ contains
       type(t_savepoint), intent(in) :: sp
       character(len=*), intent(in) :: where
       if (sp%owner_ncid /= s%ncid) then
-         write (*, '(a,a,a)') 'preserf: ', trim(where), &
+         write (error_unit, '(a,a,a)') 'preserf: ', trim(where), &
             ' was passed a savepoint created by a different '// &
             'serializer; the field registry and the data variable '// &
             'would belong to different stores'
@@ -3310,11 +3406,8 @@ contains
       character(len=*), intent(in) :: fieldname
       integer, intent(in) :: expected_xtype
       integer(int32), intent(in), optional :: known_dims_c(:)
-      integer :: ncerr, actual_xtype, actual_ndims, axis, registry_varid, &
-                 attr_len
+      integer :: ncerr, axis, registry_varid, attr_len
       integer(int32), allocatable :: expected_dims_c(:)
-      integer, allocatable :: dimids(:)
-      integer :: actual_len
 
       ! Reuse the registry `dims` validate_field_shape already fetched on
       ! this read; only fall back to re-reading them when not supplied.
@@ -3334,55 +3427,86 @@ contains
          call preserf_check_nf_with_msg(ncerr, 'get_att dims (for variable check)')
       end if
 
-      ncerr = nf90_inquire_variable(sp_grpid, varid, xtype=actual_xtype, &
+      ! expected_dims_c is C-order (slowest-first); the shared check works
+      ! in Fortran order (fastest-first), so reverse it before delegating.
+      block
+         integer :: rank
+         integer, allocatable :: expected_dims_f(:)
+         rank = size(expected_dims_c)
+         allocate (expected_dims_f(rank))
+         do axis = 1, rank
+            expected_dims_f(axis) = int(expected_dims_c(rank - axis + 1))
+         end do
+         call require_variable_layout(sp_grpid, varid, fieldname, &
+                                      expected_xtype, expected_dims_f)
+      end block
+   end subroutine require_variable_xtype
+
+   !> Shared on-disk variable validation for every read path (field,
+   !> tracer, k-buffer). Confirms the netCDF variable's `xtype`, rank, and
+   !> per-axis lengths match what the reader expects, so a store mutated by
+   !> a third-party tool is rejected up-front rather than being silently
+   !> coerced (wrong dtype) or silently sub-sampled (larger on-disk extent)
+   !> by `nf90_get_var`. `expected_dims_f` is the expected shape in Fortran
+   !> order (fastest-varying first) — the same order `nf90_inquire_variable`
+   !> returns dimids in — so callers pass `shape(...)`/`fshape` directly.
+   !> Callers that hold C-order dims (the `/_fields` registry) reverse them
+   !> before calling; see `require_variable_xtype`.
+   subroutine require_variable_layout(grpid, varid, name, expected_xtype, &
+                                      expected_dims_f)
+      integer, intent(in) :: grpid, varid
+      character(len=*), intent(in) :: name
+      integer, intent(in) :: expected_xtype
+      integer, intent(in) :: expected_dims_f(:)
+      integer :: ncerr, actual_xtype, actual_ndims, axis, actual_len
+      integer, allocatable :: dimids(:)
+
+      ncerr = nf90_inquire_variable(grpid, varid, xtype=actual_xtype, &
                                     ndims=actual_ndims)
       call preserf_check_nf_with_msg(ncerr, &
-                                     'inquire_variable '//trim(fieldname))
+                                     'inquire_variable '//trim(name))
       if (actual_xtype /= expected_xtype) then
-         write (*, '(a,a,a,i0,a,i0,a)') &
-            'preserf: read of field "', trim(fieldname), &
+         write (error_unit, '(a,a,a,i0,a,i0,a)') &
+            'preserf: read of "', trim(name), &
             '" expects on-disk nc_type ', expected_xtype, &
             ' but the variable has nc_type ', actual_xtype, &
             '. Registry / variable mismatch in the store.'
          error stop 1
       end if
-      if (actual_ndims /= size(expected_dims_c)) then
-         write (*, '(a,a,a,i0,a,i0,a)') &
-            'preserf: read of field "', trim(fieldname), &
-            '" expects rank ', size(expected_dims_c), &
+      if (actual_ndims /= size(expected_dims_f)) then
+         write (error_unit, '(a,a,a,i0,a,i0,a)') &
+            'preserf: read of "', trim(name), &
+            '" expects rank ', size(expected_dims_f), &
             ' but the on-disk variable has rank ', actual_ndims, '.'
          error stop 1
       end if
       if (actual_ndims > 0) then
          allocate (dimids(actual_ndims))
-         ncerr = nf90_inquire_variable(sp_grpid, varid, dimids=dimids)
+         ncerr = nf90_inquire_variable(grpid, varid, dimids=dimids)
          call preserf_check_nf_with_msg(ncerr, &
-                                        'inquire_variable dimids '//trim(fieldname))
+                                        'inquire_variable dimids '//trim(name))
          ! netcdf-fortran returns dimids in Fortran order
-         ! (fastest-varying first). The expected_dims_c vector is
-         ! C-order (slowest-first), so we compare dimids(k) against
-         ! expected_dims_c(rank - k + 1).
+         ! (fastest-varying first), matching expected_dims_f.
          do axis = 1, actual_ndims
-            ncerr = nf90_inquire_dimension(sp_grpid, dimids(axis), &
+            ncerr = nf90_inquire_dimension(grpid, dimids(axis), &
                                            len=actual_len)
             call preserf_check_nf_with_msg(ncerr, &
-                                           'inquire_dimension '//trim(fieldname))
-            if (actual_len /= &
-                int(expected_dims_c(actual_ndims - axis + 1))) then
-               write (*, '(a,a,a)') &
-                  'preserf: read of field "', trim(fieldname), &
+                                           'inquire_dimension '//trim(name))
+            if (actual_len /= expected_dims_f(axis)) then
+               write (error_unit, '(a,a,a)') &
+                  'preserf: read of "', trim(name), &
                   '" on-disk variable dimension lengths disagree '// &
-                  'with registry dims.'
-               write (*, '(a,*(i0,1x))') &
-                  '  registered (C-order):    ', expected_dims_c
-               write (*, '(a,*(i0,1x))') &
-                  '  variable axis (Fortran): ', axis, actual_len
+                  'with expected shape.'
+               write (error_unit, '(a,*(i0,1x))') &
+                  '  expected (Fortran order): ', expected_dims_f
+               write (error_unit, '(a,*(i0,1x))') &
+                  '  variable axis (Fortran):  ', axis, actual_len
                error stop 1
             end if
          end do
          deallocate (dimids)
       end if
-   end subroutine require_variable_xtype
+   end subroutine require_variable_layout
 
    pure function to_lower(s) result(r)
       character(len=*), intent(in) :: s

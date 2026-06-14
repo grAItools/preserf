@@ -35,24 +35,52 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 
-from tests._support.serialbox import TypeID, numpy_dtype_for
-from tests._support.storage import open_url_for, read_dump
+from tests._support.serialbox import (
+    FieldMetainfo,
+    MetainfoValue,
+    Savepoint,
+    SerialboxDump,
+    TypeID,
+    numpy_dtype_for,
+)
+from tests._support.storage import open_url_for, read_dump, write_dump
 from tests.conftest import _require_binary
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-def test_fortran_writes_python_reads(tmp_path: Path, fortran_binary: Path) -> None:
-    """The Fortran helper writes a store the Python reader can decode."""
-    out_dir = tmp_path / "fortran_out"
-    out_dir.mkdir()
+def run_scenario(
+    binary: Path,
+    out_dir: Path,
+    scenario: str | None = None,
+    *,
+    marker: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run a ``test_minimal`` scenario, asserting exit 0 and the OK marker.
 
-    # The Fortran test is expected to complete in well under a second;
-    # the 60-second cap is generous but stops a deadlock from hanging
-    # CI / local runs indefinitely.
+    The Fortran helper is invoked as ``<binary> <out_dir> [scenario]``; every
+    positive scenario exits 0 and prints ``preserf-fortran: <name> OK``. This
+    folds the ~identical ``subprocess.run`` / returncode / marker-check block
+    each subprocess-driving test repeated. ``marker`` defaults to
+    ``preserf-fortran: <scenario> OK`` (the convention every positive scenario
+    follows); pass it explicitly only when the printed marker differs from the
+    scenario argument. Returns the completed process so callers can make
+    further assertions on stdout/stderr.
+
+    The default scenario (``None``) is the hello-world run, whose marker is
+    ``preserf-fortran: hello-world OK``.
+
+    The 60-second cap matches the ctest ``TIMEOUT`` for the same binary so a
+    netCDF/HDF5 deadlock cannot hang the run indefinitely.
+    """
+    if marker is None:
+        marker = f"preserf-fortran: {scenario or 'hello-world'} OK"
+    cmd = [str(binary), str(out_dir)]
+    if scenario is not None:
+        cmd.append(scenario)
     result = subprocess.run(
-        [str(fortran_binary), str(out_dir)],
+        cmd,
         capture_output=True,
         text=True,
         check=False,
@@ -62,7 +90,19 @@ def test_fortran_writes_python_reads(tmp_path: Path, fortran_binary: Path) -> No
         f"Fortran binary exited {result.returncode}.\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
-    assert "preserf-fortran: hello-world OK" in result.stdout
+    assert marker in result.stdout, (
+        f"expected marker {marker!r} in stdout.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    return result
+
+
+def test_fortran_writes_python_reads(tmp_path: Path, fortran_binary: Path) -> None:
+    """The Fortran helper writes a store the Python reader can decode."""
+    out_dir = tmp_path / "fortran_out"
+    out_dir.mkdir()
+
+    run_scenario(fortran_binary, out_dir)
 
     nc_path = out_dir / "fhello.nc"
 
@@ -271,18 +311,7 @@ def test_fortran_writes_nczarr_v2_python_reads(
     out_dir = tmp_path / "fortran_out"
     out_dir.mkdir()
 
-    result = subprocess.run(
-        [str(fortran_binary), str(out_dir), "backend-nczarr"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=60,
-    )
-    assert result.returncode == 0, (
-        f"Fortran binary exited {result.returncode}.\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-    assert "preserf-fortran: backend-nczarr OK" in result.stdout
+    run_scenario(fortran_binary, out_dir, "backend-nczarr")
 
     # NCZarr V2 produces a `.zarr` directory store, not a `.nc` file.
     store_dir = out_dir / "fzarr.zarr"
@@ -335,18 +364,7 @@ def test_fortran_autoregistered_fields_python_reads(
     out_dir = tmp_path / "fortran_out"
     out_dir.mkdir()
 
-    result = subprocess.run(
-        [str(fortran_binary), str(out_dir), "autoregister"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=60,
-    )
-    assert result.returncode == 0, (
-        f"Fortran binary exited {result.returncode}.\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-    assert "preserf-fortran: autoregister OK" in result.stdout
+    run_scenario(fortran_binary, out_dir, "autoregister")
 
     dump = read_dump(out_dir / "fauto.nc")
 
@@ -396,18 +414,7 @@ def test_fortran_writes_tracers_python_reads(
     out_dir = tmp_path / "fortran_out"
     out_dir.mkdir()
 
-    result = subprocess.run(
-        [str(fortran_binary), str(out_dir), "tracers"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=60,
-    )
-    assert result.returncode == 0, (
-        f"Fortran binary exited {result.returncode}.\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-    assert "preserf-fortran: tracers OK" in result.stdout
+    run_scenario(fortran_binary, out_dir, "tracers")
 
     nc_path = out_dir / "ftracers.nc"
 
@@ -506,18 +513,7 @@ def test_fortran_tracer_timelevel_last_write_wins(
     out_dir = tmp_path / "fortran_out"
     out_dir.mkdir()
 
-    result = subprocess.run(
-        [str(fortran_binary), str(out_dir), "tracer-tl-overwrite"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=60,
-    )
-    assert result.returncode == 0, (
-        f"Fortran binary exited {result.returncode}.\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-    assert "preserf-fortran: tracer-tl-overwrite OK" in result.stdout
+    run_scenario(fortran_binary, out_dir, "tracer-tl-overwrite")
 
     import netCDF4  # local import; netCDF4 is a dev-only dependency
 
@@ -548,18 +544,7 @@ def test_fortran_writes_kbuff_python_reads(
     out_dir = tmp_path / "fortran_out"
     out_dir.mkdir()
 
-    result = subprocess.run(
-        [str(fortran_binary), str(out_dir), "kbuff"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=60,
-    )
-    assert result.returncode == 0, (
-        f"Fortran binary exited {result.returncode}.\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-    assert "preserf-fortran: kbuff OK" in result.stdout
+    run_scenario(fortran_binary, out_dir, "kbuff")
 
     nc_path = out_dir / "fkbuff.nc"
     dump = read_dump(str(nc_path))
@@ -607,18 +592,7 @@ def test_fortran_writes_option_python_reads(
     out_dir = tmp_path / "fortran_out"
     out_dir.mkdir()
 
-    result = subprocess.run(
-        [str(fortran_binary), str(out_dir), "option"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=60,
-    )
-    assert result.returncode == 0, (
-        f"Fortran binary exited {result.returncode}.\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-    assert "preserf-fortran: option OK" in result.stdout
+    run_scenario(fortran_binary, out_dir, "option")
 
     nc_path = out_dir / "foption.nc"
 
@@ -785,18 +759,7 @@ def matrix_store(tmp_path_factory: pytest.TempPathFactory) -> dict[str, object]:
     """
     binary = _require_binary("unit/m_preserf", "preserf_fortran_test_minimal")
     out_dir = tmp_path_factory.mktemp("wire_matrix")
-    result = subprocess.run(
-        [str(binary), str(out_dir), "wire-matrix"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=60,
-    )
-    assert result.returncode == 0, (
-        f"Fortran binary exited {result.returncode}.\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-    assert "preserf-fortran: wire-matrix OK" in result.stdout
+    run_scenario(binary, out_dir, "wire-matrix")
 
     nc_path = out_dir / "fmatrix.nc"
 
@@ -901,3 +864,104 @@ def test_fortran_array_metainfo_matrix(matrix_store: dict[str, object]) -> None:
     assert gm["a_r4"].value == pytest.approx([1.5, 2.5])
     assert gm["a_r8"].type_id == TypeID.ArrayOfFloat64
     assert gm["a_r8"].value == [3.5, 4.5]
+
+
+# ---------------------------------------------------------------------------
+# Issue #68: reverse-direction wire-compat — Python writes, Fortran reads.
+#
+# Every test above is "Fortran writes -> Python reads". A symmetric encoding
+# quirk shared by the Fortran writer and reader (an axis-order or registry
+# convention both get consistently wrong) would slip through, because the
+# Fortran read path is only ever exercised against stores Fortran itself
+# wrote. Here Python's `write_dump` produces the store and the Fortran binary
+# reads it back via `fs_read_field` (the `read-python-store` scenario in
+# test_minimal.f90), driving the read path against an independent producer.
+# Covered for both the netcdf4 and nczarr-v2 backends.
+# ---------------------------------------------------------------------------
+
+
+def _python_written_dump() -> SerialboxDump:
+    """Build a SerialboxDump with three real64 fields at one savepoint.
+
+    Field shapes / values mirror the Fortran `read-python-store` scenario.
+    `write_dump` stores arrays in C-order (the reverse of the Fortran
+    column-major declaration), and the Fortran helper reverses again on
+    read, so the Fortran side sees:
+        u(i,j,k) = 100*i + 10*j + k   declared (4,3,2) -> C-order dims [2,3,4]
+        v(i)     = real(i)            declared (5)     -> C-order dims [5]
+        w(i,j)   = 10*i + j           declared (3,4)   -> C-order dims [4,3]
+    """
+    # u: numpy C-order (nk=2, nj=3, ni=4); u_py[k-1, j-1, i-1] = 100i+10j+k.
+    u = np.array(
+        [
+            [[100 * i + 10 * j + k for i in range(1, 5)] for j in range(1, 4)]
+            for k in range(1, 3)
+        ],
+        dtype=np.float64,
+    )
+    v = np.arange(1, 6, dtype=np.float64)
+    # w: numpy C-order (nj=4, ni=3); w_py[j-1, i-1] = 10i+j.
+    w = np.array(
+        [[10 * i + j for i in range(1, 4)] for j in range(1, 5)],
+        dtype=np.float64,
+    )
+
+    dump = SerialboxDump(prefix="fpystore")
+    dump.field_map = {
+        "u": FieldMetainfo(type_id=TypeID.Float64, dims=[2, 3, 4]),
+        "v": FieldMetainfo(type_id=TypeID.Float64, dims=[5]),
+        "w": FieldMetainfo(type_id=TypeID.Float64, dims=[4, 3]),
+    }
+    dump.field_data = {"u": {0: u}, "v": {0: v}, "w": {0: w}}
+    dump.savepoints = [
+        Savepoint(
+            name="step",
+            meta_info={
+                "ntstep": MetainfoValue(type_id=TypeID.Int32, value=1),
+                "t": MetainfoValue(type_id=TypeID.Float64, value=0.5),
+            },
+            fields={"u": 0, "v": 0, "w": 0},
+        )
+    ]
+    return dump
+
+
+@pytest.mark.parametrize("backend", ["netcdf4", "nczarr-v2"])
+def test_fortran_reads_python_written_store(
+    tmp_path: Path, fortran_binary: Path, backend: str
+) -> None:
+    """Python writes a preserf store; the Fortran binary reads it back.
+
+    Reverse-direction wire-compat (issue #68): `write_dump` is the
+    independent producer, and the Fortran `read-python-store` scenario opens
+    the store read-only, REGISTERs the three fields (which validates the
+    Python-written `/_fields` registry against the Fortran reader's
+    expectation), and asserts every field value / axis-order round-trips.
+    The scenario prints `read-python-store OK` and exits 0 only when all
+    Fortran-side assertions pass.
+    """
+    out_dir = tmp_path / "py_out"
+    out_dir.mkdir()
+
+    # Python produces the store. open_url_for + write_dump pick the on-disk
+    # form per backend (a .nc file for netcdf4, a .zarr directory store for
+    # nczarr-v2) under the prefix the Fortran scenario opens ("fpystore").
+    url = write_dump(_python_written_dump(), out_dir, backend=backend)
+    if backend == "netcdf4":
+        assert (out_dir / "fpystore.nc").is_file()
+    else:
+        assert (out_dir / "fpystore.zarr").is_dir()
+    assert url  # sanity: a URL was returned
+
+    result = subprocess.run(
+        [str(fortran_binary), str(out_dir), "read-python-store", backend],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, (
+        f"Fortran binary exited {result.returncode} reading a Python-written "
+        f"{backend} store.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "preserf-fortran: read-python-store OK" in result.stdout

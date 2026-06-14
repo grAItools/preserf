@@ -4,6 +4,13 @@
 !> rely on (`ppser_serializer`, `ppser_serializer_ref`, `ppser_savepoint`,
 !> `ppser_realtype`, `ppser_zrperturb`, plus the mode getter/setter).
 !>
+!> NOT THREAD-SAFE: this state is `save`d, module-level, and mutated with
+!> no synchronization (the serializer / savepoint structs, the
+!> `serialisation_enabled` gate, and the tracer / k-buffer registries).
+!> Concurrent `!$SER` from multiple OpenMP threads races on it. Run
+!> `!$SER` directives from serial regions only; guard any in-region use
+!> with `!$omp critical` / `!$omp master`. See ADR 0005 (docs/adr/).
+!>
 !> The actual netCDF operations live in m_preserf; this module only
 !> handles dataset open/close and mode state. The `backend` keyword on
 !> `ppser_initialize` selects between NetCDF4 (`.nc` files, the default)
@@ -14,7 +21,7 @@
 !> Backed by the schema documented in
 !> `docs/references/storage_mapping.md`.
 module utils_preserf
-   use, intrinsic :: iso_fortran_env, only: int8, int32, int64, real64
+   use, intrinsic :: iso_fortran_env, only: int8, int32, int64, real64, error_unit
    use, intrinsic :: iso_c_binding, only: c_char, c_size_t, c_ptr, &
                                                                              c_associated, c_null_char
    use netcdf
@@ -188,6 +195,14 @@ module utils_preserf
       integer :: slice_size = 0
       integer :: k_size = 0
       integer :: filled = 0
+      ! `buffer` holds the whole field (slice_size * k_size real64 elements).
+      ! For ICON-scale fields this product can exceed 2^31, so the size and
+      ! offset arithmetic in m_preserf.F90 / preserf_write_kbuff.inc promotes
+      ! its operands to int64 before multiplying (a default-integer product
+      ! would silently wrap past ~2.1e9 elements and under-allocate / corrupt
+      ! the buffer). Fortran allocates and subscripts the array with whatever
+      ! integer kind the bound/index expression carries, so an int64 bound
+      ! here lets the buffer exceed 2^31 elements.
       real(real64), allocatable :: buffer(:)
    end type t_kbuff_entry
 
@@ -200,7 +215,7 @@ module utils_preserf
    public :: ppser_initialize, ppser_finalize
    public :: ppser_get_mode, ppser_set_mode
    public :: ppser_reset_tracers, ppser_reset_kbuffers
-   public :: preserf_check_nf, preserf_check_nf_with_msg
+   public :: preserf_check_nf_with_msg
    public :: preserf_writer_version
    public :: preserf_logical_to_byte
 
@@ -224,21 +239,13 @@ module utils_preserf
 
 contains
 
-   !> Check a netCDF return code; abort the program with a helpful message
-   !> if it indicates an error.
-   subroutine preserf_check_nf(ncerr)
-      integer, intent(in) :: ncerr
-      if (ncerr /= NF90_NOERR) then
-         write (*, '(a,a)') 'preserf: netCDF error: ', trim(nf90_strerror(ncerr))
-         error stop 1
-      end if
-   end subroutine preserf_check_nf
-
+   !> Check a netCDF return code; abort the program with a message naming
+   !> `where` if it indicates an error.
    subroutine preserf_check_nf_with_msg(ncerr, where)
       integer, intent(in) :: ncerr
       character(len=*), intent(in) :: where
       if (ncerr /= NF90_NOERR) then
-         write (*, '(a,a,a,a)') 'preserf: netCDF error in ', trim(where), &
+         write (error_unit, '(a,a,a,a)') 'preserf: netCDF error in ', trim(where), &
             ': ', trim(nf90_strerror(ncerr))
          error stop 1
       end if
@@ -354,7 +361,7 @@ contains
          ! so it falls back to the default rather than failing the allowlist
          ! on an empty string with an unhelpful "unknown backend:" message.
          if (env_stat < 0) then
-            write (*, '(a,i0,a)') 'preserf: PRESERF_BACKEND value too long ', &
+            write (error_unit, '(a,i0,a)') 'preserf: PRESERF_BACKEND value too long ', &
                len(env_value), ' chars max (it was truncated)'
             error stop 1
          else if (env_stat == 0 .and. len_trim(env_value) > 0) then
@@ -368,8 +375,8 @@ contains
       ! any store is opened, so a typo'd keyword OR a typo'd PRESERF_BACKEND
       ! aborts with a clear message rather than a deep netCDF URL error.
       if (eff_backend /= 'netcdf4' .and. eff_backend /= 'nczarr-v2') then
-         write (*, '(a,a)') 'preserf: unknown backend: ', eff_backend
-         write (*, '(a)') "preserf: backend must be 'netcdf4' or 'nczarr-v2'"
+         write (error_unit, '(a,a)') 'preserf: unknown backend: ', eff_backend
+         write (error_unit, '(a)') "preserf: backend must be 'netcdf4' or 'nczarr-v2'"
          error stop 1
       end if
    end function ppser_resolve_backend
@@ -598,20 +605,48 @@ contains
       ! the main store, so a partial-arg mistake doesn't trash an
       ! existing target file.
       if (present(directory_ref) .neqv. present(prefix_ref)) then
-         write (*, '(a)') 'preserf: ppser_initialize requires either both '// &
+         write (error_unit, '(a)') 'preserf: ppser_initialize requires either both '// &
             'directory_ref and prefix_ref, or neither'
          error stop 1
       end if
 
       ! Resolve (and validate) the storage backend ONCE here, before any
-      ! store is opened: the explicit argument wins, else the
-      ! PRESERF_BACKEND env var, else the default. An unknown value —
-      ! whether from the keyword or the env var — aborts with a clear
-      ! message rather than a deep netCDF URL error. The resolved value is
-      ! threaded into every open below, and logged in the INIT banner so
-      ! the on-disk format is self-evident from the run log.
+      ! store is opened (selection precedence and validation live in
+      ! `ppser_resolve_backend`). The resolved value is threaded into every
+      ! open below, and logged in the INIT banner so the on-disk format is
+      ! self-evident from the run log.
       eff_backend = ppser_resolve_backend(backend)
       write (*, '(a,a)') 'preserf: SERIALIZATION IS ON, backend=', eff_backend
+
+      ! Re-init lifecycle (issue #67). A second ppser_initialize in the
+      ! same process without an intervening ppser_finalize must NOT just
+      ! overwrite ppser_serializer%ncid: that would leak the previous
+      ! file's open netCDF handle and abandon its store with the
+      ! _preserf_savepoint_count attribute still at its creation-time 0
+      ! (the count is only flushed by preserf_close_serializer), so the
+      ! reader contract would see the previous store as empty.
+      !
+      ! Policy: AUTO-CLOSE, not hard-error. The open question in the issue
+      ! is whether pp_ser-generated code legally re-inits in one process;
+      ! ICON-style multi-domain runs do re-init per domain, so re-init is
+      ! a supported flow and the friendly policy is to cleanly close the
+      ! previous session first. preserf_close_serializer flushes
+      ! _preserf_savepoint_count and releases the handle, and is a no-op
+      ! when ncid == -1 (the first init, or after an explicit finalize),
+      ! so this is safe to call unconditionally. Both the main and the
+      ! reference serializer are closed, mirroring ppser_finalize.
+      call preserf_close_serializer(ppser_serializer)
+      call preserf_close_serializer(ppser_serializer_ref)
+
+      ! Reset the module-level savepoint to its empty sentinel, matching
+      ! ppser_finalize. ppser_savepoint carries an owner_ncid from the
+      ! serializer that created it; left stale across a re-init it could
+      ! match a recycled ncid on the fresh open and defeat
+      ! require_savepoint_owner, letting a dangling grpid from the closed
+      ! store reach nf90_put_var. No savepoint may outlive its serializer.
+      ppser_savepoint%grpid = -1
+      ppser_savepoint%idx = -1
+      ppser_savepoint%owner_ncid = -1
 
       ! Behaviour-changing keywords: update the module state that
       ! pp_ser-generated REGISTER / DATA calls consume. `rprecision`
@@ -648,7 +683,7 @@ contains
          ! truncating it into the fixed-length `ppser_realtype` (which
          ! would then mis-register every real field).
          if (len(eff_realtype) > len(ppser_realtype)) then
-            write (*, '(a,i0,a)') &
+            write (error_unit, '(a,i0,a)') &
                'preserf: realtype string exceeds ', len(ppser_realtype), &
                ' characters'
             error stop 1
@@ -674,8 +709,8 @@ contains
          case ('double', 'real')
             ppser_reallength = 8
          case default
-            write (*, '(a,a)') 'preserf: unknown realtype: ', eff_realtype
-            write (*, '(a)') &
+            write (error_unit, '(a,a)') 'preserf: unknown realtype: ', eff_realtype
+            write (error_unit, '(a)') &
                "preserf: realtype must be 'float', 'single', 'double' "// &
                "or 'real' (case-insensitive)"
             error stop 1
@@ -838,7 +873,7 @@ contains
    subroutine ppser_set_mode(m)
       integer, intent(in) :: m
       if (m < 0 .or. m > 2) then
-         write (*, '(a,i0,a)') &
+         write (error_unit, '(a,i0,a)') &
             'preserf: ppser_set_mode(', m, &
             ') is out of range; expected 0 (write), 1 (read), '// &
             'or 2 (read-perturb)'
@@ -869,7 +904,7 @@ contains
 
       character(len=:), allocatable :: path, base, eff_backend
       character(len=32) :: rank_suffix
-      integer :: ncerr, version
+      integer :: ncerr, version, unused_version
 
       eff_backend = PPSER_DEFAULT_BACKEND
       if (present(backend)) eff_backend = backend
@@ -903,28 +938,22 @@ contains
          ! NCZarr's file:// URL needs an absolute directory: 'file://'
          ! prepended to an absolute '/dir' yields the well-formed
          ! file:///dir, but a relative directory would be parsed as
-         ! file://<authority>/... and silently target the wrong store.
-         ! NetCDF4 (and Serialbox) accept a relative directory such as
-         ! './ser_data' — the OS resolves it against the process CWD — so
-         ! resolve_abs_dir() resolves a relative directory the same way
-         ! (querying the CWD via POSIX getcwd(3)) before building the URL,
-         ! rather than rejecting it. nczarr-v2 thus accepts the same
-         ! relative directories as netcdf4. A genuinely un-resolvable
-         ! relative path (getcwd(3) failed — e.g. the CWD was removed or
-         ! is longer than the buffer) still aborts with a clear message
-         ! rather than emitting a bad URL.
+         ! file://<authority>/... and silently target the wrong store. So
+         ! resolve a relative `directory` to absolute via resolve_abs_dir()
+         ! (see its header for why this matches the NetCDF4 backend, and how
+         ! an un-resolvable path is handled) before building the URL.
          block
             character(len=:), allocatable :: abs_dir
             logical :: resolved
 
             if (len(directory) == 0) then
-               write (*, '(a)') &
+               write (error_unit, '(a)') &
                   'preserf: nczarr-v2 backend requires a non-empty directory'
                error stop 1
             end if
             call resolve_abs_dir(trim(directory), abs_dir, resolved)
             if (.not. resolved) then
-               write (*, '(a,a,a)') &
+               write (error_unit, '(a,a,a)') &
                   "preserf: nczarr-v2 backend could not resolve the relative "// &
                   "directory '", trim(directory), &
                   "' to an absolute path (getcwd(3) failed: the current "// &
@@ -943,13 +972,13 @@ contains
             ! by the CWD is caught too. pp_ser-generated paths are simple, so
             ! this is a precondition, not a functional limit.
             if (uri_unsafe_char(abs_dir) /= 0) then
-               write (*, '(a,a,a)') &
+               write (error_unit, '(a,a,a)') &
                   "preserf: nczarr-v2 directory contains a character that "// &
                   "needs URI-encoding (space, #, ? or %): '", abs_dir, "'"
                error stop 1
             end if
             if (uri_unsafe_char(base) /= 0) then
-               write (*, '(a,a,a)') &
+               write (error_unit, '(a,a,a)') &
                   "preserf: nczarr-v2 store name contains a character that "// &
                   "needs URI-encoding (space, #, ? or %): '", base, "'"
                error stop 1
@@ -959,7 +988,7 @@ contains
       case default
          ! ppser_initialize validates the backend up front, so this is a
          ! defensive guard for any other internal caller.
-         write (*, '(a,a)') 'preserf: unknown backend: ', eff_backend
+         write (error_unit, '(a,a)') 'preserf: unknown backend: ', eff_backend
          error stop 1
       end select
 
@@ -998,17 +1027,19 @@ contains
          ! follow-ups). Until that is implemented, 'a' is rejected
          ! rather than silently corrupting _preserf_savepoint_count
          ! (which would be rewritten to 0 on close).
-         write (*, '(a)') &
+         write (error_unit, '(a)') &
             'preserf: append mode (a) is not yet supported in v0.1; '// &
             'use w (create) or r (read)'
          error stop 1
 
       case default
-         write (*, '(a,a)') 'preserf: unknown open mode: ', mode
+         write (error_unit, '(a,a)') 'preserf: unknown open mode: ', mode
          error stop 1
       end select
-      ! Silence "unused" warning for `version` on write-path opens.
-      if (.false.) version = version
+      ! `version` is only set on the read path; silence the unused-variable
+      ! warning on write-path opens via the project's standard unused-symbol
+      ! idiom: an unreachable read into a discard local (`if (.false.) ...`).
+      if (.false.) unused_version = version
    end subroutine preserf_open_serializer
 
    !> Create `directory` with `mkdir -p` semantics before a write-mode
@@ -1048,7 +1079,7 @@ contains
          wait=.true., exitstat=exitstat, cmdstat=cmdstat, cmdmsg=cmdmsg)
 
       if (cmdstat /= 0) then
-         write (*, '(a,a,a,a)') &
+         write (error_unit, '(a,a,a,a)') &
             'preserf: could not run mkdir for output directory ', &
             trim(directory), ': ', trim(cmdmsg)
          error stop 1
@@ -1058,7 +1089,7 @@ contains
          ! when `cmdstat /= 0`. Here the command ran (`cmdstat == 0`) but
          ! `mkdir` returned a non-zero exit status, so `cmdmsg` may be
          ! undefined and must not be read; report only the exit status.
-         write (*, '(a,a,a,i0,a)') &
+         write (error_unit, '(a,a,a,i0,a)') &
             'preserf: failed to create output directory ', &
             trim(directory), ' (mkdir exit status ', exitstat, ')'
          error stop 1
@@ -1256,7 +1287,7 @@ contains
                                      'get_att _preserf_schema_version (not a preserf store?)')
 
       if (version /= PRESERF_SCHEMA_VERSION) then
-         write (*, '(a,i0,a,i0)') &
+         write (error_unit, '(a,i0,a,i0)') &
             'preserf: unsupported schema version ', version, &
             '; this build supports ', PRESERF_SCHEMA_VERSION
          error stop 1

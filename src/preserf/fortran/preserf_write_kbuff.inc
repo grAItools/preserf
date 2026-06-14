@@ -14,7 +14,12 @@ subroutine PRESERF_SUB(s, sp, fieldname, data, k, k_size, mode)
    character(len=*), intent(in) :: fieldname
    real(real64), intent(inout) PRESERF_DIMS :: data
    integer, intent(in) :: k, k_size, mode
-   integer :: idx, off, ss
+   integer :: idx, ss
+   ! int64 offset so (k-1)*ss cannot wrap past 2^31 for an ICON-scale field;
+   ! it indexes the (potentially >2^31-element) k-buffer. ss stays default
+   ! integer: it is a single horizontal slice, bounded by Fortran's array
+   ! size limit, not the cross-level product.
+   integer(int64) :: off
    if (serialisation_enabled == 0) return
    call require_open(s, 'fs_write_kbuff')
    call require_savepoint(sp, 'fs_write_kbuff')
@@ -29,7 +34,7 @@ subroutine PRESERF_SUB(s, sp, fieldname, data, k, k_size, mode)
       ss = size(data)
       idx = kbuff_load(resolve_savepoint_grpid(ppser_serializer_ref, sp), &
                        fieldname, shape(data), ss, k, k_size)
-      off = (k - 1)*ss
+      off = int(k - 1, int64)*int(ss, int64)
       data = reshape(ppser_kbuffers(idx)%buffer(off + 1:off + ss), shape(data))
       if (k == k_size) call kbuff_free(idx)
    end if

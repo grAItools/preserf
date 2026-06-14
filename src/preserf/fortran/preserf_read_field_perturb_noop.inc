@@ -20,9 +20,7 @@ subroutine PRESERF_SUB(s, sp, fieldname, data, perturb)
    call PRESERF_BASE(s, sp, fieldname, data)
    ! `perturb` is accepted to match pp_ser's 5-arg call shape but is
    ! meaningless for non-float types and is intentionally ignored here.
-   ! The unreachable read into a discard local is a zero-cost reference
-   ! that silences the compiler's unused-dummy-argument check (same
-   ! `if (.false.) ...` idiom as `version` in preserf_open_serializer in
-   ! utils_preserf.f90; perturb is intent(in) so it is only read here).
+   ! Silence the unused-dummy-argument check via the project's standard
+   ! unused-symbol idiom: an unreachable read into a discard local.
    if (.false.) unused_perturb = perturb
 end subroutine PRESERF_SUB
