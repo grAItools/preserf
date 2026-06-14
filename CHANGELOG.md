@@ -243,6 +243,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([#14](https://github.com/grAItools/preserf/pull/14), [#15](https://github.com/grAItools/preserf/pull/15)).
 - `.devcontainer/`: pixi-based dev container ([#10](https://github.com/grAItools/preserf/pull/10), [#12](https://github.com/grAItools/preserf/pull/12)).
 
+### Documentation
+
+- Documented the Fortran runtime's serial-only (not thread-safe)
+  constraint: the `save`d module-level serializer / savepoint / registry
+  state and the shared `RANDOM_NUMBER` perturb state are mutated without
+  synchronization, so `!$SER` directives must run from serial regions only
+  (or be guarded with `!$omp critical` / `!$omp master`). Stated in
+  `src/preserf/fortran/README.md` and the `m_preserf` / `utils_preserf`
+  module headers, with the OpenMP-scope decision recorded in
+  [ADR 0005](docs/adr/0005-serialization-runtime-is-serial-only.md)
+  ([#73](https://github.com/grAItools/preserf/issues/73)).
+
 ### Changed
 
 - CI now runs the `consumer`-marked external-consumer / `find_package`
