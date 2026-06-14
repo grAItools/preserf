@@ -74,7 +74,7 @@ test-py-with-fortran = { cmd = ["pytest"], default-environment = "dev", env = { 
 test-examples = { cmd = ["bash", "examples/run-all.sh"], default-environment = "examples" }
 # External-consumer end-to-end build (deselected from `verify` by the
 # `-m 'not consumer'` default in pyproject; `-m consumer` here overrides it).
-test-consumer = { cmd = ["pytest", "-m", "consumer"], default-environment = "dev" }
+test-consumer = { cmd = ["pytest", "-m", "consumer"], default-environment = "dev", env = { PRESERF_REQUIRE_FORTRAN = "1" } }
 test-all = { depends-on = ["test-py-with-fortran", "test-examples", "test-consumer"] }
 typecheck = { cmd = ["mypy", "src"], default-environment = "dev" }
 verify = { depends-on = ["fmt-check", "lint", "typecheck", "test-py-with-fortran"] }

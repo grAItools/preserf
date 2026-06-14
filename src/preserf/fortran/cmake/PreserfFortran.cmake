@@ -23,6 +23,13 @@ get_filename_component(_preserf_fortran_dir "${CMAKE_CURRENT_LIST_DIR}/.." ABSOL
 set(PRESERF_FORTRAN_DIR "${_preserf_fortran_dir}"
     CACHE INTERNAL "Directory of the bundled preserf Fortran runtime sources")
 
+# Single source of truth for the per-compiler preprocessing / standards flags.
+# It ships beside this helper (same cmake/ dir), so a consumer that includes
+# PreserfFortran.cmake from the wheel gets it too. Captured at file scope:
+# CMAKE_CURRENT_LIST_DIR points here only at include time, not inside a
+# function body.
+include("${CMAKE_CURRENT_LIST_DIR}/PreserfFortranFlags.cmake")
+
 # ----------------------------------------------------------------------------
 # preserf_fortran_library([FORTRAN_DIR <dir>])
 #
@@ -117,13 +124,13 @@ function(preserf_add_fortran_target TARGET)
         Fortran_STANDARD 2008
         Fortran_STANDARD_REQUIRED ON
     )
-    if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
-        # preserf-generated calls (e.g. a full fs_register_field) are emitted
-        # on a single line that exceeds Fortran's 132-column free-form limit;
-        # -ffree-line-length-none lifts the limit so the line is not truncated.
-        # -cpp runs the C preprocessor for the #ifdef SERIALIZE guards.
-        target_compile_options(${TARGET} PRIVATE
-            -std=f2008 -cpp -ffree-line-length-none
-        )
-    endif()
+    # preserf-generated calls (e.g. a full fs_register_field) are emitted on a
+    # single line that can exceed Fortran's 132-column free-form limit, and the
+    # generated `.F90` carries `#ifdef SERIALIZE` guards. PREPROCESS turns on
+    # the C preprocessor (`-cpp` / `-fpp` / `-Mpreprocess`); the standards +
+    # wide-line flags come with it. Resolved per-compiler so a non-GNU consumer
+    # build is not silently left unpreprocessed (issue #78). No WARNINGS here:
+    # user code should not inherit preserf's warning set.
+    preserf_fortran_compile_flags(_preserf_target_flags PREPROCESS)
+    target_compile_options(${TARGET} PRIVATE ${_preserf_target_flags})
 endfunction()
