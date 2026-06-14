@@ -34,76 +34,59 @@ The helper targets a POSIX environment:
 | `utils_ppser`   | Drop-in re-export of `utils_preserf` under Serialbox's historical module name.                                                                                                                             |
 
 The `m_serialize` / `utils_ppser` aliases preserve the historical
-module identifiers pp_ser-generated source imports, but the
-**implemented symbol surface is the v0.1 subset described below**.
-pp_ser output that uses directives or `ppser_initialize` keyword
-arguments outside that subset will still fail to compile against the
-aliases until the relevant follow-up PR lands — see the "Known
-limitations" subsection.
+module identifiers pp_ser-generated source imports.
 
-## Scope of this build
+## Implemented surface
 
-v0.1 of the helper covers the minimum **write-mode** surface needed for
-the `!$SER INIT(mode='w')` / `REGISTER` / `SAVEPOINT` / `DATA` /
-`CLEANUP` flow:
+The helper implements the full pp_ser directive surface:
 
 - `fs_register_field` records `/_fields/<name>` with `type_id` + `dims`
   (in C-order — see [§1.1 of the storage mapping][axis-order]) and any
-  non-zero halo attributes. Includes a contiguous-prefix check on the
+  non-zero halo attributes. Re-registration is idempotent (Serialbox
+  parity). Includes a contiguous-prefix check on the
   `(iSize, jSize, kSize, lSize)` tuple.
 - `fs_create_savepoint` allocates the next `/savepoints/sp_NNNNNN`
   group with `name` and `_preserf_savepoint_index` attributes.
 - `fs_add_savepoint_metainfo` and `fs_add_serializer_metainfo` are
   overloaded for the six scalar Serialbox `TypeID`s
   (`logical`, `integer(int32)`, `integer(int64)`, `real(real32)`,
-  `real(real64)`, `character(len=*)`). Reserved keys (`_preserf_*`
-  prefix, `__preserf_type_id` suffix, plus `name` on savepoint groups)
-  are rejected.
-- `fs_write_field` is overloaded for `real(real64)` in 1D / 2D / 3D.
-  Each write validates the runtime shape and dtype against the
-  registered `/_fields/<name>` metadata before touching the store.
-- `fs_read_field` is overloaded for `real(real64)` in 1D / 2D / 3D in
-  both the 4-argument form and the 5-argument read-perturb form
+  `real(real64)`, `character(len=*)`) plus array-of-scalar variants.
+  Reserved keys (`_preserf_*` prefix, `__preserf_type_id` suffix, plus
+  `name` on savepoint groups) are rejected.
+- `fs_write_field` / `fs_read_field` — full type-coverage matrix:
+  `logical`, `integer(int32)`, `integer(int64)`, `real(real32)`,
+  `real(real64)`, in 0D through 4D. Each I/O call validates the runtime
+  shape and dtype against the registered `/_fields/<name>` metadata
+  before touching the store. `fs_read_field` has both the 4-argument
+  form and the 5-argument read-perturb form
   (`fs_read_field(s, sp, name, data, perturb)`). The 5-arg overloads
-  read the stored field, then apply symmetric multiplicative noise
-  `data*(1 + perturb*(2*r - 1))` (`r ~ U[0,1)` via `RANDOM_NUMBER`),
-  matching pp_ser's CASE(2) read-perturb semantics. The generator is
-  left unseeded, so its initial seed — and thus whether the noise
-  repeats across runs — is processor-dependent (some compilers/runtimes
-  are deterministic, others vary); call `random_seed` before reading if
-  you need control over the sequence (a fixed `put=` seed for
-  reproducibility, or a clock-derived seed for variability). Tests
-  assert bounds, not exact values.
+  apply symmetric multiplicative noise `data*(1 + perturb*(2*r - 1))`
+  (`r ~ U[0,1)` via `RANDOM_NUMBER`), matching pp_ser's CASE(2)
+  semantics. The generator is left unseeded; call `random_seed` before
+  reading if you need a controlled sequence.
+- `fs_write_kbuff` — k-buffer (`!$SER DATA_KBUFF`) write API.
+- `fs_RegisterAllTracers` / `ppser_write_tracer_*` — tracer write API
+  (`!$SER TRACER`, `!$SER REGISTERTRACERS`).
+- `fs_Option` — runtime option knob (`!$SER OPTION verbosity=N`).
 - `fs_enable_serialization` / `fs_disable_serialization` gate every
   fs_* I/O entry point at runtime; `fs_serialization_status()` exposes
   the flag for tests.
 
-### Known limitations / mismatches with pp_ser-generated code
+### Known limitations
 
-A corner of pp_ser's contract remains unimplemented, tracked as a
-follow-up:
-
-1. **Append mode (`'a'`) is rejected** rather than half-implemented.
-   It needs `nf90_inq_grps` index resumption that the netcdf-fortran
-   4.5.x wrapper makes awkward.
-
-Out of scope for this PR (tracked as follow-ups):
-
-- Full type-coverage matrix (bool / i32 / i64 / f32 + 0D..4D for fields,
-  array metainfo variants).
-- `fs_write_kbuff` (k-buffer / `!$SER DATA_KBUFF`).
-- `fs_RegisterAllTracers` and the tracer write API (`!$SER TRACER`).
-- `fs_Option` (`!$SER OPTION`).
-- Explicit `directory_ref` / `prefix_ref` test coverage. The integration
-  test exercises only the implicit same-store reference path
-  (`ppser_initialize(..., 'r')` opens `ppser_serializer_ref` against the
-  same store). The explicit-ref branch — which `ppser_initialize`
-  deliberately orders to open the read-only reference _before_ the
-  writable target so a bad reference path doesn't truncate an existing
-  file — is not yet tested. Covering "bad reference path doesn't
-  clobber the main store" needs a separate Fortran test program that's
-  expected to `error stop` (a `WILL_FAIL` ctest entry) plus a Python
-  assertion that the writable target survived.
+- **Append mode (`'a'`) is rejected** rather than half-implemented.
+  It needs `nf90_inq_grps` index resumption that the netcdf-fortran
+  4.5.x wrapper makes awkward. Tracked in
+  [`specs/2026-05-fortran-append-mode/`](../../specs/2026-05-fortran-append-mode/).
+- **Explicit `directory_ref` / `prefix_ref` test coverage is incomplete.**
+  The integration test exercises only the implicit same-store reference
+  path. The explicit-ref branch is untested end-to-end.
+- **Thread safety:** the module-level serializer state is not thread-safe.
+  `!$SER` directives must execute from serial regions only (or be guarded
+  with `!$omp critical` / `!$omp master`).
+- **POSIX assumptions:** directory creation uses a `mkdir -p` shell-out;
+  CWD resolution uses `getcwd`. These are not portable to non-POSIX
+  platforms (Windows).
 
 [axis-order]: ../../docs/references/storage_mapping.md
 
