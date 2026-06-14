@@ -6,8 +6,37 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased] — post-v0.1.0 main
 
+### Fixed
+
+- `!$SER DATA` values with arithmetic _inside subscripts_ (e.g.
+  `x=arr(i-1)`, `arr(i+1)`, `arr(2*i)`, `a(i)%b(j-1)`) are no longer
+  misclassified as computed (write-only) and silently dropped on read.
+  The "computed" detection now strips balanced `(...)` spans before
+  scanning, so only top-level arithmetic or a top-level `merge` intrinsic
+  marks a value as write-only; genuine expressions (`a*b`, `a+1`,
+  `merge(a,b,c)`) remain write-only as before
+  ([#76](https://github.com/grAItools/preserf/issues/76)).
+
 ### Added
 
+- Reverse-direction wire-compat test (issue #68): Python now writes a preserf
+  store via `tests/_support/storage.py` `write_dump` and the Fortran binary
+  reads it back with `fs_read_field`
+  (`test_fortran_reads_python_written_store`, covering both the `netcdf4` and
+  `nczarr-v2` backends). Until now every cross-language test was "Fortran
+  writes -> Python reads", so the Fortran read path was only ever exercised
+  against stores Fortran itself produced — a symmetric encoding quirk shared by
+  the Fortran writer and reader (an axis-order or registry convention both got
+  consistently wrong) could not be caught. The new test drives the Fortran read
+  path against an independent producer: a fresh `read-python-store` scenario in
+  `test_minimal.f90` opens the Python-written store read-only, REGISTERs the
+  fields (validating the Python-written `/_fields` registry against the Fortran
+  reader's expectation), and asserts every value / axis-order round-trips.
+  Gated on the same `PRESERF_REQUIRE_FORTRAN` Fortran-binary fixture as the rest
+  of the wire-compat suite. The golden-Serialbox-dump half of #68 remains open
+  (it needs a dump produced by real Serialbox/`pp_ser`, which is not
+  reproducible in this environment without fabricating the very artifact the
+  test is meant to validate against).
 - Fortran distribution (`specs/2026-06-fortran-distribution`): the Fortran
   runtime now ships inside the wheel as package data. The runtime tree moved
   from `src/preserf-fortran/` to `src/preserf/fortran/`, so a `pip install
@@ -272,6 +301,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The preprocessor no longer hard-errors at EOF when a `MODULE`/`PROGRAM`
+  unit is closed with a bare `END` (legal Fortran) instead of `END MODULE`
+  / `END PROGRAM`. The scope tracker now recognises `END` as closing the
+  current open unit, so such a file preprocesses successfully rather than
+  raising "Unterminated module or program unit encountered". A bare `END`
+  outside an open unit (e.g. closing a subroutine) is still ignored
+  ([#74](https://github.com/grAItools/preserf/issues/74)).
+- `ppser_initialize` called twice in one process without an intervening
+  `ppser_finalize` (e.g. ICON-style multi-domain runs that re-init per
+  domain) now auto-closes the previous session instead of leaking its open
+  netCDF handle and abandoning its store. Auto-close flushes the previous
+  store's `_preserf_savepoint_count` (so the store no longer silently
+  advertises `0` savepoints to the reader contract) and releases the file
+  handle. The module-level `ppser_savepoint` is also reset to its empty
+  sentinel on every init, matching `ppser_finalize`, so a stale savepoint
+  carrying the previous serializer's `owner_ncid` can no longer defeat
+  `require_savepoint_owner` and pass a dangling group id into
+  `nf90_put_var` ([#67](https://github.com/grAItools/preserf/issues/67)).
 - `fs_register_field` no longer aborts with a raw netCDF error when a field
   is registered more than once or on a read-only handle. Re-registering a
   field (a `!$SER REGISTER` in a per-timestep loop, or a field already
