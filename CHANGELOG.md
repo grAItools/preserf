@@ -278,6 +278,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The preprocessor no longer hard-errors at EOF when a `MODULE`/`PROGRAM`
+  unit is closed with a bare `END` (legal Fortran) instead of `END MODULE`
+  / `END PROGRAM`. The scope tracker now recognises `END` as closing the
+  current open unit, so such a file preprocesses successfully rather than
+  raising "Unterminated module or program unit encountered". A bare `END`
+  outside an open unit (e.g. closing a subroutine) is still ignored
+  ([#74](https://github.com/grAItools/preserf/issues/74)).
 - `ppser_initialize` called twice in one process without an intervening
   `ppser_finalize` (e.g. ICON-style multi-domain runs that re-init per
   domain) now auto-closes the previous session instead of leaking its open
