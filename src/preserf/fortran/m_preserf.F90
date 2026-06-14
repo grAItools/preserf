@@ -1207,6 +1207,12 @@ contains
       end if
       call preserf_check_nf_with_msg(ncerr, 'inq_varid kbuff '//trim(fieldname))
 
+      ! Reject a store whose on-disk variable disagrees with the expected
+      ! double dtype / Fortran-order shape before nf90_get_var silently
+      ! coerces or sub-samples it (issue #70).
+      call require_variable_layout(grpid, varid, fieldname, NF90_DOUBLE, &
+                                   entry%fshape(1:entry%full_rank))
+
       select case (entry%full_rank)
       case (2)
          allocate (t2(entry%fshape(1), entry%fshape(2)))
@@ -3333,11 +3339,8 @@ contains
       character(len=*), intent(in) :: fieldname
       integer, intent(in) :: expected_xtype
       integer(int32), intent(in), optional :: known_dims_c(:)
-      integer :: ncerr, actual_xtype, actual_ndims, axis, registry_varid, &
-                 attr_len
+      integer :: ncerr, axis, registry_varid, attr_len
       integer(int32), allocatable :: expected_dims_c(:)
-      integer, allocatable :: dimids(:)
-      integer :: actual_len
 
       ! Reuse the registry `dims` validate_field_shape already fetched on
       ! this read; only fall back to re-reading them when not supplied.
@@ -3357,55 +3360,86 @@ contains
          call preserf_check_nf_with_msg(ncerr, 'get_att dims (for variable check)')
       end if
 
-      ncerr = nf90_inquire_variable(sp_grpid, varid, xtype=actual_xtype, &
+      ! expected_dims_c is C-order (slowest-first); the shared check works
+      ! in Fortran order (fastest-first), so reverse it before delegating.
+      block
+         integer :: rank
+         integer, allocatable :: expected_dims_f(:)
+         rank = size(expected_dims_c)
+         allocate (expected_dims_f(rank))
+         do axis = 1, rank
+            expected_dims_f(axis) = int(expected_dims_c(rank - axis + 1))
+         end do
+         call require_variable_layout(sp_grpid, varid, fieldname, &
+                                      expected_xtype, expected_dims_f)
+      end block
+   end subroutine require_variable_xtype
+
+   !> Shared on-disk variable validation for every read path (field,
+   !> tracer, k-buffer). Confirms the netCDF variable's `xtype`, rank, and
+   !> per-axis lengths match what the reader expects, so a store mutated by
+   !> a third-party tool is rejected up-front rather than being silently
+   !> coerced (wrong dtype) or silently sub-sampled (larger on-disk extent)
+   !> by `nf90_get_var`. `expected_dims_f` is the expected shape in Fortran
+   !> order (fastest-varying first) — the same order `nf90_inquire_variable`
+   !> returns dimids in — so callers pass `shape(...)`/`fshape` directly.
+   !> Callers that hold C-order dims (the `/_fields` registry) reverse them
+   !> before calling; see `require_variable_xtype`.
+   subroutine require_variable_layout(grpid, varid, name, expected_xtype, &
+                                      expected_dims_f)
+      integer, intent(in) :: grpid, varid
+      character(len=*), intent(in) :: name
+      integer, intent(in) :: expected_xtype
+      integer, intent(in) :: expected_dims_f(:)
+      integer :: ncerr, actual_xtype, actual_ndims, axis, actual_len
+      integer, allocatable :: dimids(:)
+
+      ncerr = nf90_inquire_variable(grpid, varid, xtype=actual_xtype, &
                                     ndims=actual_ndims)
       call preserf_check_nf_with_msg(ncerr, &
-                                     'inquire_variable '//trim(fieldname))
+                                     'inquire_variable '//trim(name))
       if (actual_xtype /= expected_xtype) then
          write (*, '(a,a,a,i0,a,i0,a)') &
-            'preserf: read of field "', trim(fieldname), &
+            'preserf: read of "', trim(name), &
             '" expects on-disk nc_type ', expected_xtype, &
             ' but the variable has nc_type ', actual_xtype, &
             '. Registry / variable mismatch in the store.'
          error stop 1
       end if
-      if (actual_ndims /= size(expected_dims_c)) then
+      if (actual_ndims /= size(expected_dims_f)) then
          write (*, '(a,a,a,i0,a,i0,a)') &
-            'preserf: read of field "', trim(fieldname), &
-            '" expects rank ', size(expected_dims_c), &
+            'preserf: read of "', trim(name), &
+            '" expects rank ', size(expected_dims_f), &
             ' but the on-disk variable has rank ', actual_ndims, '.'
          error stop 1
       end if
       if (actual_ndims > 0) then
          allocate (dimids(actual_ndims))
-         ncerr = nf90_inquire_variable(sp_grpid, varid, dimids=dimids)
+         ncerr = nf90_inquire_variable(grpid, varid, dimids=dimids)
          call preserf_check_nf_with_msg(ncerr, &
-                                        'inquire_variable dimids '//trim(fieldname))
+                                        'inquire_variable dimids '//trim(name))
          ! netcdf-fortran returns dimids in Fortran order
-         ! (fastest-varying first). The expected_dims_c vector is
-         ! C-order (slowest-first), so we compare dimids(k) against
-         ! expected_dims_c(rank - k + 1).
+         ! (fastest-varying first), matching expected_dims_f.
          do axis = 1, actual_ndims
-            ncerr = nf90_inquire_dimension(sp_grpid, dimids(axis), &
+            ncerr = nf90_inquire_dimension(grpid, dimids(axis), &
                                            len=actual_len)
             call preserf_check_nf_with_msg(ncerr, &
-                                           'inquire_dimension '//trim(fieldname))
-            if (actual_len /= &
-                int(expected_dims_c(actual_ndims - axis + 1))) then
+                                           'inquire_dimension '//trim(name))
+            if (actual_len /= expected_dims_f(axis)) then
                write (*, '(a,a,a)') &
-                  'preserf: read of field "', trim(fieldname), &
+                  'preserf: read of "', trim(name), &
                   '" on-disk variable dimension lengths disagree '// &
-                  'with registry dims.'
+                  'with expected shape.'
                write (*, '(a,*(i0,1x))') &
-                  '  registered (C-order):    ', expected_dims_c
+                  '  expected (Fortran order): ', expected_dims_f
                write (*, '(a,*(i0,1x))') &
-                  '  variable axis (Fortran): ', axis, actual_len
+                  '  variable axis (Fortran):  ', axis, actual_len
                error stop 1
             end if
          end do
          deallocate (dimids)
       end if
-   end subroutine require_variable_xtype
+   end subroutine require_variable_layout
 
    pure function to_lower(s) result(r)
       character(len=*), intent(in) :: s
