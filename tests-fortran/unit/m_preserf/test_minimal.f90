@@ -1978,6 +1978,101 @@ program test_minimal
                call fs_write_field(ppser_serializer, ppser_savepoint, 'z', z)
                call abort_unexpected('autoregister-zero-extent')
             end block
+         else if (scenario == 'read-python-store') then
+            ! Issue #68: reverse-direction wire-compat — Python writes a
+            ! preserf store (tests/_support/storage.py write_dump), then the
+            ! Fortran helper opens it READ-ONLY and reads the fields back.
+            !
+            ! Every other cross-language test is "Fortran writes -> Python
+            ! reads", so the Fortran writer and reader could share a
+            ! symmetric encoding quirk (axis order, registry layout, an
+            ! attribute convention) that no test catches. Driving
+            ! fs_read_field against a store the Fortran side never produced
+            ! exercises the read path against an independent producer.
+            !
+            ! A third argument selects the backend so the SAME scenario
+            ! covers both 'netcdf4' and 'nczarr-v2'. The Python side
+            ! (tests/integration_tests/test_fortran_wire_compat.py) writes
+            ! the store with matching field shapes / values, then runs this
+            ! scenario and asserts a clean exit.
+            !
+            ! Field layout (declared here in Fortran column-major order;
+            ! the Python writer stores the C-order reverse, and the helper
+            ! reverses again on read, so Fortran sees u(i,j,k) etc.):
+            !   u(4,3,2)  u(i,j,k) = 100*i + 10*j + k
+            !   v(5)      v(i)     = real(i)
+            !   w(3,4)    w(i,j)   = 10*i + j
+            block
+               character(len=:), allocatable :: backend
+               integer :: b_len, b_stat
+               real(real64) :: pu(4, 3, 2), pv(5), pw(3, 4)
+               integer :: pi, pj, pk
+               if (command_argument_count() < 3) error stop &
+                  'read-python-store: missing backend argument (3rd arg)'
+               call get_command_argument(3, length=b_len, status=b_stat)
+               if (b_stat /= 0) error stop &
+                  'read-python-store: get_command_argument(3,length) failed'
+               allocate (character(len=b_len) :: backend)
+               call get_command_argument(3, value=backend, status=b_stat)
+               if (b_stat /= 0) error stop &
+                  'read-python-store: get_command_argument(3,value) failed'
+
+               ! Open the Python-written store read-only. The 'r' mode +
+               ! the matching backend make ppser_initialize resolve the
+               ! existing store (a .nc file for netcdf4, a .zarr directory
+               ! store for nczarr-v2) rather than create one.
+               call ppser_initialize(out_dir, 'fpystore', 'r', backend=backend)
+               if (ppser_get_mode() /= 1) error stop &
+                  'read-python-store: read open should set mode 1'
+
+               ! REGISTER in read mode resolves + validates each /_fields
+               ! entry Python wrote (type_id, C-order dims, halos). A
+               ! mismatch between the Python writer's registry and the
+               ! Fortran reader's expectation aborts here — that is the
+               ! cross-producer check this scenario exists for.
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 4, 3, 2, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'v', 'double', &
+                                      ppser_reallength, 5, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'w', 'double', &
+                                      ppser_reallength, 3, 4, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+
+               call fs_create_savepoint('step', ppser_savepoint)
+               if (ppser_savepoint%idx /= 0) error stop &
+                  'read-python-store: savepoint should resolve idx 0'
+
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', pu)
+               do pk = 1, 2
+                  do pj = 1, 3
+                     do pi = 1, 4
+                        if (pu(pi, pj, pk) /= &
+                            real(100*pi + 10*pj + pk, real64)) error stop &
+                           'read-python-store: u value/axis-order mismatch'
+                     end do
+                  end do
+               end do
+
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'v', pv)
+               do pi = 1, 5
+                  if (pv(pi) /= real(pi, real64)) error stop &
+                     'read-python-store: v value mismatch'
+               end do
+
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'w', pw)
+               do pj = 1, 4
+                  do pi = 1, 3
+                     if (pw(pi, pj) /= real(10*pi + pj, real64)) error stop &
+                        'read-python-store: w value/axis-order mismatch'
+                  end do
+               end do
+
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: read-python-store OK'
+               stop
+            end block
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &
