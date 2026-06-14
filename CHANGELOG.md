@@ -261,6 +261,16 @@ embedded in each spec's Problem section.
 
 ### Fixed
 
+- Subprogram-header detection no longer fires on identifiers that merely begin
+  with `function`/`subroutine` (e.g. `functional_x = 1`), and now recognises
+  typed and attribute-prefixed function headers (`pure function`,
+  `elemental function`, `integer function`, `real(real64) function`, ...). The
+  detection regex gained a trailing word boundary and accepts attribute
+  (`pure`/`elemental`/`recursive`/`impure`/`non_recursive`) and type-spec
+  prefixes before the keyword, so the injected `USE` block lands on the right
+  lines and the contained serialization calls compile; `end function`/`end
+  subroutine` and `module procedure` are still excluded
+  ([#75](https://github.com/grAItools/preserf/issues/75)).
 - `fs_register_field` no longer aborts with a raw netCDF error when a field
   is registered more than once or on a read-only handle. Re-registering a
   field (a `!$SER REGISTER` in a per-timestep loop, or a field already

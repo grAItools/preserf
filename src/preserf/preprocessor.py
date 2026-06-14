@@ -114,8 +114,28 @@ _RE_MODULE = re.compile(
 _RE_ENDMODULE = re.compile(
     r"^ *end *(module|program) *([a-z][a-z0-9_]*|)", re.IGNORECASE
 )
-_RE_SUBPROG = re.compile(r"^ *(subroutine|function).*", re.IGNORECASE)
-_RE_SUBPROG_CONT = re.compile(r"^ *(subroutine|function)([^!]*)&", re.IGNORECASE)
+# Subprogram headers. A ``function`` may be preceded by attribute prefixes
+# (``pure``/``elemental``/``recursive``/``impure``/``non_recursive``) and a
+# type spec (``integer``, ``real(real64)``, ``type(...)``, ...); a
+# ``subroutine`` only by attribute prefixes. The keyword is matched as a whole
+# word (trailing ``\b``) so identifiers like ``functional_x`` do not match, and
+# the leading ``^ *`` anchor keeps ``end function``/``end subroutine`` and
+# ``module procedure`` from being mistaken for headers.
+_SUBPROG_ATTRS = r"(?:(?:pure|impure|elemental|recursive|non_recursive)\s+)*"
+_SUBPROG_TYPESPEC = (
+    r"(?:(?:integer|real|logical|complex|character|double\s+precision|type|class)"
+    r"\b\s*(?:\([^)]*\))?\s*)?"
+)
+_SUBPROG_HEAD = (
+    r"^ *"
+    + _SUBPROG_ATTRS
+    + r"(?:"
+    + _SUBPROG_TYPESPEC
+    + _SUBPROG_ATTRS
+    + r"function|subroutine)\b"
+)
+_RE_SUBPROG = re.compile(_SUBPROG_HEAD, re.IGNORECASE)
+_RE_SUBPROG_CONT = re.compile(_SUBPROG_HEAD + r"([^!]*)&", re.IGNORECASE)
 _RE_CONTINUED = re.compile(r"^([^!]*)&")
 _RE_INTENT_IN = re.compile(r".*intent *\(in\)[^:]*::\s*([^!]*)\s*.*", re.IGNORECASE)
 _RE_INTENT_IN_CONT = re.compile(

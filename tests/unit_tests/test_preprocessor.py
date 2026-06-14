@@ -533,6 +533,55 @@ def test_use_statement_after_standalone_subroutine() -> None:
     assert out.index("subroutine s()") < out.index("USE m_serialize")
 
 
+def test_identifier_starting_with_keyword_does_not_inject_use() -> None:
+    # `functional_x` starts with `function` but is an assignment, not a header,
+    # so the USE block must not be injected mid-body.
+    src = "functional_x = 1\n!$SER ON\n"
+    out = expand(src)
+    assert "USE m_serialize" not in out
+    assert "USE utils_ppser" not in out
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "pure function f(x)",
+        "elemental function g(x)",
+        "integer function h()",
+        "real(real64) function k()",
+        "recursive subroutine s()",
+        "pure elemental function fe()",
+        "logical function flag()",
+        "double precision function d()",
+    ],
+)
+def test_typed_or_attributed_header_injects_use(header: str) -> None:
+    # Type-spec and attribute prefixes precede the `function`/`subroutine`
+    # keyword, so the header must still be recognised and get a USE block.
+    end = "function" if "function" in header else "subroutine"
+    src = f"{header}\n!$SER ON\nend {end}\n"
+    out = expand(src)
+    assert out.index(header) < out.index("USE m_serialize")
+
+
+def test_end_function_does_not_inject_use() -> None:
+    # An `end function` line must not be mistaken for a subprogram header.
+    src = "module m\n!$SER ON\nfunction f()\nend function f\nend module m\n"
+    out = expand(src)
+    # USE is host-associated from the module, so injected exactly once and
+    # never again at the `end function` line.
+    assert out.count("USE utils_ppser") == 1
+
+
+def test_module_procedure_does_not_inject_use() -> None:
+    # `module procedure` is an interface body statement, not a subprogram
+    # header, so it must not trigger USE injection.
+    src = "function f()\n!$SER ON\nmodule procedure mp\nend function f\n"
+    out = expand(src)
+    # Exactly one injection, from the `function f()` header.
+    assert out.count("USE utils_ppser") == 1
+
+
 def test_use_block_not_repeated_in_program_subprograms() -> None:
     src = (
         "program p\n"
