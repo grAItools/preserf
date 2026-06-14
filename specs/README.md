@@ -34,9 +34,11 @@ These dirs are produced and consumed by the four-phase loop
 ## Pending / future work
 
 - [Fortran distribution + CMake helper](2026-06-fortran-distribution/) —
-  specced, not yet planned or built. Ship the Fortran runtime sources inside
-  the wheel together with a CMake configuration helper so installed users can
-  compile preserf-generated Fortran without cloning the repo.
+  **shipped** (HEAD, #37). The runtime sources ship inside the wheel; the
+  CMake helper (`preserf/fortran/cmake/PreserfFortran.cmake`) and the
+  `preserf --fortran-dir` / `--cmake-helper` CLI flags are live. The spec
+  dir has no `plan.md`/`tasks.md` because the feature was delivered before
+  the four-phase loop was fully adopted for this slice.
 - [Append mode](2026-05-fortran-append-mode/) — deferred past v1.0. Spec
   captured so the work is recorded; low priority, ships if demand emerges.
 - **String data fields** — deferred past v1.0. No spec dir yet; open one when
