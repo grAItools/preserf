@@ -14,6 +14,16 @@ embedded in each spec's Problem section.
 
 ### Added
 
+- PyPI distribution metadata: `[project]` in `pyproject.toml` now declares
+  `authors`/`maintainers`, `keywords`, trove `classifiers` (license, supported
+  Python versions, topics, development status), and `[project.urls]`
+  (Homepage, Repository, Changelog, Issues), so the rendered package page and
+  `pip`/`uv` resolvers see complete metadata. The packaging test
+  (`tests/integration_tests/test_packaging_distribution.py`) now also builds
+  the **sdist** (`python -m build --sdist`) and asserts it ships the Fortran
+  runtime sources plus the CMake helper — mirroring the wheel assertions so a
+  source-tarball install path can no longer drop the runtime unnoticed — and
+  runs `twine check` on both artifacts when `twine` is available.
 - Fortran distribution (`specs/2026-06-fortran-distribution`): the Fortran
   runtime now ships inside the wheel as package data. The runtime tree moved
   from `src/preserf-fortran/` to `src/preserf/fortran/`, so a `pip install
