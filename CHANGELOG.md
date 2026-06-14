@@ -4,13 +4,18 @@ All notable changes to `preserf` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [Unreleased] — post-v0.1.0 main
 
-Per-slice spec / plan dirs live under [`specs/`](specs/) (overview in
-[`specs/README.md`](specs/README.md)). v0.1 gaps the specs close are
-embedded in each spec's Problem section.
+### Fixed
 
-## [0.2.0-dev] — post-v0.1.0 main, unreleased
+- `!$SER DATA` values with arithmetic _inside subscripts_ (e.g.
+  `x=arr(i-1)`, `arr(i+1)`, `arr(2*i)`, `a(i)%b(j-1)`) are no longer
+  misclassified as computed (write-only) and silently dropped on read.
+  The "computed" detection now strips balanced `(...)` spans before
+  scanning, so only top-level arithmetic or a top-level `merge` intrinsic
+  marks a value as write-only; genuine expressions (`a*b`, `a+1`,
+  `merge(a,b,c)`) remain write-only as before
+  ([#76](https://github.com/grAItools/preserf/issues/76)).
 
 ### Added
 
@@ -24,6 +29,24 @@ embedded in each spec's Problem section.
   runtime sources plus the CMake helper — mirroring the wheel assertions so a
   source-tarball install path can no longer drop the runtime unnoticed — and
   runs `twine check` on both artifacts when `twine` is available.
+- Reverse-direction wire-compat test (issue #68): Python now writes a preserf
+  store via `tests/_support/storage.py` `write_dump` and the Fortran binary
+  reads it back with `fs_read_field`
+  (`test_fortran_reads_python_written_store`, covering both the `netcdf4` and
+  `nczarr-v2` backends). Until now every cross-language test was "Fortran
+  writes -> Python reads", so the Fortran read path was only ever exercised
+  against stores Fortran itself produced — a symmetric encoding quirk shared by
+  the Fortran writer and reader (an axis-order or registry convention both got
+  consistently wrong) could not be caught. The new test drives the Fortran read
+  path against an independent producer: a fresh `read-python-store` scenario in
+  `test_minimal.f90` opens the Python-written store read-only, REGISTERs the
+  fields (validating the Python-written `/_fields` registry against the Fortran
+  reader's expectation), and asserts every value / axis-order round-trips.
+  Gated on the same `PRESERF_REQUIRE_FORTRAN` Fortran-binary fixture as the rest
+  of the wire-compat suite. The golden-Serialbox-dump half of #68 remains open
+  (it needs a dump produced by real Serialbox/`pp_ser`, which is not
+  reproducible in this environment without fabricating the very artifact the
+  test is meant to validate against).
 - Fortran distribution (`specs/2026-06-fortran-distribution`): the Fortran
   runtime now ships inside the wheel as package data. The runtime tree moved
   from `src/preserf-fortran/` to `src/preserf/fortran/`, so a `pip install
@@ -230,8 +253,41 @@ embedded in each spec's Problem section.
   ([#14](https://github.com/grAItools/preserf/pull/14), [#15](https://github.com/grAItools/preserf/pull/15)).
 - `.devcontainer/`: pixi-based dev container ([#10](https://github.com/grAItools/preserf/pull/10), [#12](https://github.com/grAItools/preserf/pull/12)).
 
+### Documentation
+
+- Documented the Fortran runtime's serial-only (not thread-safe)
+  constraint: the `save`d module-level serializer / savepoint / registry
+  state and the shared `RANDOM_NUMBER` perturb state are mutated without
+  synchronization, so `!$SER` directives must run from serial regions only
+  (or be guarded with `!$omp critical` / `!$omp master`). Stated in
+  `src/preserf/fortran/README.md` and the `m_preserf` / `utils_preserf`
+  module headers, with the OpenMP-scope decision recorded in
+  [ADR 0005](docs/adr/0005-serialization-runtime-is-serial-only.md)
+  ([#73](https://github.com/grAItools/preserf/issues/73)).
+
 ### Changed
 
+- Single source of truth for the project version
+  ([#79](https://github.com/grAItools/preserf/issues/79)): `pyproject.toml`
+  now declares `dynamic = ["version"]` and a `[tool.hatch.version]` source that
+  reads `__version__` from `src/preserf/__init__.py`, so the wheel metadata and
+  `importlib.metadata.version("preserf")` derive from that one literal. The CLI
+  `--version` flag and `preserf.__version__` already shared it; `test_cli.py`
+  now asserts `preserf.__version__ == metadata.version("preserf")` and uses
+  `__version__` for the `--version` check instead of a hard-coded literal.
+  `__version__` is bumped to `0.2.0.dev0` (PEP 440 form of the `0.2.0-dev`
+  post-v0.1.0 main tracks), so `preserf --version` no longer understates the
+  shipped surface as `0.1.0`. The Fortran runtime version
+  (`src/preserf/fortran/CMakeLists.txt` `project(... VERSION ...)`) is bumped
+  to `0.2.0` and stays tracked separately, with a note explaining why: that
+  tree is a standalone CMake project built with no Python in scope, so it
+  cannot read the Python version at configure time; bump the two in lockstep
+  on release.
+- CI now runs the `consumer`-marked external-consumer / `find_package`
+  tests as a dedicated step with `PRESERF_REQUIRE_FORTRAN=1`, and the
+  `test-consumer` pixi task sets the same env var, so the install /
+  discovery integration tests can no longer pass by silently skipping
+  (they previously ran in no automated gate).
 - The Fortran helper sources moved from `src/preserf-fortran/` to
   `src/preserf/fortran/` (no API or behaviour change; updated CMake
   `add_subdirectory` paths, `pixi` fprettify paths, and docs).
@@ -271,6 +327,34 @@ embedded in each spec's Problem section.
 
 ### Fixed
 
+- Subprogram-header detection no longer fires on identifiers that merely begin
+  with `function`/`subroutine` (e.g. `functional_x = 1`), and now recognises
+  typed and attribute-prefixed function headers (`pure function`,
+  `elemental function`, `integer function`, `real(real64) function`, ...). The
+  detection regex gained a trailing word boundary and accepts attribute
+  (`pure`/`elemental`/`recursive`/`impure`/`non_recursive`) and type-spec
+  prefixes before the keyword, so the injected `USE` block lands on the right
+  lines and the contained serialization calls compile; `end function`/`end
+  subroutine` and `module procedure` are still excluded
+  ([#75](https://github.com/grAItools/preserf/issues/75)).
+- The preprocessor no longer hard-errors at EOF when a `MODULE`/`PROGRAM`
+  unit is closed with a bare `END` (legal Fortran) instead of `END MODULE`
+  / `END PROGRAM`. The scope tracker now recognises `END` as closing the
+  current open unit, so such a file preprocesses successfully rather than
+  raising "Unterminated module or program unit encountered". A bare `END`
+  outside an open unit (e.g. closing a subroutine) is still ignored
+  ([#74](https://github.com/grAItools/preserf/issues/74)).
+- `ppser_initialize` called twice in one process without an intervening
+  `ppser_finalize` (e.g. ICON-style multi-domain runs that re-init per
+  domain) now auto-closes the previous session instead of leaking its open
+  netCDF handle and abandoning its store. Auto-close flushes the previous
+  store's `_preserf_savepoint_count` (so the store no longer silently
+  advertises `0` savepoints to the reader contract) and releases the file
+  handle. The module-level `ppser_savepoint` is also reset to its empty
+  sentinel on every init, matching `ppser_finalize`, so a stale savepoint
+  carrying the previous serializer's `owner_ncid` can no longer defeat
+  `require_savepoint_owner` and pass a dangling group id into
+  `nf90_put_var` ([#67](https://github.com/grAItools/preserf/issues/67)).
 - `fs_register_field` no longer aborts with a raw netCDF error when a field
   is registered more than once or on a read-only handle. Re-registering a
   field (a `!$SER REGISTER` in a per-timestep loop, or a field already
@@ -380,6 +464,22 @@ embedded in each spec's Problem section.
   closes a latent truncation on very large dim sizes / halo extents
   ([#16](https://github.com/grAItools/preserf/pull/16)).
 
+### Documentation
+
+- Reconciled the docs with the shipped surface after a code review found
+  several froze at the v0.1 feature set: `docs/architecture.md` (both
+  storage backends described as wired up, `PRESERF_BACKEND` noted,
+  `fortran_dist.py` + CMake helper added to the module map), the Fortran
+  `README.md` (full type matrix / k-buffer / tracer / `fs_Option` surface
+  instead of "v0.1 subset / out of scope"), the `m_preserf` and
+  `utils_ppser` module headers, `specs/README.md` (distribution feature
+  marked shipped), and `docs/testing.md` (corrected file counts and
+  task list). Added `vendor/README.md` noting `pp_ser.py` is GPL
+  reference-only and excluded from the distribution. Collapsed the
+  duplicate `[Unreleased]` / `[0.2.0-dev]` changelog headers and fixed
+  the broken compare link ([#69](https://github.com/grAItools/preserf/issues/69),
+  [#85](https://github.com/grAItools/preserf/issues/85)).
+
 ## [0.1.0] — 2026-05
 
 Initial usable preview: storage mapping decision + minimal Fortran helper
@@ -419,6 +519,4 @@ common shapes.
   document; initial project scaffolding (Python ≥3.12, pixi, MIT
   license) ([#1](https://github.com/grAItools/preserf/pull/1), [#2](https://github.com/grAItools/preserf/pull/2), [#5](https://github.com/grAItools/preserf/pull/5)).
 
-[Unreleased]: https://github.com/grAItools/preserf/compare/v0.2.0-dev...HEAD
-[0.2.0-dev]: https://github.com/grAItools/preserf/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/grAItools/preserf/releases/tag/v0.1.0
+<!-- Compare/release links intentionally omitted until the `v0.1.0` tag is published. -->
