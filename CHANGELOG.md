@@ -336,6 +336,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Preprocessor / CLI robustness nits ([#83](https://github.com/grAItools/preserf/issues/83)):
+  - `_declared_names` now splits a declaration fragment on top-level commas
+    via a bracket-depth scanner, so a nested dimension expression
+    (`a(b(1,2)), c`) is no longer split at its inner commas when stripping
+    `INTENT(IN)` from a field read back by `!$SER DATA`.
+  - `_track_intentin` records a DATA value's base name by dropping only from
+    the first subscript (`a(i)%b(j)` → `a`); the previous greedy `(.+)`
+    removal mangled derived-type component references.
+  - The CLI now rejects `--output` together with `--output-dir` with a clear
+    "mutually exclusive" error instead of silently letting `--output` win.
+  - `.f95`, `.f08`, `.f77`, and `.for` are now recognised as Fortran source
+    during recursive directory expansion (was: `.f90 .f .f03 .inc .incf`
+    only), so those files are no longer skipped.
+  - `!$SER MODE` resolves its argument case-insensitively, so `WRITE`,
+    `Read`, `cpu`, and `GPU` all map to their numeric mode consistently.
 - Tracer and k-buffer reads now apply the same on-disk variable validation
   the field read path already enforced: before `nf90_get_var`, the stored
   variable's `xtype`, rank, and per-axis lengths are checked against what the
