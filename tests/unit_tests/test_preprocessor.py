@@ -133,6 +133,48 @@ def test_data_field_named_like_merge_is_read_back() -> None:
     assert "fs_read_field" in out
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        "arr(i-1)",
+        "arr(i+1)",
+        "arr(2*i)",
+        "a(i)%b(j-1)",
+    ],
+)
+def test_data_index_arithmetic_is_read_back(value: str) -> None:
+    # Arithmetic *inside subscripts* is part of a plain field reference, not a
+    # computed expression, so the field must still be read back.
+    out = expand(f"!$SER DATA x={value}\n")
+    assert "fs_write_field" in out
+    assert "fs_read_field" in out
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "a*b",
+        "a+1",
+        "a-b",
+        "a/b",
+        "merge(a,b,c)",
+    ],
+)
+def test_data_top_level_expression_is_write_only(value: str) -> None:
+    # A genuine top-level expression is written but cannot be read into an
+    # lvalue, so it stays write-only.
+    out = expand(f"!$SER DATA v={value}\n")
+    assert "fs_write_field" in out
+    assert "fs_read_field" not in out
+
+
+def test_data_nested_merge_in_subscript_is_read_back() -> None:
+    # A "merge" intrinsic that appears only inside a subscript is part of an
+    # index expression, not the value itself, so the field is read back.
+    out = expand("!$SER DATA x=arr(merge(i,j,mask))\n")
+    assert "fs_read_field" in out
+
+
 def test_data_rejects_positional_argument() -> None:
     # A missing "=" (e.g. "v" instead of "v=v") must not be silently dropped.
     with pytest.raises(DirectiveError, match="field=value pairs"):

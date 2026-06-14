@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased] — post-v0.1.0 main
 
+### Fixed
+
+- `!$SER DATA` values with arithmetic _inside subscripts_ (e.g.
+  `x=arr(i-1)`, `arr(i+1)`, `arr(2*i)`, `a(i)%b(j-1)`) are no longer
+  misclassified as computed (write-only) and silently dropped on read.
+  The "computed" detection now strips balanced `(...)` spans before
+  scanning, so only top-level arithmetic or a top-level `merge` intrinsic
+  marks a value as write-only; genuine expressions (`a*b`, `a+1`,
+  `merge(a,b,c)`) remain write-only as before
+  ([#76](https://github.com/grAItools/preserf/issues/76)).
+
 ### Added
 
 - Reverse-direction wire-compat test (issue #68): Python now writes a preserf
