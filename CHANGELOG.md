@@ -257,6 +257,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Single source of truth for the project version
+  ([#79](https://github.com/grAItools/preserf/issues/79)): `pyproject.toml`
+  now declares `dynamic = ["version"]` and a `[tool.hatch.version]` source that
+  reads `__version__` from `src/preserf/__init__.py`, so the wheel metadata and
+  `importlib.metadata.version("preserf")` derive from that one literal. The CLI
+  `--version` flag and `preserf.__version__` already shared it; `test_cli.py`
+  now asserts `preserf.__version__ == metadata.version("preserf")` and uses
+  `__version__` for the `--version` check instead of a hard-coded literal.
+  `__version__` is bumped to `0.2.0.dev0` (PEP 440 form of the `0.2.0-dev`
+  post-v0.1.0 main tracks), so `preserf --version` no longer understates the
+  shipped surface as `0.1.0`. The Fortran runtime version
+  (`src/preserf/fortran/CMakeLists.txt` `project(... VERSION ...)`) is bumped
+  to `0.2.0` and stays tracked separately, with a note explaining why: that
+  tree is a standalone CMake project built with no Python in scope, so it
+  cannot read the Python version at configure time; bump the two in lockstep
+  on release.
 - CI now runs the `consumer`-marked external-consumer / `find_package`
   tests as a dedicated step with `PRESERF_REQUIRE_FORTRAN=1`, and the
   `test-consumer` pixi task sets the same env var, so the install /
