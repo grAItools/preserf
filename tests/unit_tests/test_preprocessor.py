@@ -503,6 +503,26 @@ def test_mismatched_end_module() -> None:
         expand("module m\n!$SER ON\nend module other\n")
 
 
+def test_bare_end_closes_module() -> None:
+    # A bare ``END`` legally closes a program unit; the scope tracker must
+    # clear the open module so EOF does not raise "Unterminated module".
+    out = expand("module m\n!$SER ON\nend\n")
+    assert "USE m_serialize" in out
+
+
+def test_bare_end_closes_program() -> None:
+    out = expand("program p\n!$SER ON\nend\n")
+    assert "USE m_serialize" in out
+
+
+def test_bare_end_outside_unit_is_ignored() -> None:
+    # Outside an open MODULE/PROGRAM a bare ``END`` closes some other
+    # construct (e.g. a subroutine) and must not be mistaken for a unit end.
+    src = "subroutine s()\n!$SER ON\nend\n"
+    out = expand(src)
+    assert "USE m_serialize" in out
+
+
 def test_bad_line_continuation() -> None:
     with pytest.raises(DirectiveError, match="Incorrect line continuation"):
         expand("!$SER DATA u=u &\nx = 1\n")

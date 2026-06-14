@@ -115,6 +115,9 @@ _RE_MODULE = re.compile(
 _RE_ENDMODULE = re.compile(
     r"^ *end *(module|program) *([a-z][a-z0-9_]*|)", re.IGNORECASE
 )
+# A bare ``END`` (no ``MODULE``/``PROGRAM`` keyword) legally closes a program
+# unit; recognise it so the scope tracker clears an open MODULE/PROGRAM.
+_RE_END_BARE = re.compile(r"^ *end *$", re.IGNORECASE)
 _RE_SUBPROG = re.compile(r"^ *(subroutine|function).*", re.IGNORECASE)
 _RE_SUBPROG_CONT = re.compile(r"^ *(subroutine|function)([^!]*)&", re.IGNORECASE)
 _RE_CONTINUED = re.compile(r"^([^!]*)&")
@@ -400,6 +403,12 @@ class Preprocessor:
     def _scan_endmodule(self) -> None:
         m = _RE_ENDMODULE.search(self._line)
         if not m:
+            # A bare ``END`` closes the current program unit, but only when one
+            # is open: outside a MODULE/PROGRAM it is an ``END`` of some other
+            # construct (subroutine, function, block, ...) and must be ignored.
+            if self._module and _RE_END_BARE.search(self._line):
+                self._module = ""
+                self._use_stmt_in_module = False
             return
         if not self._module:
             raise self._error(msg=f'Unexpected "end {m.group(1)}" statement')
