@@ -409,6 +409,102 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: read-roundtrip OK'
                stop
             end block
+         else if (scenario == 'reinit-lifecycle') then
+            ! Issue #67: ppser_initialize called twice in one process
+            ! without an intervening ppser_finalize must auto-close the
+            ! previous session, NOT leak its handle and corrupt its store.
+            ! This covers all three defects from the issue:
+            !   (1) handle leak / no re-open guard,
+            !   (2) the first store left advertising _preserf_savepoint_count
+            !       = 0 (the count is only flushed on close), and
+            !   (3) a stale ppser_savepoint outliving its serializer and
+            !       defeating require_savepoint_owner with a recycled ncid.
+            block
+               use netcdf
+               real(real64) :: u_a(3), u_b(3), u_back(3)
+               integer :: ncerr, ncid_a
+               integer(int32) :: sp_count
+               integer :: prev_owner, i
+               do i = 1, 3
+                  u_a(i) = 800.0_real64 + real(i, real64)
+                  u_b(i) = 900.0_real64 + real(i, real64)
+               end do
+
+               ! --- Session A: write one savepoint, then RE-INIT (write)
+               ! into a different store WITHOUT finalize. ---
+               call ppser_initialize(out_dir, 'freinit_a', 'w')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u_a)
+               ! Remember the owner_ncid of session A's savepoint so we can
+               ! prove the re-init below cleared it (defect 3).
+               prev_owner = ppser_savepoint%owner_ncid
+               if (prev_owner == -1) error stop &
+                  'reinit-lifecycle: session A savepoint should have an owner'
+
+               ! Re-init WITHOUT an intervening finalize: this must
+               ! auto-close session A (flushing its savepoint count and
+               ! releasing the handle) and reset ppser_savepoint.
+               call ppser_initialize(out_dir, 'freinit_b', 'w')
+
+               ! (3) ppser_savepoint reset to the empty sentinel: no
+               ! savepoint may outlive the serializer that created it.
+               if (ppser_savepoint%grpid /= -1 .or. &
+                   ppser_savepoint%idx /= -1 .or. &
+                   ppser_savepoint%owner_ncid /= -1) error stop &
+                  'reinit-lifecycle: re-init left a stale ppser_savepoint'
+
+               ! (2) Session A's store closed cleanly with the correct
+               ! non-zero _preserf_savepoint_count (one savepoint), not the
+               ! creation-time 0 that a leaked/abandoned handle leaves.
+               ncerr = nf90_open(trim(out_dir)//'/freinit_a.nc', &
+                                 NF90_NOWRITE, ncid_a)
+               if (ncerr /= nf90_noerr) error stop &
+                  'reinit-lifecycle: session A store not openable after re-init'
+               ncerr = nf90_get_att(ncid_a, NF90_GLOBAL, &
+                                    '_preserf_savepoint_count', sp_count)
+               if (ncerr /= nf90_noerr) error stop &
+                  'reinit-lifecycle: _preserf_savepoint_count missing on store A'
+               if (sp_count /= 1) error stop &
+                  'reinit-lifecycle: store A savepoint count not flushed (got /= 1)'
+               ncerr = nf90_close(ncid_a)
+               if (ncerr /= nf90_noerr) error stop &
+                  'reinit-lifecycle: nf90_close store A failed'
+
+               ! (1)/(3) The fresh session B is usable end-to-end: a write
+               ! through a NEW savepoint succeeds. With a stale savepoint
+               ! from session A, require_savepoint_owner would either reject
+               ! the paired serializer or pass a dangling grpid into
+               ! nf90_put_var. Round-trip it to prove store B is intact.
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               if (ppser_savepoint%owner_ncid == prev_owner .and. &
+                   ppser_savepoint%idx /= 0) error stop &
+                  'reinit-lifecycle: session B savepoint did not start fresh'
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u_b)
+               call ppser_finalize()
+
+               ! Re-open store B read-only and confirm the data landed in
+               ! the right (second) store.
+               call ppser_initialize(out_dir, 'freinit_b', 'r')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', u_back)
+               do i = 1, 3
+                  if (u_back(i) /= u_b(i)) error stop &
+                     'reinit-lifecycle: store B data round-trip mismatch'
+               end do
+               call ppser_finalize()
+
+               write (*, '(a)') 'preserf-fortran: reinit-lifecycle OK'
+               stop
+            end block
          else if (scenario == 'init-default-mode') then
             ! Issue #32: `mode` is optional on ppser_initialize for pp_ser /
             ! Serialbox `!$SER INIT` drop-in compatibility — those call sites
@@ -948,6 +1044,66 @@ program test_minimal
                call fs_read_field(ppser_serializer, ppser_savepoint, 'u', u_back)
             end block
             call abort_unexpected('read-bad-xtype')
+         else if (scenario == 'tracer-read-bad-xtype') then
+            ! Issue #70: a tracer read must apply the same on-disk variable
+            ! validation as a field read. Hand-build a store whose
+            ! /_tracers/q descriptor records FLOAT64 + dims [3] (so
+            ! validate_registered_tracer passes) but whose savepoint
+            ! variable q is FLOAT32, isolating the require_variable_layout
+            ! xtype rejection on the tracer read branch.
+            call build_tracer_xtype_mismatch_store(trim(out_dir)//'/ftrbx.nc')
+            block
+               real(real64), target :: q(3)
+               q = 0.0_real64
+               call ppser_initialize(out_dir, 'ftrbx', 'r')
+               call ppser_register_tracer('q', q, stype='')
+               call fs_RegisterAllTracers()
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+            end block
+            call abort_unexpected('tracer-read-bad-xtype')
+         else if (scenario == 'kbuff-read-bad-xtype') then
+            ! Issue #70: a k-buffer read must apply the same on-disk
+            ! variable validation as a field read. Hand-build a store whose
+            ! /_fields/t registry records FLOAT64 + dims [3,2,4]
+            ! (so validate_field_shape passes) but whose savepoint variable
+            ! t is FLOAT32, isolating the require_variable_layout xtype
+            ! rejection inside kbuff_load_full.
+            call build_kbuff_xtype_mismatch_store(trim(out_dir)//'/fkbbx.nc')
+            block
+               real(real64) :: tslice(3, 2)
+               tslice = 0.0_real64
+               call ppser_initialize(out_dir, 'fkbbx', 'r')
+               call fs_register_field(ppser_serializer, 't', 'double', &
+                                      ppser_reallength, 3, 2, 4, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_kbuff(ppser_serializer, ppser_savepoint, 't', &
+                                   tslice, k=1, k_size=4, mode=ppser_get_mode())
+            end block
+            call abort_unexpected('kbuff-read-bad-xtype')
+         else if (scenario == 'kbuff-read-bad-extent') then
+            ! Issue #70: a k-buffer read must reject a store whose on-disk
+            ! variable is *larger* than the expected shape, not let
+            ! nf90_get_var silently sub-sample a corner. Hand-build a store
+            ! whose /_fields/t registry records FLOAT64 + Fortran shape
+            ! [3,2,4] (so validate_field_shape passes) but whose savepoint
+            ! variable t is FLOAT64 with the larger Fortran shape [4,2,4],
+            ! isolating the require_variable_layout extent rejection inside
+            ! kbuff_load_full.
+            call build_kbuff_extent_mismatch_store(trim(out_dir)//'/fkbbe.nc')
+            block
+               real(real64) :: tslice(3, 2)
+               tslice = 0.0_real64
+               call ppser_initialize(out_dir, 'fkbbe', 'r')
+               call fs_register_field(ppser_serializer, 't', 'double', &
+                                      ppser_reallength, 3, 2, 4, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_kbuff(ppser_serializer, ppser_savepoint, 't', &
+                                   tslice, k=1, k_size=4, mode=ppser_get_mode())
+            end block
+            call abort_unexpected('kbuff-read-bad-extent')
          else if (scenario == 'type-matrix') then
             ! Slice B: smoke-test the new dtype x rank overloads end to
             ! end. One 1-D write+read round-trip per dtype (logical /
@@ -1325,6 +1481,60 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: tracers-roundtrip OK'
                stop
             end block
+         else if (scenario == 'tracers-register-twice') then
+            ! Issue #71: a second REGISTERTRACERS — e.g. fs_RegisterAllTracers
+            ! re-run each iteration of a timestep loop — must be idempotent
+            ! and NOT abort on NC_ENAMEINUSE redefining the /_tracers
+            ! descriptors. Register two tracers, call fs_RegisterAllTracers
+            ! twice (writing data after each, as a loop body would), then
+            ! re-open read-only and round-trip the tracers back to prove the
+            ! descriptors written by the first call are intact and reused.
+            block
+               real(real64), target :: qv(3), qc(2, 3)
+               real(real64) :: qv0(3), qc0(2, 3)
+               integer :: i, j
+               do i = 1, 3
+                  qv(i) = real(10 + i, real64)
+               end do
+               do j = 1, 3
+                  do i = 1, 2
+                     qc(i, j) = real(100*i + j, real64)
+                  end do
+               end do
+               qv0 = qv
+               qc0 = qc
+               call ppser_initialize(out_dir, 'ftrtwice', 'w')
+               call ppser_register_tracer('q_v', qv, stype='tens')
+               call ppser_register_tracer('q_c', qc, stype='bd')
+               ! First "timestep": register descriptors and write.
+               call fs_RegisterAllTracers()
+               call fs_create_savepoint('step0', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+               ! Second "timestep": REGISTERTRACERS runs again. Without the
+               ! idempotent guard this aborts on a duplicate def_var.
+               call fs_RegisterAllTracers()
+               call fs_create_savepoint('step1', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+               call ppser_finalize()
+               ! Re-open read-only and validate the descriptors round-trip.
+               qv = 0.0_real64
+               qc = 0.0_real64
+               call ppser_initialize(out_dir, 'ftrtwice', 'r')
+               call ppser_register_tracer('q_v', qv, stype='tens')
+               call ppser_register_tracer('q_c', qc, stype='bd')
+               call fs_RegisterAllTracers()
+               ! Read back at the first savepoint (positional match to the
+               ! store's sp_000000 = 'step0').
+               call fs_create_savepoint('step0', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+               if (any(qv /= qv0)) error stop &
+                  'tracers-register-twice: q_v did not read back'
+               if (any(qc /= qc0)) error stop &
+                  'tracers-register-twice: q_c did not read back'
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: tracers-register-twice OK'
+               stop
+            end block
          else if (scenario == 'kbuff') then
             ! Slice C Phase 2: DATA_KBUFF. Write two fields one vertical
             ! level at a time through fs_write_kbuff — a 3-D field t(i,j,k)
@@ -1393,6 +1603,65 @@ program test_minimal
                end do
                call ppser_finalize()
                write (*, '(a)') 'preserf-fortran: kbuff OK'
+               stop
+            end block
+         else if (scenario == 'kbuff-offset') then
+            ! Issue #72: the k-buffer size/offset arithmetic was promoted to
+            ! int64 (`allocate(buffer(slice_size*k_size))`, `off =
+            ! (k-1)*slice_size`) so it cannot wrap past 2^31 elements for an
+            ! ICON-scale field. A real >2^31-element buffer is far too large to
+            ! allocate in CI, so this scenario instead pins the *layout* the
+            ! int64 promotion must preserve: with a multi-element slice over
+            ! many levels, every element of the assembled column-major field
+            ! must land at exactly (k-1)*slice_size + slice_index. A botched
+            ! promotion (wrong operand order, a stray default-int truncation,
+            ! or an off-by-one in the int64 section bounds) would shuffle or
+            ! drop elements and fail the per-element round-trip below — so this
+            ! is the regression guard for the arithmetic the issue changed.
+            block
+               integer, parameter :: ni = 5, nj = 3, ke = 64
+               integer, parameter :: ss = ni*nj
+               real(real64) :: sl(ni, nj)
+               integer :: i, j, kk
+               ! Distinct value per (i,j,k) so a misplaced element is caught:
+               ! the assembled buffer position is (k-1)*ss + ((j-1)*ni + i),
+               ! exactly the offset formula promoted to int64.
+               call ppser_initialize(out_dir, 'fkboff', 'w')
+               call fs_register_field(ppser_serializer, 'g', 'double', &
+                                      ppser_reallength, ni, nj, ke, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               do kk = 1, ke
+                  do j = 1, nj
+                     do i = 1, ni
+                        sl(i, j) = real(((kk - 1)*ss + (j - 1)*ni + i), real64)
+                     end do
+                  end do
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'g', &
+                                      sl, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+               end do
+               call ppser_finalize()
+               ! Symmetric read-back: each level must recover its slice with
+               ! the same linear offsets, proving both the write-side
+               ! accumulate offset and the read-side inc offset are int64.
+               call ppser_initialize(out_dir, 'fkboff', 'r')
+               call fs_create_savepoint('step', ppser_savepoint)
+               do kk = 1, ke
+                  sl = 0.0_real64
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'g', &
+                                      sl, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+                  do j = 1, nj
+                     do i = 1, ni
+                        if (sl(i, j) /= &
+                            real(((kk - 1)*ss + (j - 1)*ni + i), real64)) &
+                           error stop 'kbuff-offset: assembled layout mismatch'
+                     end do
+                  end do
+               end do
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: kbuff-offset OK'
                stop
             end block
          else if (scenario == 'option') then
@@ -1978,6 +2247,101 @@ program test_minimal
                call fs_write_field(ppser_serializer, ppser_savepoint, 'z', z)
                call abort_unexpected('autoregister-zero-extent')
             end block
+         else if (scenario == 'read-python-store') then
+            ! Issue #68: reverse-direction wire-compat — Python writes a
+            ! preserf store (tests/_support/storage.py write_dump), then the
+            ! Fortran helper opens it READ-ONLY and reads the fields back.
+            !
+            ! Every other cross-language test is "Fortran writes -> Python
+            ! reads", so the Fortran writer and reader could share a
+            ! symmetric encoding quirk (axis order, registry layout, an
+            ! attribute convention) that no test catches. Driving
+            ! fs_read_field against a store the Fortran side never produced
+            ! exercises the read path against an independent producer.
+            !
+            ! A third argument selects the backend so the SAME scenario
+            ! covers both 'netcdf4' and 'nczarr-v2'. The Python side
+            ! (tests/integration_tests/test_fortran_wire_compat.py) writes
+            ! the store with matching field shapes / values, then runs this
+            ! scenario and asserts a clean exit.
+            !
+            ! Field layout (declared here in Fortran column-major order;
+            ! the Python writer stores the C-order reverse, and the helper
+            ! reverses again on read, so Fortran sees u(i,j,k) etc.):
+            !   u(4,3,2)  u(i,j,k) = 100*i + 10*j + k
+            !   v(5)      v(i)     = real(i)
+            !   w(3,4)    w(i,j)   = 10*i + j
+            block
+               character(len=:), allocatable :: backend
+               integer :: b_len, b_stat
+               real(real64) :: pu(4, 3, 2), pv(5), pw(3, 4)
+               integer :: pi, pj, pk
+               if (command_argument_count() < 3) error stop &
+                  'read-python-store: missing backend argument (3rd arg)'
+               call get_command_argument(3, length=b_len, status=b_stat)
+               if (b_stat /= 0) error stop &
+                  'read-python-store: get_command_argument(3,length) failed'
+               allocate (character(len=b_len) :: backend)
+               call get_command_argument(3, value=backend, status=b_stat)
+               if (b_stat /= 0) error stop &
+                  'read-python-store: get_command_argument(3,value) failed'
+
+               ! Open the Python-written store read-only. The 'r' mode +
+               ! the matching backend make ppser_initialize resolve the
+               ! existing store (a .nc file for netcdf4, a .zarr directory
+               ! store for nczarr-v2) rather than create one.
+               call ppser_initialize(out_dir, 'fpystore', 'r', backend=backend)
+               if (ppser_get_mode() /= 1) error stop &
+                  'read-python-store: read open should set mode 1'
+
+               ! REGISTER in read mode resolves + validates each /_fields
+               ! entry Python wrote (type_id, C-order dims, halos). A
+               ! mismatch between the Python writer's registry and the
+               ! Fortran reader's expectation aborts here — that is the
+               ! cross-producer check this scenario exists for.
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 4, 3, 2, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'v', 'double', &
+                                      ppser_reallength, 5, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'w', 'double', &
+                                      ppser_reallength, 3, 4, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+
+               call fs_create_savepoint('step', ppser_savepoint)
+               if (ppser_savepoint%idx /= 0) error stop &
+                  'read-python-store: savepoint should resolve idx 0'
+
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', pu)
+               do pk = 1, 2
+                  do pj = 1, 3
+                     do pi = 1, 4
+                        if (pu(pi, pj, pk) /= &
+                            real(100*pi + 10*pj + pk, real64)) error stop &
+                           'read-python-store: u value/axis-order mismatch'
+                     end do
+                  end do
+               end do
+
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'v', pv)
+               do pi = 1, 5
+                  if (pv(pi) /= real(pi, real64)) error stop &
+                     'read-python-store: v value mismatch'
+               end do
+
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'w', pw)
+               do pj = 1, 4
+                  do pi = 1, 3
+                     if (pw(pi, pj) /= real(10*pi + pj, real64)) error stop &
+                        'read-python-store: w value/axis-order mismatch'
+                  end do
+               end do
+
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: read-python-store OK'
+               stop
+            end block
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &
@@ -2445,6 +2809,148 @@ contains
       call nc_must(nf90_put_var(spid, uvid, vals), 'put_var sp_000000/u')
       call nc_must(nf90_close(ncid), 'nf90_close')
    end subroutine build_xtype_mismatch_store
+
+   !> Issue #70 tracer counterpart of build_xtype_mismatch_store: a
+   !> schema-valid store whose `/_tracers/q` descriptor records type_id
+   !> FLOAT64 and dims [3] but whose savepoints/sp_000000/q variable is
+   !> NF90_FLOAT. validate_registered_tracer (descriptor-only) passes, so
+   !> this isolates the read-side require_variable_layout rejection on the
+   !> tracer read branch.
+   subroutine build_tracer_xtype_mismatch_store(path)
+      use netcdf
+      character(len=*), intent(in) :: path
+      integer :: ncid, tgid, vid, spsid, spid, dimid, qvid, fgid
+      integer(int32) :: schema, tid_f64, idx0, dimsvec(1)
+      real(real32) :: vals(3)
+
+      schema = 1_int32        ! PRESERF_SCHEMA_VERSION
+      tid_f64 = 5_int32       ! TID_FLOAT64
+      idx0 = 0_int32
+      dimsvec = [3_int32]
+      vals = [1.0_real32, 2.0_real32, 3.0_real32]
+
+      call nc_must(nf90_create(path, NF90_NETCDF4, ncid), 'nf90_create')
+      call nc_must(nf90_put_att(ncid, NF90_GLOBAL, '_preserf_schema_version', &
+                                schema), 'put_att _preserf_schema_version')
+      ! Read open expects the `/_fields` skeleton group even when this store
+      ! carries only tracers; create it empty.
+      call nc_must(nf90_def_grp(ncid, '_fields', fgid), 'def_grp _fields')
+      ! /_tracers/q descriptor carrier (scalar NF90_INT) with type_id, dims,
+      ! stype, tracer_index — mirrors write_tracer_descriptor.
+      call nc_must(nf90_def_grp(ncid, '_tracers', tgid), 'def_grp _tracers')
+      call nc_must(nf90_def_var(tgid, 'q', NF90_INT, vid), 'def_var /_tracers/q')
+      call nc_must(nf90_put_att(tgid, vid, 'type_id', tid_f64), 'put_att type_id')
+      call nc_must(nf90_put_att(tgid, vid, 'dims', dimsvec), 'put_att dims')
+      call nc_must(nf90_put_att(tgid, vid, 'stype', ''), 'put_att stype')
+      call nc_must(nf90_put_att(tgid, vid, 'tracer_index', 1_int32), &
+                   'put_att tracer_index')
+      ! Savepoint group with a FLOAT32 data variable (the inconsistency).
+      call nc_must(nf90_def_grp(ncid, 'savepoints', spsid), 'def_grp savepoints')
+      call nc_must(nf90_def_grp(spsid, 'sp_000000', spid), 'def_grp sp_000000')
+      call nc_must(nf90_put_att(spid, NF90_GLOBAL, '_preserf_savepoint_index', &
+                                idx0), 'put_att _preserf_savepoint_index')
+      call nc_must(nf90_put_att(spid, NF90_GLOBAL, 'name', 'step'), 'put_att name')
+      call nc_must(nf90_def_dim(spid, 'q_dim0', 3, dimid), 'def_dim q_dim0')
+      call nc_must(nf90_def_var(spid, 'q', NF90_FLOAT, [dimid], qvid), &
+                   'def_var sp_000000/q (float32)')
+      call nc_must(nf90_put_var(tgid, vid, 0_int32), 'put_var tracer descriptor')
+      call nc_must(nf90_put_var(spid, qvid, vals), 'put_var sp_000000/q')
+      call nc_must(nf90_close(ncid), 'nf90_close')
+   end subroutine build_tracer_xtype_mismatch_store
+
+   !> Issue #70 k-buffer counterpart of build_xtype_mismatch_store: a
+   !> schema-valid store whose `/_fields/t` registry records type_id
+   !> FLOAT64 and C-order dims [4,2,3] (Fortran shape 3 x 2 x 4) but whose
+   !> savepoints/sp_000000/t variable is NF90_FLOAT. validate_field_shape
+   !> (registry-only) passes, so this isolates the require_variable_layout
+   !> rejection inside kbuff_load_full.
+   subroutine build_kbuff_xtype_mismatch_store(path)
+      use netcdf
+      character(len=*), intent(in) :: path
+      integer :: ncid, fgid, vid, spsid, spid, di, dj, dk, tvid
+      integer(int32) :: schema, tid_f64, idx0, dimsvec(3)
+      real(real32) :: vals(3, 2, 4)
+
+      schema = 1_int32        ! PRESERF_SCHEMA_VERSION
+      tid_f64 = 5_int32       ! TID_FLOAT64
+      idx0 = 0_int32
+      ! Registry dims are C-order (slowest-first): Fortran shape [3,2,4]
+      ! => C-order [4,2,3].
+      dimsvec = [4_int32, 2_int32, 3_int32]
+      vals = 1.0_real32
+
+      call nc_must(nf90_create(path, NF90_NETCDF4, ncid), 'nf90_create')
+      call nc_must(nf90_put_att(ncid, NF90_GLOBAL, '_preserf_schema_version', &
+                                schema), 'put_att _preserf_schema_version')
+      call nc_must(nf90_def_grp(ncid, '_fields', fgid), 'def_grp _fields')
+      call nc_must(nf90_def_var(fgid, 't', NF90_INT, vid), 'def_var /_fields/t')
+      call nc_must(nf90_put_att(fgid, vid, 'type_id', tid_f64), 'put_att type_id')
+      call nc_must(nf90_put_att(fgid, vid, 'dims', dimsvec), 'put_att dims')
+      call nc_must(nf90_def_grp(ncid, 'savepoints', spsid), 'def_grp savepoints')
+      call nc_must(nf90_def_grp(spsid, 'sp_000000', spid), 'def_grp sp_000000')
+      call nc_must(nf90_put_att(spid, NF90_GLOBAL, '_preserf_savepoint_index', &
+                                idx0), 'put_att _preserf_savepoint_index')
+      call nc_must(nf90_put_att(spid, NF90_GLOBAL, 'name', 'step'), 'put_att name')
+      ! netcdf-fortran takes def_var dimids in Fortran order (fastest-first)
+      ! and reverses them for the C library, so the on-disk variable reports
+      ! C-order dims matching the registry `dims` attribute. Match the
+      ! writer's ensure_dims naming: t_dim0 is the slowest (C) axis = k(4).
+      call nc_must(nf90_def_dim(spid, 't_dim0', 4, dk), 'def_dim t_dim0')
+      call nc_must(nf90_def_dim(spid, 't_dim1', 2, dj), 'def_dim t_dim1')
+      call nc_must(nf90_def_dim(spid, 't_dim2', 3, di), 'def_dim t_dim2')
+      call nc_must(nf90_def_var(spid, 't', NF90_FLOAT, [di, dj, dk], tvid), &
+                   'def_var sp_000000/t (float32)')
+      call nc_must(nf90_put_var(spid, tvid, vals), 'put_var sp_000000/t')
+      call nc_must(nf90_close(ncid), 'nf90_close')
+   end subroutine build_kbuff_xtype_mismatch_store
+
+   !> Issue #70 larger-extent counterpart for the k-buffer read path: a
+   !> schema-valid store whose `/_fields/t` registry records type_id
+   !> FLOAT64 and C-order dims [4,2,3] (Fortran shape 3 x 2 x 4) but whose
+   !> savepoints/sp_000000/t variable is FLOAT64 with the *larger* Fortran
+   !> shape [4,2,4] (C-order [4,2,4]). The on-disk dtype matches, so this
+   !> isolates the require_variable_layout extent rejection that stops
+   !> nf90_get_var from silently sub-sampling a larger on-disk variable
+   !> (the second failure mode named in issue #70) inside kbuff_load_full.
+   subroutine build_kbuff_extent_mismatch_store(path)
+      use netcdf
+      character(len=*), intent(in) :: path
+      integer :: ncid, fgid, vid, spsid, spid, di, dj, dk, tvid
+      integer(int32) :: schema, tid_f64, idx0, dimsvec(3)
+      real(real64) :: vals(4, 2, 4)
+
+      schema = 1_int32        ! PRESERF_SCHEMA_VERSION
+      tid_f64 = 5_int32       ! TID_FLOAT64
+      idx0 = 0_int32
+      ! Registry dims are C-order (slowest-first): expected Fortran shape
+      ! [3,2,4] => C-order [4,2,3].
+      dimsvec = [4_int32, 2_int32, 3_int32]
+      vals = 1.0_real64
+
+      call nc_must(nf90_create(path, NF90_NETCDF4, ncid), 'nf90_create')
+      call nc_must(nf90_put_att(ncid, NF90_GLOBAL, '_preserf_schema_version', &
+                                schema), 'put_att _preserf_schema_version')
+      call nc_must(nf90_def_grp(ncid, '_fields', fgid), 'def_grp _fields')
+      call nc_must(nf90_def_var(fgid, 't', NF90_INT, vid), 'def_var /_fields/t')
+      call nc_must(nf90_put_att(fgid, vid, 'type_id', tid_f64), 'put_att type_id')
+      call nc_must(nf90_put_att(fgid, vid, 'dims', dimsvec), 'put_att dims')
+      call nc_must(nf90_def_grp(ncid, 'savepoints', spsid), 'def_grp savepoints')
+      call nc_must(nf90_def_grp(spsid, 'sp_000000', spid), 'def_grp sp_000000')
+      call nc_must(nf90_put_att(spid, NF90_GLOBAL, '_preserf_savepoint_index', &
+                                idx0), 'put_att _preserf_savepoint_index')
+      call nc_must(nf90_put_att(spid, NF90_GLOBAL, 'name', 'step'), 'put_att name')
+      ! Define dims in Fortran order (fastest-first). The fastest axis is 4
+      ! on disk but the registry/expected shape says 3, so the on-disk
+      ! variable is strictly larger and nf90_get_var would otherwise read a
+      ! [3,2,4] corner sub-array without complaint.
+      call nc_must(nf90_def_dim(spid, 't_dim0', 4, dk), 'def_dim t_dim0')
+      call nc_must(nf90_def_dim(spid, 't_dim1', 2, dj), 'def_dim t_dim1')
+      call nc_must(nf90_def_dim(spid, 't_dim2', 4, di), 'def_dim t_dim2')
+      call nc_must(nf90_def_var(spid, 't', NF90_DOUBLE, [di, dj, dk], tvid), &
+                   'def_var sp_000000/t (float64, larger extent)')
+      call nc_must(nf90_put_var(spid, tvid, vals), 'put_var sp_000000/t')
+      call nc_must(nf90_close(ncid), 'nf90_close')
+   end subroutine build_kbuff_extent_mismatch_store
 
    !> Abort the test build if a raw netCDF call in
    !> build_xtype_mismatch_store failed. Unchecked errors there could

@@ -349,3 +349,32 @@ preserf_scenario_test(NAME register_readonly_handle SCENARIO register-readonly-h
 # message rather than write a malformed entry / NF90_UNLIMITED dim.
 preserf_scenario_test(NAME autoregister_zero_extent SCENARIO autoregister-zero-extent
     PASS "non-positive extent")
+
+# -----------------------------------------------------------------------------
+# Scenarios that landed on main after this branch was cut (issues #67, #98, #99,
+# #72). Registered through the same per-scenario-isolated helper as the rest.
+
+# Issue #67/#94: ppser_initialize called twice in one process auto-closes the
+# previous session (flushing its savepoint count and releasing the handle)
+# instead of leaking the handle and abandoning the store.
+preserf_scenario_test(NAME reinit_lifecycle SCENARIO reinit-lifecycle
+    PASS "preserf-fortran: reinit-lifecycle OK")
+
+# Issue #98: a second fs_RegisterAllTracers in one write session is idempotent
+# (inq-guard before def_var) rather than aborting on NC_ENAMEINUSE.
+preserf_scenario_test(NAME tracers_register_twice SCENARIO tracers-register-twice
+    PASS "preserf-fortran: tracers-register-twice OK")
+
+# Issue #99: tracer and k-buffer reads validate the on-disk xtype / dims before
+# nf90_get_var, so a mutated store aborts instead of silently coercing.
+preserf_scenario_test(NAME tracer_read_bad_xtype SCENARIO tracer-read-bad-xtype
+    PASS "Registry / variable mismatch")
+preserf_scenario_test(NAME kbuff_read_bad_xtype SCENARIO kbuff-read-bad-xtype
+    PASS "Registry / variable mismatch")
+preserf_scenario_test(NAME kbuff_read_bad_extent SCENARIO kbuff-read-bad-extent
+    PASS "dimension lengths disagree")
+
+# Issue #72: int64 k-buffer size/offset arithmetic; the kbuff-offset scenario
+# pins the column-major layout the int64 offset formula must preserve.
+preserf_scenario_test(NAME kbuff_offset SCENARIO kbuff-offset
+    PASS "preserf-fortran: kbuff-offset OK")

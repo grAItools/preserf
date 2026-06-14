@@ -6,8 +6,47 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased] — post-v0.1.0 main
 
+### Fixed
+
+- `!$SER DATA` values with arithmetic _inside subscripts_ (e.g.
+  `x=arr(i-1)`, `arr(i+1)`, `arr(2*i)`, `a(i)%b(j-1)`) are no longer
+  misclassified as computed (write-only) and silently dropped on read.
+  The "computed" detection now strips balanced `(...)` spans before
+  scanning, so only top-level arithmetic or a top-level `merge` intrinsic
+  marks a value as write-only; genuine expressions (`a*b`, `a+1`,
+  `merge(a,b,c)`) remain write-only as before
+  ([#76](https://github.com/grAItools/preserf/issues/76)).
+
 ### Added
 
+- PyPI distribution metadata: `[project]` in `pyproject.toml` now declares
+  `authors`/`maintainers`, `keywords`, trove `classifiers` (supported
+  Python versions, topics, development status), and `[project.urls]`
+  (Homepage, Repository, Changelog, Issues), so the rendered package page and
+  `pip`/`uv` resolvers see complete metadata. The packaging test
+  (`tests/integration_tests/test_packaging_distribution.py`) now also builds
+  the **sdist** (`python -m build --sdist`) and asserts it ships the Fortran
+  runtime sources plus the CMake helper — mirroring the wheel assertions so a
+  source-tarball install path can no longer drop the runtime unnoticed — and
+  runs `twine check` on both artifacts when `twine` is available.
+- Reverse-direction wire-compat test (issue #68): Python now writes a preserf
+  store via `tests/_support/storage.py` `write_dump` and the Fortran binary
+  reads it back with `fs_read_field`
+  (`test_fortran_reads_python_written_store`, covering both the `netcdf4` and
+  `nczarr-v2` backends). Until now every cross-language test was "Fortran
+  writes -> Python reads", so the Fortran read path was only ever exercised
+  against stores Fortran itself produced — a symmetric encoding quirk shared by
+  the Fortran writer and reader (an axis-order or registry convention both got
+  consistently wrong) could not be caught. The new test drives the Fortran read
+  path against an independent producer: a fresh `read-python-store` scenario in
+  `test_minimal.f90` opens the Python-written store read-only, REGISTERs the
+  fields (validating the Python-written `/_fields` registry against the Fortran
+  reader's expectation), and asserts every value / axis-order round-trips.
+  Gated on the same `PRESERF_REQUIRE_FORTRAN` Fortran-binary fixture as the rest
+  of the wire-compat suite. The golden-Serialbox-dump half of #68 remains open
+  (it needs a dump produced by real Serialbox/`pp_ser`, which is not
+  reproducible in this environment without fabricating the very artifact the
+  test is meant to validate against).
 - Fortran distribution (`specs/2026-06-fortran-distribution`): the Fortran
   runtime now ships inside the wheel as package data. The runtime tree moved
   from `src/preserf-fortran/` to `src/preserf/fortran/`, so a `pip install
@@ -213,6 +252,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   silently skipping the wire-compat test. Closes roadmap Slice F
   ([#14](https://github.com/grAItools/preserf/pull/14), [#15](https://github.com/grAItools/preserf/pull/15)).
 - `.devcontainer/`: pixi-based dev container ([#10](https://github.com/grAItools/preserf/pull/10), [#12](https://github.com/grAItools/preserf/pull/12)).
+- `tests/unit_tests/test_storage_read_validation.py`: a
+  `test_read_dump_rejects_*` family pinning every validation branch in the
+  test-support reader `tests/_support/storage.py` `read_dump()` — the trusted
+  oracle the round-trip and wire-compat tests ride on. Each test builds a valid
+  store with the shared `_make_dump`/`write_dump` helpers, corrupts one
+  invariant (bad/missing schema version, missing `/_fields` or `/savepoints`
+  group, odd-length/duplicate/inconsistent/non-dense field ids, savepoint
+  variable absent from both registries), and asserts the branch-specific
+  failure. Runs in the fast pytest selection ([#77](https://github.com/grAItools/preserf/issues/77)).
+
+### Documentation
+
+- Documented the Fortran runtime's serial-only (not thread-safe)
+  constraint: the `save`d module-level serializer / savepoint / registry
+  state and the shared `RANDOM_NUMBER` perturb state are mutated without
+  synchronization, so `!$SER` directives must run from serial regions only
+  (or be guarded with `!$omp critical` / `!$omp master`). Stated in
+  `src/preserf/fortran/README.md` and the `m_preserf` / `utils_preserf`
+  module headers, with the OpenMP-scope decision recorded in
+  [ADR 0005](docs/adr/0005-serialization-runtime-is-serial-only.md)
+  ([#73](https://github.com/grAItools/preserf/issues/73)).
 
 ### Changed
 
@@ -228,6 +288,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the effect in the generated output) plus a directory-without-`--recursive`
   error path and a non-Fortran-extension `_collect` case
   ([#84](https://github.com/grAItools/preserf/issues/84)).
+- Fortran runtime maintainability cleanup (no behaviour change on the
+  happy path): all `error stop` diagnostics now write to `error_unit`
+  (`iso_fortran_env`) instead of stdout, so batch/HPC runs no longer lose
+  or misorder them against buffered model output; the unused public
+  `preserf_check_nf` (superseded by `preserf_check_nf_with_msg`) was
+  removed; the three different unused-argument suppression idioms were
+  unified on `if (.false.) <discard> = <var>`; and the backend-resolution
+  rationale was consolidated to `ppser_resolve_backend` /
+  `resolve_abs_dir` with the duplicated blocks reduced to references. The
+  README gained a "Platform assumptions" note (POSIX `mkdir -p`, libc
+  `getcwd`) ([#82](https://github.com/grAItools/preserf/issues/82)).
+- Single source of truth for the project version
+  ([#79](https://github.com/grAItools/preserf/issues/79)): `pyproject.toml`
+  now declares `dynamic = ["version"]` and a `[tool.hatch.version]` source that
+  reads `__version__` from `src/preserf/__init__.py`, so the wheel metadata and
+  `importlib.metadata.version("preserf")` derive from that one literal. The CLI
+  `--version` flag and `preserf.__version__` already shared it; `test_cli.py`
+  now asserts `preserf.__version__ == metadata.version("preserf")` and uses
+  `__version__` for the `--version` check instead of a hard-coded literal.
+  `__version__` is bumped to `0.2.0.dev0` (PEP 440 form of the `0.2.0-dev`
+  post-v0.1.0 main tracks), so `preserf --version` no longer understates the
+  shipped surface as `0.1.0`. The Fortran runtime version
+  (`src/preserf/fortran/CMakeLists.txt` `project(... VERSION ...)`) is bumped
+  to `0.2.0` and stays tracked separately, with a note explaining why: that
+  tree is a standalone CMake project built with no Python in scope, so it
+  cannot read the Python version at configure time; bump the two in lockstep
+  on release.
 - CI now runs the `consumer`-marked external-consumer / `find_package`
   tests as a dedicated step with `PRESERF_REQUIRE_FORTRAN=1`, and the
   `test-consumer` pixi task sets the same env var, so the install /
@@ -272,6 +359,103 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Preprocessor / CLI robustness nits ([#83](https://github.com/grAItools/preserf/issues/83)):
+  - `_declared_names` now splits a declaration fragment on top-level commas
+    via a bracket-depth scanner, so a nested dimension expression
+    (`a(b(1,2)), c`) is no longer split at its inner commas when stripping
+    `INTENT(IN)` from a field read back by `!$SER DATA`.
+  - `_track_intentin` records a DATA value's base name by dropping only from
+    the first subscript (`a(i)%b(j)` → `a`); the previous greedy `(.+)`
+    removal mangled derived-type component references.
+  - The CLI now rejects `--output` together with `--output-dir` with a clear
+    "mutually exclusive" error instead of silently letting `--output` win.
+  - `.f95`, `.f08`, `.f77`, and `.for` are now recognised as Fortran source
+    during recursive directory expansion (was: `.f90 .f .f03 .inc .incf`
+    only), so those files are no longer skipped.
+  - `!$SER MODE` resolves its argument case-insensitively, so `WRITE`,
+    `Read`, `cpu`, and `GPU` all map to their numeric mode consistently.
+- Tracer and k-buffer reads now apply the same on-disk variable validation
+  the field read path already enforced: before `nf90_get_var`, the stored
+  variable's `xtype`, rank, and per-axis lengths are checked against what the
+  reader expects, so a store mutated by a third-party tool aborts with a clear
+  `Registry / variable mismatch` message instead of letting netCDF silently
+  coerce a wrong dtype or sub-sample a larger on-disk extent. The three read
+  paths (field, tracer, k-buffer) now share one `require_variable_layout`
+  helper so they cannot drift again; `require_variable_xtype` delegates to it
+  after reversing its C-order registry dims. Negative ctests
+  (`preserf_fortran_tracer_read_bad_xtype`, `preserf_fortran_kbuff_read_bad_xtype`)
+  hand each read path a store whose savepoint variable is `FLOAT32` while its
+  descriptor/registry records `FLOAT64` and assert the abort; a further
+  `preserf_fortran_kbuff_read_bad_extent` test keeps the dtype correct but
+  makes the on-disk variable strictly larger than the registry shape, covering
+  the second failure mode (silent sub-sampling of a larger extent) named in
+  the issue ([#70](https://github.com/grAItools/preserf/issues/70)).
+- `fs_RegisterAllTracers` (the `!$SER REGISTERTRACERS` directive) is now
+  idempotent in write mode, matching `fs_register_field`. A second
+  registration — e.g. the directive re-run each iteration of a timestep loop
+  — no longer aborts with a raw netCDF error (`NC_ENAMEINUSE`) on a duplicate
+  `def_var`: each existing `/_tracers/<name>` descriptor is validated against
+  the registered tracer (type_id, C-order dims, stype, tracer_index) and the
+  redefinition is skipped, while a conflicting descriptor aborts with a clear
+  `re-registered tracer` message
+  ([#71](https://github.com/grAItools/preserf/issues/71)).
+- Non-GNU Fortran compilers no longer silently get **no** required build
+  flags. The preprocessing (`-cpp`) and F2008 standards flags were gated
+  behind `if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")` in the runtime
+  library build (`src/preserf/fortran/CMakeLists.txt`) and the shipped
+  consumer helper (`cmake/PreserfFortran.cmake`), so under Intel
+  (`ifort`/`ifx`) or NVHPC (`nvfortran`) the C preprocessor was never enabled
+  — `m_preserf.F90`'s `#include` overload templates and the generated
+  `#ifdef SERIALIZE` guards went unexpanded, producing a silently
+  misconfigured build. A new single-source-of-truth CMake module
+  (`cmake/PreserfFortranFlags.cmake`, shipped in the wheel) resolves the
+  per-compiler preprocessing / standards / warning flags for GNU,
+  Intel/IntelLLVM and NVHPC/PGI, and `FATAL_ERROR`s on any other compiler so
+  there is no longer a no-flag path; the library build, the consumer helper,
+  and the native test target all route through it
+  ([#78](https://github.com/grAItools/preserf/issues/78)). A non-GNU CI
+  runner lane (Intel oneAPI / NVIDIA HPC SDK) is deferred — the available CI
+  cannot provide or validate those toolchains.
+- K-buffer size and offset arithmetic no longer overflows default-kind
+  integers for ICON-scale fields (issue #72). The whole-field buffer count
+  (`slice_size * k_size`) and the per-level offsets (`(k-1) * slice_size`) in
+  `fs_write_kbuff` / `kbuff_accumulate` were evaluated in default (32-bit)
+  integer, so a field with more than ~2^31 elements (e.g. a 17 GB `real64`
+  field, ~2.1e9 elements) would silently wrap and under-allocate or
+  mis-index the buffer. The operands are now promoted to `integer(int64)`
+  before multiplying, the buffer is allocated and indexed with `int64`
+  bounds, and a guard `error stop`s naming the field if even the `int64`
+  product would overflow — the wire-boundary integer pattern from
+  `docs/style.md`. A `kbuff-offset` Fortran regression test pins the
+  column-major layout the int64 offsets must preserve across many levels.
+- Subprogram-header detection no longer fires on identifiers that merely begin
+  with `function`/`subroutine` (e.g. `functional_x = 1`), and now recognises
+  typed and attribute-prefixed function headers (`pure function`,
+  `elemental function`, `integer function`, `real(real64) function`, ...). The
+  detection regex gained a trailing word boundary and accepts attribute
+  (`pure`/`elemental`/`recursive`/`impure`/`non_recursive`) and type-spec
+  prefixes before the keyword, so the injected `USE` block lands on the right
+  lines and the contained serialization calls compile; `end function`/`end
+  subroutine` and `module procedure` are still excluded
+  ([#75](https://github.com/grAItools/preserf/issues/75)).
+- The preprocessor no longer hard-errors at EOF when a `MODULE`/`PROGRAM`
+  unit is closed with a bare `END` (legal Fortran) instead of `END MODULE`
+  / `END PROGRAM`. The scope tracker now recognises `END` as closing the
+  current open unit, so such a file preprocesses successfully rather than
+  raising "Unterminated module or program unit encountered". A bare `END`
+  outside an open unit (e.g. closing a subroutine) is still ignored
+  ([#74](https://github.com/grAItools/preserf/issues/74)).
+- `ppser_initialize` called twice in one process without an intervening
+  `ppser_finalize` (e.g. ICON-style multi-domain runs that re-init per
+  domain) now auto-closes the previous session instead of leaking its open
+  netCDF handle and abandoning its store. Auto-close flushes the previous
+  store's `_preserf_savepoint_count` (so the store no longer silently
+  advertises `0` savepoints to the reader contract) and releases the file
+  handle. The module-level `ppser_savepoint` is also reset to its empty
+  sentinel on every init, matching `ppser_finalize`, so a stale savepoint
+  carrying the previous serializer's `owner_ncid` can no longer defeat
+  `require_savepoint_owner` and pass a dangling group id into
+  `nf90_put_var` ([#67](https://github.com/grAItools/preserf/issues/67)).
 - `fs_register_field` no longer aborts with a raw netCDF error when a field
   is registered more than once or on a read-only handle. Re-registering a
   field (a `!$SER REGISTER` in a per-timestep loop, or a field already
