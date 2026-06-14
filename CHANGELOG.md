@@ -317,6 +317,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Subprogram-header detection no longer fires on identifiers that merely begin
+  with `function`/`subroutine` (e.g. `functional_x = 1`), and now recognises
+  typed and attribute-prefixed function headers (`pure function`,
+  `elemental function`, `integer function`, `real(real64) function`, ...). The
+  detection regex gained a trailing word boundary and accepts attribute
+  (`pure`/`elemental`/`recursive`/`impure`/`non_recursive`) and type-spec
+  prefixes before the keyword, so the injected `USE` block lands on the right
+  lines and the contained serialization calls compile; `end function`/`end
+  subroutine` and `module procedure` are still excluded
+  ([#75](https://github.com/grAItools/preserf/issues/75)).
 - The preprocessor no longer hard-errors at EOF when a `MODULE`/`PROGRAM`
   unit is closed with a bare `END` (legal Fortran) instead of `END MODULE`
   / `END PROGRAM`. The scope tracker now recognises `END` as closing the
