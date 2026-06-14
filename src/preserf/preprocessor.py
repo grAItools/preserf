@@ -87,8 +87,9 @@ _REG_SHORTCUTS = {
 }
 
 # A DATA value is "computed" (written but never read back) when it is an
-# expression rather than a plain field reference: it contains an arithmetic
-# operator or a ``merge`` intrinsic.
+# expression rather than a plain field reference: it contains a *top-level*
+# arithmetic operator or a top-level ``merge`` intrinsic. Operators inside
+# subscripts (e.g. ``arr(i-1)``) do not count -- see ``_is_computed``.
 _COMPUTED_OPS = ("*", "+", "-", "/")
 _RE_MERGE = re.compile(r"\bmerge\b", re.IGNORECASE)
 
@@ -129,11 +130,39 @@ _RE_TRACER = re.compile(
 )
 
 
+def _strip_parens(value: str) -> str:
+    """Drop balanced ``(...)`` spans, keeping only top-level text.
+
+    Used to ignore arithmetic and intrinsics that live inside subscripts or
+    kind specifiers (e.g. ``arr(i-1)``) when classifying a DATA value, so only
+    operators at the top level mark it as computed. Unbalanced text is left
+    as-is rather than raising; classification is heuristic, not a parser.
+    """
+    out: list[str] = []
+    depth = 0
+    for ch in value:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            if depth > 0:
+                depth -= 1
+        elif depth == 0:
+            out.append(ch)
+    return "".join(out)
+
+
 def _is_computed(value: str) -> bool:
-    """Whether a DATA value is a computed expression, so write-only."""
-    if any(op in value for op in _COMPUTED_OPS):
+    """Whether a DATA value is a computed expression, so write-only.
+
+    Only *top-level* arithmetic or a top-level ``merge`` intrinsic count: index
+    arithmetic inside subscripts (e.g. ``arr(i-1)``) is part of a plain field
+    reference and must still be read back. We therefore strip balanced
+    parenthesised spans before scanning.
+    """
+    top_level = _strip_parens(value)
+    if any(op in top_level for op in _COMPUTED_OPS):
         return True
-    return _RE_MERGE.search(value) is not None
+    return _RE_MERGE.search(top_level) is not None
 
 
 def _strip_trailing_comment(text: str) -> str:

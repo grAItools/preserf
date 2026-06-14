@@ -10,6 +10,17 @@ Per-slice spec / plan dirs live under [`specs/`](specs/) (overview in
 [`specs/README.md`](specs/README.md)). v0.1 gaps the specs close are
 embedded in each spec's Problem section.
 
+### Fixed
+
+- `!$SER DATA` values with arithmetic _inside subscripts_ (e.g.
+  `x=arr(i-1)`, `arr(i+1)`, `arr(2*i)`, `a(i)%b(j-1)`) are no longer
+  misclassified as computed (write-only) and silently dropped on read.
+  The "computed" detection now strips balanced `(...)` spans before
+  scanning, so only top-level arithmetic or a top-level `merge` intrinsic
+  marks a value as write-only; genuine expressions (`a*b`, `a+1`,
+  `merge(a,b,c)`) remain write-only as before
+  ([#76](https://github.com/grAItools/preserf/issues/76)).
+
 ## [0.2.0-dev] — post-v0.1.0 main, unreleased
 
 ### Added
