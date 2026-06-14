@@ -1,6 +1,6 @@
 [project]
 name = "preserf"
-version = "0.1.0"
+dynamic = ["version"]
 description = "A preprocessor for Fortran data serialization directives"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -16,6 +16,13 @@ preserf = "preserf.cli:app"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+# Single source of truth for the version: hatch reads `__version__` from
+# `src/preserf/__init__.py`, the wheel metadata derives from it, and
+# `importlib.metadata.version("preserf")` reflects it after install.
+# Bumping the release means editing that one literal.
+[tool.hatch.version]
+path = "src/preserf/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/preserf"]
@@ -33,7 +40,7 @@ select = [
   "UP", # pyupgrade
   "B", # flake8-bugbear
   "SIM", # flake8-simplify
-  "TCH", # flake8-type-checking
+  "TC", # flake8-type-checking
   "RUF", # ruff-specific rules
 ]
 
