@@ -8,6 +8,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Reverse-direction wire-compat test (issue #68): Python now writes a preserf
+  store via `tests/_support/storage.py` `write_dump` and the Fortran binary
+  reads it back with `fs_read_field`
+  (`test_fortran_reads_python_written_store`, covering both the `netcdf4` and
+  `nczarr-v2` backends). Until now every cross-language test was "Fortran
+  writes -> Python reads", so the Fortran read path was only ever exercised
+  against stores Fortran itself produced — a symmetric encoding quirk shared by
+  the Fortran writer and reader (an axis-order or registry convention both got
+  consistently wrong) could not be caught. The new test drives the Fortran read
+  path against an independent producer: a fresh `read-python-store` scenario in
+  `test_minimal.f90` opens the Python-written store read-only, REGISTERs the
+  fields (validating the Python-written `/_fields` registry against the Fortran
+  reader's expectation), and asserts every value / axis-order round-trips.
+  Gated on the same `PRESERF_REQUIRE_FORTRAN` Fortran-binary fixture as the rest
+  of the wire-compat suite. The golden-Serialbox-dump half of #68 remains open
+  (it needs a dump produced by real Serialbox/`pp_ser`, which is not
+  reproducible in this environment without fabricating the very artifact the
+  test is meant to validate against).
 - Fortran distribution (`specs/2026-06-fortran-distribution`): the Fortran
   runtime now ships inside the wheel as package data. The runtime tree moved
   from `src/preserf-fortran/` to `src/preserf/fortran/`, so a `pip install
