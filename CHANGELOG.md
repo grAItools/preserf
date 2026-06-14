@@ -276,6 +276,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Test-suite polish (no behaviour change): the subprocess-driving wire-compat
+  integration tests now share a single `run_scenario()` helper (run + assert
+  exit 0 + OK marker) instead of repeating the same `subprocess.run` /
+  returncode / marker block; the `m_preserf` ctest scenarios each get their own
+  isolated `test-output/<scenario>` subdirectory (registered through a
+  `preserf_scenario_test()` CMake helper) so `ctest -j` is race-free regardless
+  of per-scenario store prefixes; and `tests/unit_tests/test_cli.py` now
+  exercises every CLI flag end-to-end through the typer plumbing (`--module` /
+  `--no-prefix` / `--acc-if` / `--sp-as-var` / `--ifdef` / `--real`, asserting
+  the effect in the generated output) plus a directory-without-`--recursive`
+  error path and a non-Fortran-extension `_collect` case
+  ([#84](https://github.com/grAItools/preserf/issues/84)).
 - Fortran runtime maintainability cleanup (no behaviour change on the
   happy path): all `error stop` diagnostics now write to `error_unit`
   (`iso_fortran_env`) instead of stdout, so batch/HPC runs no longer lose

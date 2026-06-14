@@ -3,6 +3,7 @@
 from importlib import metadata
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 import preserf
@@ -192,3 +193,108 @@ def test_collect_deduplicates_via_resolved_identity(tmp_path: Path) -> None:
     aliased = tmp_path / "src" / ".." / "src"
     files = _collect([src, aliased], recursive=True)
     assert len(files) == 1
+
+
+def test_collect_directory_without_recursive_rejected(tmp_path: Path) -> None:
+    # A directory input without --recursive is a usage error surfaced as a
+    # ValueError that the CLI maps to exit code 1 (see test below).
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.f90").write_text(_SOURCE)
+    with pytest.raises(ValueError, match="use --recursive"):
+        _collect([src], recursive=False)
+
+
+def test_cli_directory_without_recursive(tmp_path: Path) -> None:
+    # End-to-end: the ValueError from _collect becomes a clean exit 1 with a
+    # diagnostic, not a traceback.
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.f90").write_text(_SOURCE)
+    result = runner.invoke(app, [str(src)])
+    assert result.exit_code == 1
+    assert "use --recursive" in result.stderr
+
+
+def test_collect_skips_non_fortran_extension(tmp_path: Path) -> None:
+    # Recursing a directory must pick up Fortran sources and skip everything
+    # else (a .txt sibling here), so non-source files aren't preprocessed.
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.f90").write_text(_SOURCE)
+    (src / "notes.txt").write_text("not fortran\n")
+    files = _collect([src], recursive=True)
+    assert [f.name for f in files] == ["a.f90"]
+
+
+# --- CLI flags exercised end-to-end through the typer plumbing -------------
+#
+# Each flag is tested only at the Options level elsewhere; these assert that
+# the flag actually reaches the generated output via the CLI. The source
+# names a field/savepoint distinct from any module name so a `--module foo`
+# match cannot be confused with a same-named identifier in the body.
+_FLAG_SOURCE = (
+    "subroutine s(x)\n"
+    "real, intent(in) :: x\n"
+    "!$SER ON\n"
+    "!$SER ZERO fld\n"
+    "!$SER SAVEPOINT step\n"
+    "!$SER ACCDATA data=x\n"
+    "end subroutine s\n"
+)
+
+
+def _run_source(tmp_path: Path, source: str, *flags: str) -> str:
+    src = tmp_path / "in.f90"
+    src.write_text(source)
+    result = runner.invoke(app, [str(src), *flags])
+    assert result.exit_code == 0, result.stdout
+    return result.stdout
+
+
+def test_cli_module_flag(tmp_path: Path) -> None:
+    # --module / Options.module: the fs_* USE import targets the named module.
+    out = _run_source(tmp_path, _FLAG_SOURCE, "--module", "foo")
+    assert "USE foo, ONLY:" in out
+    assert "USE m_serialize" not in out
+
+
+def test_cli_module_flag_default(tmp_path: Path) -> None:
+    # Default Options.module is m_serialize when --module is omitted.
+    out = _run_source(tmp_path, _FLAG_SOURCE)
+    assert "USE m_serialize, ONLY:" in out
+
+
+def test_cli_no_prefix_flag(tmp_path: Path) -> None:
+    # --no-prefix suppresses the `#define ACC_PREFIX !$acc` header line.
+    assert "#define ACC_PREFIX !$acc" in _run_source(tmp_path, _FLAG_SOURCE)
+    assert "#define ACC_PREFIX" not in _run_source(
+        tmp_path, _FLAG_SOURCE, "--no-prefix"
+    )
+
+
+def test_cli_acc_if_flag(tmp_path: Path) -> None:
+    # --acc-if appends an IF clause to generated OpenACC UPDATE directives.
+    out = _run_source(tmp_path, _FLAG_SOURCE, "--acc-if", "lacc")
+    assert "ACC_PREFIX UPDATE HOST ( x ), IF (lacc)" in out
+
+
+def test_cli_sp_as_var_flag(tmp_path: Path) -> None:
+    # --sp-as-var passes the savepoint name as a bare variable, not a literal.
+    assert "fs_create_savepoint('step'," in _run_source(tmp_path, _FLAG_SOURCE)
+    assert "fs_create_savepoint(step," in _run_source(
+        tmp_path, _FLAG_SOURCE, "--sp-as-var"
+    )
+
+
+def test_cli_ifdef_flag(tmp_path: Path) -> None:
+    # --ifdef changes the C-preprocessor guard symbol from the default.
+    out = _run_source(tmp_path, _FLAG_SOURCE, "--ifdef", "MYGUARD")
+    assert "#ifdef MYGUARD" in out
+    assert "#ifdef SERIALIZE" not in out
+
+
+def test_cli_real_flag(tmp_path: Path) -> None:
+    # --real sets the real kind parameter the ZERO directive emits.
+    out = _run_source(tmp_path, _FLAG_SOURCE, "--real", "wp")
+    assert "fld = 0.0_wp" in out

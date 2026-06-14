@@ -50,16 +50,37 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def test_fortran_writes_python_reads(tmp_path: Path, fortran_binary: Path) -> None:
-    """The Fortran helper writes a store the Python reader can decode."""
-    out_dir = tmp_path / "fortran_out"
-    out_dir.mkdir()
+def run_scenario(
+    binary: Path,
+    out_dir: Path,
+    scenario: str | None = None,
+    *,
+    marker: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run a ``test_minimal`` scenario, asserting exit 0 and the OK marker.
 
-    # The Fortran test is expected to complete in well under a second;
-    # the 60-second cap is generous but stops a deadlock from hanging
-    # CI / local runs indefinitely.
+    The Fortran helper is invoked as ``<binary> <out_dir> [scenario]``; every
+    positive scenario exits 0 and prints ``preserf-fortran: <name> OK``. This
+    folds the ~identical ``subprocess.run`` / returncode / marker-check block
+    each subprocess-driving test repeated. ``marker`` defaults to
+    ``preserf-fortran: <scenario> OK`` (the convention every positive scenario
+    follows); pass it explicitly only when the printed marker differs from the
+    scenario argument. Returns the completed process so callers can make
+    further assertions on stdout/stderr.
+
+    The default scenario (``None``) is the hello-world run, whose marker is
+    ``preserf-fortran: hello-world OK``.
+
+    The 60-second cap matches the ctest ``TIMEOUT`` for the same binary so a
+    netCDF/HDF5 deadlock cannot hang the run indefinitely.
+    """
+    if marker is None:
+        marker = f"preserf-fortran: {scenario or 'hello-world'} OK"
+    cmd = [str(binary), str(out_dir)]
+    if scenario is not None:
+        cmd.append(scenario)
     result = subprocess.run(
-        [str(fortran_binary), str(out_dir)],
+        cmd,
         capture_output=True,
         text=True,
         check=False,
@@ -69,7 +90,19 @@ def test_fortran_writes_python_reads(tmp_path: Path, fortran_binary: Path) -> No
         f"Fortran binary exited {result.returncode}.\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
-    assert "preserf-fortran: hello-world OK" in result.stdout
+    assert marker in result.stdout, (
+        f"expected marker {marker!r} in stdout.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    return result
+
+
+def test_fortran_writes_python_reads(tmp_path: Path, fortran_binary: Path) -> None:
+    """The Fortran helper writes a store the Python reader can decode."""
+    out_dir = tmp_path / "fortran_out"
+    out_dir.mkdir()
+
+    run_scenario(fortran_binary, out_dir)
 
     nc_path = out_dir / "fhello.nc"
 
@@ -278,18 +311,7 @@ def test_fortran_writes_nczarr_v2_python_reads(
     out_dir = tmp_path / "fortran_out"
     out_dir.mkdir()
 
-    result = subprocess.run(
-        [str(fortran_binary), str(out_dir), "backend-nczarr"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=60,
-    )
-    assert result.returncode == 0, (
-        f"Fortran binary exited {result.returncode}.\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-    assert "preserf-fortran: backend-nczarr OK" in result.stdout
+    run_scenario(fortran_binary, out_dir, "backend-nczarr")
 
     # NCZarr V2 produces a `.zarr` directory store, not a `.nc` file.
     store_dir = out_dir / "fzarr.zarr"
@@ -342,18 +364,7 @@ def test_fortran_autoregistered_fields_python_reads(
     out_dir = tmp_path / "fortran_out"
     out_dir.mkdir()
 
-    result = subprocess.run(
-        [str(fortran_binary), str(out_dir), "autoregister"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=60,
-    )
-    assert result.returncode == 0, (
-        f"Fortran binary exited {result.returncode}.\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-    assert "preserf-fortran: autoregister OK" in result.stdout
+    run_scenario(fortran_binary, out_dir, "autoregister")
 
     dump = read_dump(out_dir / "fauto.nc")
 
@@ -403,18 +414,7 @@ def test_fortran_writes_tracers_python_reads(
     out_dir = tmp_path / "fortran_out"
     out_dir.mkdir()
 
-    result = subprocess.run(
-        [str(fortran_binary), str(out_dir), "tracers"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=60,
-    )
-    assert result.returncode == 0, (
-        f"Fortran binary exited {result.returncode}.\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-    assert "preserf-fortran: tracers OK" in result.stdout
+    run_scenario(fortran_binary, out_dir, "tracers")
 
     nc_path = out_dir / "ftracers.nc"
 
@@ -513,18 +513,7 @@ def test_fortran_tracer_timelevel_last_write_wins(
     out_dir = tmp_path / "fortran_out"
     out_dir.mkdir()
 
-    result = subprocess.run(
-        [str(fortran_binary), str(out_dir), "tracer-tl-overwrite"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=60,
-    )
-    assert result.returncode == 0, (
-        f"Fortran binary exited {result.returncode}.\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-    assert "preserf-fortran: tracer-tl-overwrite OK" in result.stdout
+    run_scenario(fortran_binary, out_dir, "tracer-tl-overwrite")
 
     import netCDF4  # local import; netCDF4 is a dev-only dependency
 
@@ -555,18 +544,7 @@ def test_fortran_writes_kbuff_python_reads(
     out_dir = tmp_path / "fortran_out"
     out_dir.mkdir()
 
-    result = subprocess.run(
-        [str(fortran_binary), str(out_dir), "kbuff"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=60,
-    )
-    assert result.returncode == 0, (
-        f"Fortran binary exited {result.returncode}.\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-    assert "preserf-fortran: kbuff OK" in result.stdout
+    run_scenario(fortran_binary, out_dir, "kbuff")
 
     nc_path = out_dir / "fkbuff.nc"
     dump = read_dump(str(nc_path))
@@ -614,18 +592,7 @@ def test_fortran_writes_option_python_reads(
     out_dir = tmp_path / "fortran_out"
     out_dir.mkdir()
 
-    result = subprocess.run(
-        [str(fortran_binary), str(out_dir), "option"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=60,
-    )
-    assert result.returncode == 0, (
-        f"Fortran binary exited {result.returncode}.\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-    assert "preserf-fortran: option OK" in result.stdout
+    run_scenario(fortran_binary, out_dir, "option")
 
     nc_path = out_dir / "foption.nc"
 
@@ -792,18 +759,7 @@ def matrix_store(tmp_path_factory: pytest.TempPathFactory) -> dict[str, object]:
     """
     binary = _require_binary("unit/m_preserf", "preserf_fortran_test_minimal")
     out_dir = tmp_path_factory.mktemp("wire_matrix")
-    result = subprocess.run(
-        [str(binary), str(out_dir), "wire-matrix"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=60,
-    )
-    assert result.returncode == 0, (
-        f"Fortran binary exited {result.returncode}.\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-    assert "preserf-fortran: wire-matrix OK" in result.stdout
+    run_scenario(binary, out_dir, "wire-matrix")
 
     nc_path = out_dir / "fmatrix.nc"
 
