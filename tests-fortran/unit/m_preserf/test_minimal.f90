@@ -948,6 +948,44 @@ program test_minimal
                call fs_read_field(ppser_serializer, ppser_savepoint, 'u', u_back)
             end block
             call abort_unexpected('read-bad-xtype')
+         else if (scenario == 'tracer-read-bad-xtype') then
+            ! Issue #70: a tracer read must apply the same on-disk variable
+            ! validation as a field read. Hand-build a store whose
+            ! /_tracers/q descriptor records FLOAT64 + dims [3] (so
+            ! validate_registered_tracer passes) but whose savepoint
+            ! variable q is FLOAT32, isolating the require_variable_layout
+            ! xtype rejection on the tracer read branch.
+            call build_tracer_xtype_mismatch_store(trim(out_dir)//'/ftrbx.nc')
+            block
+               real(real64), target :: q(3)
+               q = 0.0_real64
+               call ppser_initialize(out_dir, 'ftrbx', 'r')
+               call ppser_register_tracer('q', q, stype='')
+               call fs_RegisterAllTracers()
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+            end block
+            call abort_unexpected('tracer-read-bad-xtype')
+         else if (scenario == 'kbuff-read-bad-xtype') then
+            ! Issue #70: a k-buffer read must apply the same on-disk
+            ! variable validation as a field read. Hand-build a store whose
+            ! /_fields/t registry records FLOAT64 + dims [3,2,4]
+            ! (so validate_field_shape passes) but whose savepoint variable
+            ! t is FLOAT32, isolating the require_variable_layout xtype
+            ! rejection inside kbuff_load_full.
+            call build_kbuff_xtype_mismatch_store(trim(out_dir)//'/fkbbx.nc')
+            block
+               real(real64) :: tslice(3, 2)
+               tslice = 0.0_real64
+               call ppser_initialize(out_dir, 'fkbbx', 'r')
+               call fs_register_field(ppser_serializer, 't', 'double', &
+                                      ppser_reallength, 3, 2, 4, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_kbuff(ppser_serializer, ppser_savepoint, 't', &
+                                   tslice, k=1, k_size=4, mode=ppser_get_mode())
+            end block
+            call abort_unexpected('kbuff-read-bad-xtype')
          else if (scenario == 'type-matrix') then
             ! Slice B: smoke-test the new dtype x rank overloads end to
             ! end. One 1-D write+read round-trip per dtype (logical /
@@ -2445,6 +2483,100 @@ contains
       call nc_must(nf90_put_var(spid, uvid, vals), 'put_var sp_000000/u')
       call nc_must(nf90_close(ncid), 'nf90_close')
    end subroutine build_xtype_mismatch_store
+
+   !> Issue #70 tracer counterpart of build_xtype_mismatch_store: a
+   !> schema-valid store whose `/_tracers/q` descriptor records type_id
+   !> FLOAT64 and dims [3] but whose savepoints/sp_000000/q variable is
+   !> NF90_FLOAT. validate_registered_tracer (descriptor-only) passes, so
+   !> this isolates the read-side require_variable_layout rejection on the
+   !> tracer read branch.
+   subroutine build_tracer_xtype_mismatch_store(path)
+      use netcdf
+      character(len=*), intent(in) :: path
+      integer :: ncid, tgid, vid, spsid, spid, dimid, qvid, fgid
+      integer(int32) :: schema, tid_f64, idx0, dimsvec(1)
+      real(real32) :: vals(3)
+
+      schema = 1_int32        ! PRESERF_SCHEMA_VERSION
+      tid_f64 = 5_int32       ! TID_FLOAT64
+      idx0 = 0_int32
+      dimsvec = [3_int32]
+      vals = [1.0_real32, 2.0_real32, 3.0_real32]
+
+      call nc_must(nf90_create(path, NF90_NETCDF4, ncid), 'nf90_create')
+      call nc_must(nf90_put_att(ncid, NF90_GLOBAL, '_preserf_schema_version', &
+                                schema), 'put_att _preserf_schema_version')
+      ! Read open expects the `/_fields` skeleton group even when this store
+      ! carries only tracers; create it empty.
+      call nc_must(nf90_def_grp(ncid, '_fields', fgid), 'def_grp _fields')
+      ! /_tracers/q descriptor carrier (scalar NF90_INT) with type_id, dims,
+      ! stype, tracer_index — mirrors write_tracer_descriptor.
+      call nc_must(nf90_def_grp(ncid, '_tracers', tgid), 'def_grp _tracers')
+      call nc_must(nf90_def_var(tgid, 'q', NF90_INT, vid), 'def_var /_tracers/q')
+      call nc_must(nf90_put_att(tgid, vid, 'type_id', tid_f64), 'put_att type_id')
+      call nc_must(nf90_put_att(tgid, vid, 'dims', dimsvec), 'put_att dims')
+      call nc_must(nf90_put_att(tgid, vid, 'stype', ''), 'put_att stype')
+      call nc_must(nf90_put_att(tgid, vid, 'tracer_index', 1_int32), &
+                   'put_att tracer_index')
+      ! Savepoint group with a FLOAT32 data variable (the inconsistency).
+      call nc_must(nf90_def_grp(ncid, 'savepoints', spsid), 'def_grp savepoints')
+      call nc_must(nf90_def_grp(spsid, 'sp_000000', spid), 'def_grp sp_000000')
+      call nc_must(nf90_put_att(spid, NF90_GLOBAL, '_preserf_savepoint_index', &
+                                idx0), 'put_att _preserf_savepoint_index')
+      call nc_must(nf90_put_att(spid, NF90_GLOBAL, 'name', 'step'), 'put_att name')
+      call nc_must(nf90_def_dim(spid, 'q_dim0', 3, dimid), 'def_dim q_dim0')
+      call nc_must(nf90_def_var(spid, 'q', NF90_FLOAT, [dimid], qvid), &
+                   'def_var sp_000000/q (float32)')
+      call nc_must(nf90_put_var(tgid, vid, 0_int32), 'put_var tracer descriptor')
+      call nc_must(nf90_put_var(spid, qvid, vals), 'put_var sp_000000/q')
+      call nc_must(nf90_close(ncid), 'nf90_close')
+   end subroutine build_tracer_xtype_mismatch_store
+
+   !> Issue #70 k-buffer counterpart of build_xtype_mismatch_store: a
+   !> schema-valid store whose `/_fields/t` registry records type_id
+   !> FLOAT64 and C-order dims [4,2,3] (Fortran shape 3 x 2 x 4) but whose
+   !> savepoints/sp_000000/t variable is NF90_FLOAT. validate_field_shape
+   !> (registry-only) passes, so this isolates the require_variable_layout
+   !> rejection inside kbuff_load_full.
+   subroutine build_kbuff_xtype_mismatch_store(path)
+      use netcdf
+      character(len=*), intent(in) :: path
+      integer :: ncid, fgid, vid, spsid, spid, di, dj, dk, tvid
+      integer(int32) :: schema, tid_f64, idx0, dimsvec(3)
+      real(real32) :: vals(3, 2, 4)
+
+      schema = 1_int32        ! PRESERF_SCHEMA_VERSION
+      tid_f64 = 5_int32       ! TID_FLOAT64
+      idx0 = 0_int32
+      ! Registry dims are C-order (slowest-first): Fortran shape [3,2,4]
+      ! => C-order [4,2,3].
+      dimsvec = [4_int32, 2_int32, 3_int32]
+      vals = 1.0_real32
+
+      call nc_must(nf90_create(path, NF90_NETCDF4, ncid), 'nf90_create')
+      call nc_must(nf90_put_att(ncid, NF90_GLOBAL, '_preserf_schema_version', &
+                                schema), 'put_att _preserf_schema_version')
+      call nc_must(nf90_def_grp(ncid, '_fields', fgid), 'def_grp _fields')
+      call nc_must(nf90_def_var(fgid, 't', NF90_INT, vid), 'def_var /_fields/t')
+      call nc_must(nf90_put_att(fgid, vid, 'type_id', tid_f64), 'put_att type_id')
+      call nc_must(nf90_put_att(fgid, vid, 'dims', dimsvec), 'put_att dims')
+      call nc_must(nf90_def_grp(ncid, 'savepoints', spsid), 'def_grp savepoints')
+      call nc_must(nf90_def_grp(spsid, 'sp_000000', spid), 'def_grp sp_000000')
+      call nc_must(nf90_put_att(spid, NF90_GLOBAL, '_preserf_savepoint_index', &
+                                idx0), 'put_att _preserf_savepoint_index')
+      call nc_must(nf90_put_att(spid, NF90_GLOBAL, 'name', 'step'), 'put_att name')
+      ! netcdf-fortran takes def_var dimids in Fortran order (fastest-first)
+      ! and reverses them for the C library, so the on-disk variable reports
+      ! C-order dims matching the registry `dims` attribute. Match the
+      ! writer's ensure_dims naming: t_dim0 is the slowest (C) axis = k(4).
+      call nc_must(nf90_def_dim(spid, 't_dim0', 4, dk), 'def_dim t_dim0')
+      call nc_must(nf90_def_dim(spid, 't_dim1', 2, dj), 'def_dim t_dim1')
+      call nc_must(nf90_def_dim(spid, 't_dim2', 3, di), 'def_dim t_dim2')
+      call nc_must(nf90_def_var(spid, 't', NF90_FLOAT, [di, dj, dk], tvid), &
+                   'def_var sp_000000/t (float32)')
+      call nc_must(nf90_put_var(spid, tvid, vals), 'put_var sp_000000/t')
+      call nc_must(nf90_close(ncid), 'nf90_close')
+   end subroutine build_kbuff_xtype_mismatch_store
 
    !> Abort the test build if a raw netCDF call in
    !> build_xtype_mismatch_store failed. Unchecked errors there could

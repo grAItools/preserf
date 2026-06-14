@@ -261,6 +261,19 @@ embedded in each spec's Problem section.
 
 ### Fixed
 
+- Tracer and k-buffer reads now apply the same on-disk variable validation
+  the field read path already enforced: before `nf90_get_var`, the stored
+  variable's `xtype`, rank, and per-axis lengths are checked against what the
+  reader expects, so a store mutated by a third-party tool aborts with a clear
+  `Registry / variable mismatch` message instead of letting netCDF silently
+  coerce a wrong dtype or sub-sample a larger on-disk extent. The three read
+  paths (field, tracer, k-buffer) now share one `require_variable_layout`
+  helper so they cannot drift again; `require_variable_xtype` delegates to it
+  after reversing its C-order registry dims. Negative ctests
+  (`preserf_fortran_tracer_read_bad_xtype`, `preserf_fortran_kbuff_read_bad_xtype`)
+  hand each read path a store whose savepoint variable is `FLOAT32` while its
+  descriptor/registry records `FLOAT64` and assert the abort
+  ([#70](https://github.com/grAItools/preserf/issues/70)).
 - `fs_register_field` no longer aborts with a raw netCDF error when a field
   is registered more than once or on a read-only handle. Re-registering a
   field (a `!$SER REGISTER` in a per-timestep loop, or a field already
