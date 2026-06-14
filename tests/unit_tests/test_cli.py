@@ -1,5 +1,6 @@
 """Tests for the preserf CLI."""
 
+from importlib import metadata
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -12,14 +13,16 @@ runner = CliRunner()
 _SOURCE = "module m\n!$SER ON\nend module m\n"
 
 
-def test_version_string() -> None:
-    assert preserf.__version__ == "0.1.0"
+def test_version_matches_package_metadata() -> None:
+    # __version__ is the single source of truth (the hatch version source);
+    # the installed package metadata must derive from it, never drift.
+    assert preserf.__version__ == metadata.version("preserf")
 
 
 def test_version_flag() -> None:
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
-    assert "0.1.0" in result.stdout
+    assert preserf.__version__ in result.stdout
 
 
 def test_no_inputs_is_error() -> None:

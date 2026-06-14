@@ -138,6 +138,48 @@ def test_data_field_named_like_merge_is_read_back() -> None:
     assert "fs_read_field" in out
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        "arr(i-1)",
+        "arr(i+1)",
+        "arr(2*i)",
+        "a(i)%b(j-1)",
+    ],
+)
+def test_data_index_arithmetic_is_read_back(value: str) -> None:
+    # Arithmetic *inside subscripts* is part of a plain field reference, not a
+    # computed expression, so the field must still be read back.
+    out = expand(f"!$SER DATA x={value}\n")
+    assert "fs_write_field" in out
+    assert "fs_read_field" in out
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "a*b",
+        "a+1",
+        "a-b",
+        "a/b",
+        "merge(a,b,c)",
+    ],
+)
+def test_data_top_level_expression_is_write_only(value: str) -> None:
+    # A genuine top-level expression is written but cannot be read into an
+    # lvalue, so it stays write-only.
+    out = expand(f"!$SER DATA v={value}\n")
+    assert "fs_write_field" in out
+    assert "fs_read_field" not in out
+
+
+def test_data_nested_merge_in_subscript_is_read_back() -> None:
+    # A "merge" intrinsic that appears only inside a subscript is part of an
+    # index expression, not the value itself, so the field is read back.
+    out = expand("!$SER DATA x=arr(merge(i,j,mask))\n")
+    assert "fs_read_field" in out
+
+
 def test_data_rejects_positional_argument() -> None:
     # A missing "=" (e.g. "v" instead of "v=v") must not be silently dropped.
     with pytest.raises(DirectiveError, match="field=value pairs"):
@@ -541,6 +583,26 @@ def test_mismatched_end_module() -> None:
         expand("module m\n!$SER ON\nend module other\n")
 
 
+def test_bare_end_closes_module() -> None:
+    # A bare ``END`` legally closes a program unit; the scope tracker must
+    # clear the open module so EOF does not raise "Unterminated module".
+    out = expand("module m\n!$SER ON\nend\n")
+    assert "USE m_serialize" in out
+
+
+def test_bare_end_closes_program() -> None:
+    out = expand("program p\n!$SER ON\nend\n")
+    assert "USE m_serialize" in out
+
+
+def test_bare_end_outside_unit_is_ignored() -> None:
+    # Outside an open MODULE/PROGRAM a bare ``END`` closes some other
+    # construct (e.g. a subroutine) and must not be mistaken for a unit end.
+    src = "subroutine s()\n!$SER ON\nend\n"
+    out = expand(src)
+    assert "USE m_serialize" in out
+
+
 def test_bad_line_continuation() -> None:
     with pytest.raises(DirectiveError, match="Incorrect line continuation"):
         expand("!$SER DATA u=u &\nx = 1\n")
@@ -611,6 +673,55 @@ def test_use_statement_after_standalone_subroutine() -> None:
     src = "subroutine s()\n!$SER ON\nend subroutine s\n"
     out = expand(src)
     assert out.index("subroutine s()") < out.index("USE m_serialize")
+
+
+def test_identifier_starting_with_keyword_does_not_inject_use() -> None:
+    # `functional_x` starts with `function` but is an assignment, not a header,
+    # so the USE block must not be injected mid-body.
+    src = "functional_x = 1\n!$SER ON\n"
+    out = expand(src)
+    assert "USE m_serialize" not in out
+    assert "USE utils_ppser" not in out
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "pure function f(x)",
+        "elemental function g(x)",
+        "integer function h()",
+        "real(real64) function k()",
+        "recursive subroutine s()",
+        "pure elemental function fe()",
+        "logical function flag()",
+        "double precision function d()",
+    ],
+)
+def test_typed_or_attributed_header_injects_use(header: str) -> None:
+    # Type-spec and attribute prefixes precede the `function`/`subroutine`
+    # keyword, so the header must still be recognised and get a USE block.
+    end = "function" if "function" in header else "subroutine"
+    src = f"{header}\n!$SER ON\nend {end}\n"
+    out = expand(src)
+    assert out.index(header) < out.index("USE m_serialize")
+
+
+def test_end_function_does_not_inject_use() -> None:
+    # An `end function` line must not be mistaken for a subprogram header.
+    src = "module m\n!$SER ON\nfunction f()\nend function f\nend module m\n"
+    out = expand(src)
+    # USE is host-associated from the module, so injected exactly once and
+    # never again at the `end function` line.
+    assert out.count("USE utils_ppser") == 1
+
+
+def test_module_procedure_does_not_inject_use() -> None:
+    # `module procedure` is an interface body statement, not a subprogram
+    # header, so it must not trigger USE injection.
+    src = "function f()\n!$SER ON\nmodule procedure mp\nend function f\n"
+    out = expand(src)
+    # Exactly one injection, from the `function f()` header.
+    assert out.count("USE utils_ppser") == 1
 
 
 def test_use_block_not_repeated_in_program_subprograms() -> None:
