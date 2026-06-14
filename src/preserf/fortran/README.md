@@ -13,6 +13,17 @@ forward-compatible but deferred until netcdf-c's NCZarr V3 PR lands.
 
 [mapping]: ../../docs/references/storage_mapping.md
 
+## Platform assumptions
+
+The helper targets a POSIX environment:
+
+- **Write-mode output-directory creation** shells out to `mkdir -p` via
+  `EXECUTE_COMMAND_LINE` (`utils_preserf.f90`, `preserf_ensure_directory`) —
+  Fortran has no intrinsic `mkdir`.
+- **Relative-directory resolution** for the `nczarr-v2` `file://` URL binds
+  the libc `getcwd(3)` directly (`utils_preserf.f90`, the `c_getcwd`
+  interface) — there is no F2008-standard CWD intrinsic.
+
 ## Modules
 
 | Module          | Purpose                                                                                                                                                                                                    |

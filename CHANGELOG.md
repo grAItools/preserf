@@ -222,6 +222,17 @@ embedded in each spec's Problem section.
 
 ### Changed
 
+- Fortran runtime maintainability cleanup (no behaviour change on the
+  happy path): all `error stop` diagnostics now write to `error_unit`
+  (`iso_fortran_env`) instead of stdout, so batch/HPC runs no longer lose
+  or misorder them against buffered model output; the unused public
+  `preserf_check_nf` (superseded by `preserf_check_nf_with_msg`) was
+  removed; the three different unused-argument suppression idioms were
+  unified on `if (.false.) <discard> = <var>`; and the backend-resolution
+  rationale was consolidated to `ppser_resolve_backend` /
+  `resolve_abs_dir` with the duplicated blocks reduced to references. The
+  README gained a "Platform assumptions" note (POSIX `mkdir -p`, libc
+  `getcwd`) ([#82](https://github.com/grAItools/preserf/issues/82)).
 - The Fortran helper sources moved from `src/preserf-fortran/` to
   `src/preserf/fortran/` (no API or behaviour change; updated CMake
   `add_subdirectory` paths, `pixi` fprettify paths, and docs).
