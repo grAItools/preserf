@@ -15,7 +15,7 @@ embedded in each spec's Problem section.
 ### Added
 
 - PyPI distribution metadata: `[project]` in `pyproject.toml` now declares
-  `authors`/`maintainers`, `keywords`, trove `classifiers` (license, supported
+  `authors`/`maintainers`, `keywords`, trove `classifiers` (supported
   Python versions, topics, development status), and `[project.urls]`
   (Homepage, Repository, Changelog, Issues), so the rendered package page and
   `pip`/`uv` resolvers see complete metadata. The packaging test
