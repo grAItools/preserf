@@ -336,6 +336,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `fs_RegisterAllTracers` (the `!$SER REGISTERTRACERS` directive) is now
+  idempotent in write mode, matching `fs_register_field`. A second
+  registration — e.g. the directive re-run each iteration of a timestep loop
+  — no longer aborts with a raw netCDF error (`NC_ENAMEINUSE`) on a duplicate
+  `def_var`: each existing `/_tracers/<name>` descriptor is validated against
+  the registered tracer (type_id, C-order dims, stype, tracer_index) and the
+  redefinition is skipped, while a conflicting descriptor aborts with a clear
+  `re-registered tracer` message
+  ([#71](https://github.com/grAItools/preserf/issues/71)).
 - Non-GNU Fortran compilers no longer silently get **no** required build
   flags. The preprocessing (`-cpp`) and F2008 standards flags were gated
   behind `if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")` in the runtime
