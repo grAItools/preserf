@@ -409,6 +409,102 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: read-roundtrip OK'
                stop
             end block
+         else if (scenario == 'reinit-lifecycle') then
+            ! Issue #67: ppser_initialize called twice in one process
+            ! without an intervening ppser_finalize must auto-close the
+            ! previous session, NOT leak its handle and corrupt its store.
+            ! This covers all three defects from the issue:
+            !   (1) handle leak / no re-open guard,
+            !   (2) the first store left advertising _preserf_savepoint_count
+            !       = 0 (the count is only flushed on close), and
+            !   (3) a stale ppser_savepoint outliving its serializer and
+            !       defeating require_savepoint_owner with a recycled ncid.
+            block
+               use netcdf
+               real(real64) :: u_a(3), u_b(3), u_back(3)
+               integer :: ncerr, ncid_a
+               integer(int32) :: sp_count
+               integer :: prev_owner, i
+               do i = 1, 3
+                  u_a(i) = 800.0_real64 + real(i, real64)
+                  u_b(i) = 900.0_real64 + real(i, real64)
+               end do
+
+               ! --- Session A: write one savepoint, then RE-INIT (write)
+               ! into a different store WITHOUT finalize. ---
+               call ppser_initialize(out_dir, 'freinit_a', 'w')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u_a)
+               ! Remember the owner_ncid of session A's savepoint so we can
+               ! prove the re-init below cleared it (defect 3).
+               prev_owner = ppser_savepoint%owner_ncid
+               if (prev_owner == -1) error stop &
+                  'reinit-lifecycle: session A savepoint should have an owner'
+
+               ! Re-init WITHOUT an intervening finalize: this must
+               ! auto-close session A (flushing its savepoint count and
+               ! releasing the handle) and reset ppser_savepoint.
+               call ppser_initialize(out_dir, 'freinit_b', 'w')
+
+               ! (3) ppser_savepoint reset to the empty sentinel: no
+               ! savepoint may outlive the serializer that created it.
+               if (ppser_savepoint%grpid /= -1 .or. &
+                   ppser_savepoint%idx /= -1 .or. &
+                   ppser_savepoint%owner_ncid /= -1) error stop &
+                  'reinit-lifecycle: re-init left a stale ppser_savepoint'
+
+               ! (2) Session A's store closed cleanly with the correct
+               ! non-zero _preserf_savepoint_count (one savepoint), not the
+               ! creation-time 0 that a leaked/abandoned handle leaves.
+               ncerr = nf90_open(trim(out_dir)//'/freinit_a.nc', &
+                                 NF90_NOWRITE, ncid_a)
+               if (ncerr /= nf90_noerr) error stop &
+                  'reinit-lifecycle: session A store not openable after re-init'
+               ncerr = nf90_get_att(ncid_a, NF90_GLOBAL, &
+                                    '_preserf_savepoint_count', sp_count)
+               if (ncerr /= nf90_noerr) error stop &
+                  'reinit-lifecycle: _preserf_savepoint_count missing on store A'
+               if (sp_count /= 1) error stop &
+                  'reinit-lifecycle: store A savepoint count not flushed (got /= 1)'
+               ncerr = nf90_close(ncid_a)
+               if (ncerr /= nf90_noerr) error stop &
+                  'reinit-lifecycle: nf90_close store A failed'
+
+               ! (1)/(3) The fresh session B is usable end-to-end: a write
+               ! through a NEW savepoint succeeds. With a stale savepoint
+               ! from session A, require_savepoint_owner would either reject
+               ! the paired serializer or pass a dangling grpid into
+               ! nf90_put_var. Round-trip it to prove store B is intact.
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               if (ppser_savepoint%owner_ncid == prev_owner .and. &
+                   ppser_savepoint%idx /= 0) error stop &
+                  'reinit-lifecycle: session B savepoint did not start fresh'
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u_b)
+               call ppser_finalize()
+
+               ! Re-open store B read-only and confirm the data landed in
+               ! the right (second) store.
+               call ppser_initialize(out_dir, 'freinit_b', 'r')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', u_back)
+               do i = 1, 3
+                  if (u_back(i) /= u_b(i)) error stop &
+                     'reinit-lifecycle: store B data round-trip mismatch'
+               end do
+               call ppser_finalize()
+
+               write (*, '(a)') 'preserf-fortran: reinit-lifecycle OK'
+               stop
+            end block
          else if (scenario == 'init-default-mode') then
             ! Issue #32: `mode` is optional on ppser_initialize for pp_ser /
             ! Serialbox `!$SER INIT` drop-in compatibility — those call sites
