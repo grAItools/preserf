@@ -5,10 +5,46 @@ description = "A preprocessor for Fortran data serialization directives"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
+authors = [
+  { name = "Enrique González Paredes", email = "enriqueg@cscs.ch" },
+  { name = "Hannes Vogt", email = "hannes@havogt.de" },
+]
+maintainers = [
+  { name = "Enrique González Paredes", email = "enriqueg@cscs.ch" },
+  { name = "Hannes Vogt", email = "hannes@havogt.de" },
+]
+keywords = [
+  "fortran",
+  "serialization",
+  "preprocessor",
+  "serialbox",
+  "netcdf",
+  "hpc",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Operating System :: OS Independent",
+  "Programming Language :: Fortran",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Scientific/Engineering",
+  "Topic :: Software Development :: Code Generators",
+  "Topic :: Software Development :: Pre-processors",
+  "Typing :: Typed",
+]
 dependencies = [
   "typer>=0.12",
   "rich>=13.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/grAItools/preserf"
+Repository = "https://github.com/grAItools/preserf"
+Changelog = "https://github.com/grAItools/preserf/blob/main/CHANGELOG.md"
+Issues = "https://github.com/grAItools/preserf/issues"
 
 [project.scripts]
 preserf = "preserf.cli:app"
