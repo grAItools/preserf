@@ -14,7 +14,7 @@
 !> Backed by the schema documented in
 !> `docs/references/storage_mapping.md`.
 module utils_preserf
-   use, intrinsic :: iso_fortran_env, only: int8, int32, real64
+   use, intrinsic :: iso_fortran_env, only: int8, int32, int64, real64
    use, intrinsic :: iso_c_binding, only: c_char, c_size_t, c_ptr, &
                                                                              c_associated, c_null_char
    use netcdf
@@ -243,6 +243,25 @@ contains
          error stop 1
       end if
    end subroutine preserf_check_nf_with_msg
+
+   !> Abort if `value` cannot be represented as an int32. NetCDF stores the
+   !> reserved housekeeping attributes (e.g. `_preserf_unique_id`) as int32,
+   !> so under `-fdefault-integer-8` a user-supplied default-kind value must
+   !> be range-checked before the implicit narrowing at the wire — otherwise
+   !> it would silently wrap (docs/style.md anti-pattern). Mirrors the guard
+   !> of the same name in m_preserf for the casts that live in this module.
+   subroutine require_fits_int32(value, label)
+      integer, intent(in) :: value
+      character(len=*), intent(in) :: label
+      if (int(value, int64) > int(huge(0_int32), int64) .or. &
+          int(value, int64) < int(-huge(0_int32) - 1, int64)) then
+         write (*, '(a,a,a,i0,a,i0)') &
+            'preserf: ', trim(label), &
+            ' exceeds int32 capacity; got ', value, &
+            ', max is ', huge(0_int32)
+         error stop 1
+      end if
+   end subroutine require_fits_int32
 
    function preserf_writer_version() result(s)
       use preserf_version_mod, only: PRESERF_VERSION
@@ -1175,7 +1194,10 @@ contains
       call preserf_check_nf_with_msg(ncerr, 'put_att _preserf_archive')
 
       uid = int(PPSER_DEFAULT_UNIQUE_ID, int32)
-      if (present(unique_id)) uid = int(unique_id, int32)
+      if (present(unique_id)) then
+         call require_fits_int32(unique_id, 'unique_id')
+         uid = int(unique_id, int32)
+      end if
       ncerr = nf90_put_att(s%ncid, NF90_GLOBAL, '_preserf_unique_id', uid)
       call preserf_check_nf_with_msg(ncerr, 'put_att _preserf_unique_id')
    end subroutine preserf_write_root_housekeeping

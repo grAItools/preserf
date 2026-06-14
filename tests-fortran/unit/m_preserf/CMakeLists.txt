@@ -763,3 +763,31 @@ set_tests_properties(preserf_fortran_autoregister_zero_extent PROPERTIES
     PASS_REGULAR_EXPRESSION "non-positive extent"
     TIMEOUT 60
 )
+
+# Issue #81 item 2: a NaN metainfo value (scalar real32/real64 + a real64
+# array) must round-trip without a spurious read-mode "value mismatch"
+# (NaN /= NaN previously aborted a perfect round-trip).
+add_test(
+    NAME preserf_fortran_nan_metainfo_roundtrip
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" nan-metainfo-roundtrip
+)
+set_tests_properties(preserf_fortran_nan_metainfo_roundtrip PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: nan-metainfo-roundtrip OK"
+    TIMEOUT 60
+)
+
+# Issue #81 item 4: with an explicit directory_ref / prefix_ref, DATA,
+# TRACER, and KBUFF reads must all resolve against the reference store. The
+# primary holds wrong values; the read must recover the reference values.
+add_test(
+    NAME preserf_fortran_explicit_ref_tracer_kbuff
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" explicit-ref-tracer-kbuff
+)
+set_tests_properties(preserf_fortran_explicit_ref_tracer_kbuff PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: explicit-ref-tracer-kbuff OK"
+    TIMEOUT 60
+)
