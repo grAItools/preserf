@@ -4,6 +4,13 @@
 !> emit. The on-disk layout is the group-per-savepoint schema documented
 !> in `docs/references/storage_mapping.md`.
 !>
+!> NOT THREAD-SAFE: the `fs_*` API mutates the `save`d module-level state
+!> in `utils_preserf` (serializer / savepoint structs, the enable gate,
+!> the tracer / k-buffer registries) and the shared `RANDOM_NUMBER` state
+!> with no synchronization. Run `!$SER` directives from serial regions
+!> only; guard any in-OpenMP-region use with `!$omp critical` /
+!> `!$omp master`. See ADR 0005 (docs/adr/).
+!>
 !> v0.1 covers the directives needed for a hello-world flow:
 !>   * `fs_register_field` — REGISTER directive
 !>   * `fs_create_savepoint` — SAVEPOINT directive (without metainfo args)

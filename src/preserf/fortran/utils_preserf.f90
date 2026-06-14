@@ -4,6 +4,13 @@
 !> rely on (`ppser_serializer`, `ppser_serializer_ref`, `ppser_savepoint`,
 !> `ppser_realtype`, `ppser_zrperturb`, plus the mode getter/setter).
 !>
+!> NOT THREAD-SAFE: this state is `save`d, module-level, and mutated with
+!> no synchronization (the serializer / savepoint structs, the
+!> `serialisation_enabled` gate, and the tracer / k-buffer registries).
+!> Concurrent `!$SER` from multiple OpenMP threads races on it. Run
+!> `!$SER` directives from serial regions only; guard any in-region use
+!> with `!$omp critical` / `!$omp master`. See ADR 0005 (docs/adr/).
+!>
 !> The actual netCDF operations live in m_preserf; this module only
 !> handles dataset open/close and mode state. The `backend` keyword on
 !> `ppser_initialize` selects between NetCDF4 (`.nc` files, the default)

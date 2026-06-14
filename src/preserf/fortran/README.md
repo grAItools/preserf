@@ -13,6 +13,23 @@ forward-compatible but deferred until netcdf-c's NCZarr V3 PR lands.
 
 [mapping]: ../../docs/references/storage_mapping.md
 
+## Thread safety — serial use only
+
+**The serialization runtime is not thread-safe.** Run `!$SER` directives
+from serial regions only. The helper keeps `save`d, module-level mutable
+state (the `ppser_serializer` / `ppser_serializer_ref` / `ppser_savepoint`
+structs, the `serialisation_enabled` gate, the tracer and k-buffer
+registries, and the shared `RANDOM_NUMBER` state used by read-perturb) that
+is mutated with no synchronization. Concurrent `!$SER DATA` from multiple
+OpenMP threads races on all of it and can corrupt the store or the perturb
+sequence.
+
+If a host model issues `!$SER` from inside an OpenMP parallel region, guard
+it so at most one thread serializes at a time (e.g. wrap the directive in
+`!$omp critical` or `!$omp master`). In-region, multi-threaded serialization
+is out of scope for this helper; see
+[ADR 0005](../../docs/adr/0005-serialization-runtime-is-serial-only.md).
+
 ## Modules
 
 | Module          | Purpose                                                                                                                                                                                                    |
