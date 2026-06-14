@@ -4,6 +4,13 @@
 !> rely on (`ppser_serializer`, `ppser_serializer_ref`, `ppser_savepoint`,
 !> `ppser_realtype`, `ppser_zrperturb`, plus the mode getter/setter).
 !>
+!> NOT THREAD-SAFE: this state is `save`d, module-level, and mutated with
+!> no synchronization (the serializer / savepoint structs, the
+!> `serialisation_enabled` gate, and the tracer / k-buffer registries).
+!> Concurrent `!$SER` from multiple OpenMP threads races on it. Run
+!> `!$SER` directives from serial regions only; guard any in-region use
+!> with `!$omp critical` / `!$omp master`. See ADR 0005 (docs/adr/).
+!>
 !> The actual netCDF operations live in m_preserf; this module only
 !> handles dataset open/close and mode state. The `backend` keyword on
 !> `ppser_initialize` selects between NetCDF4 (`.nc` files, the default)
@@ -601,6 +608,36 @@ contains
       ! the on-disk format is self-evident from the run log.
       eff_backend = ppser_resolve_backend(backend)
       write (*, '(a,a)') 'preserf: SERIALIZATION IS ON, backend=', eff_backend
+
+      ! Re-init lifecycle (issue #67). A second ppser_initialize in the
+      ! same process without an intervening ppser_finalize must NOT just
+      ! overwrite ppser_serializer%ncid: that would leak the previous
+      ! file's open netCDF handle and abandon its store with the
+      ! _preserf_savepoint_count attribute still at its creation-time 0
+      ! (the count is only flushed by preserf_close_serializer), so the
+      ! reader contract would see the previous store as empty.
+      !
+      ! Policy: AUTO-CLOSE, not hard-error. The open question in the issue
+      ! is whether pp_ser-generated code legally re-inits in one process;
+      ! ICON-style multi-domain runs do re-init per domain, so re-init is
+      ! a supported flow and the friendly policy is to cleanly close the
+      ! previous session first. preserf_close_serializer flushes
+      ! _preserf_savepoint_count and releases the handle, and is a no-op
+      ! when ncid == -1 (the first init, or after an explicit finalize),
+      ! so this is safe to call unconditionally. Both the main and the
+      ! reference serializer are closed, mirroring ppser_finalize.
+      call preserf_close_serializer(ppser_serializer)
+      call preserf_close_serializer(ppser_serializer_ref)
+
+      ! Reset the module-level savepoint to its empty sentinel, matching
+      ! ppser_finalize. ppser_savepoint carries an owner_ncid from the
+      ! serializer that created it; left stale across a re-init it could
+      ! match a recycled ncid on the fresh open and defeat
+      ! require_savepoint_owner, letting a dangling grpid from the closed
+      ! store reach nf90_put_var. No savepoint may outlive its serializer.
+      ppser_savepoint%grpid = -1
+      ppser_savepoint%idx = -1
+      ppser_savepoint%owner_ncid = -1
 
       ! Behaviour-changing keywords: update the module state that
       ! pp_ser-generated REGISTER / DATA calls consume. `rprecision`
