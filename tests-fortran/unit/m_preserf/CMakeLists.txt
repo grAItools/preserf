@@ -481,6 +481,23 @@ set_tests_properties(preserf_fortran_tracers_roundtrip PROPERTIES
     TIMEOUT 60
 )
 
+# Issue #71: REGISTERTRACERS must be idempotent in write mode. A second
+# fs_RegisterAllTracers — e.g. re-run each iteration of a timestep loop —
+# must validate-and-skip the existing /_tracers descriptors instead of
+# aborting on a duplicate def_var (NC_ENAMEINUSE), mirroring
+# fs_register_field. The scenario registers descriptors twice in one write
+# session and round-trips the tracers back read-only to prove they survive.
+add_test(
+    NAME preserf_fortran_tracers_register_twice
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" tracers-register-twice
+)
+set_tests_properties(preserf_fortran_tracers_register_twice PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: tracers-register-twice OK"
+    TIMEOUT 60
+)
+
 # Slice C Phase 2: DATA_KBUFF. The 'kbuff' scenario writes a 3-D and a 2-D
 # field one vertical level at a time via fs_write_kbuff; the Python
 # cross-language test asserts the assembled fields. The native run

@@ -1325,6 +1325,60 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: tracers-roundtrip OK'
                stop
             end block
+         else if (scenario == 'tracers-register-twice') then
+            ! Issue #71: a second REGISTERTRACERS — e.g. fs_RegisterAllTracers
+            ! re-run each iteration of a timestep loop — must be idempotent
+            ! and NOT abort on NC_ENAMEINUSE redefining the /_tracers
+            ! descriptors. Register two tracers, call fs_RegisterAllTracers
+            ! twice (writing data after each, as a loop body would), then
+            ! re-open read-only and round-trip the tracers back to prove the
+            ! descriptors written by the first call are intact and reused.
+            block
+               real(real64), target :: qv(3), qc(2, 3)
+               real(real64) :: qv0(3), qc0(2, 3)
+               integer :: i, j
+               do i = 1, 3
+                  qv(i) = real(10 + i, real64)
+               end do
+               do j = 1, 3
+                  do i = 1, 2
+                     qc(i, j) = real(100*i + j, real64)
+                  end do
+               end do
+               qv0 = qv
+               qc0 = qc
+               call ppser_initialize(out_dir, 'ftrtwice', 'w')
+               call ppser_register_tracer('q_v', qv, stype='tens')
+               call ppser_register_tracer('q_c', qc, stype='bd')
+               ! First "timestep": register descriptors and write.
+               call fs_RegisterAllTracers()
+               call fs_create_savepoint('step0', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+               ! Second "timestep": REGISTERTRACERS runs again. Without the
+               ! idempotent guard this aborts on a duplicate def_var.
+               call fs_RegisterAllTracers()
+               call fs_create_savepoint('step1', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+               call ppser_finalize()
+               ! Re-open read-only and validate the descriptors round-trip.
+               qv = 0.0_real64
+               qc = 0.0_real64
+               call ppser_initialize(out_dir, 'ftrtwice', 'r')
+               call ppser_register_tracer('q_v', qv, stype='tens')
+               call ppser_register_tracer('q_c', qc, stype='bd')
+               call fs_RegisterAllTracers()
+               ! Read back at the first savepoint (positional match to the
+               ! store's sp_000000 = 'step0').
+               call fs_create_savepoint('step0', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+               if (any(qv /= qv0)) error stop &
+                  'tracers-register-twice: q_v did not read back'
+               if (any(qc /= qc0)) error stop &
+                  'tracers-register-twice: q_c did not read back'
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: tracers-register-twice OK'
+               stop
+            end block
          else if (scenario == 'kbuff') then
             ! Slice C Phase 2: DATA_KBUFF. Write two fields one vertical
             ! level at a time through fs_write_kbuff — a 3-D field t(i,j,k)

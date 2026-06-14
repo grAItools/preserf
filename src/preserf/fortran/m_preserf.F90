@@ -707,9 +707,15 @@ contains
          call preserf_check_nf_with_msg(ncerr, 'def_grp /_tracers')
       end if
 
+      ! Re-registration is idempotent (mirrors fs_register_field): a
+      ! REGISTERTRACERS directive in a per-timestep loop re-runs this on a
+      ! store whose descriptors already exist. Validate each existing
+      ! descriptor for consistency and skip the def_var rather than aborting
+      ! on a duplicate (NC_ENAMEINUSE); a conflicting descriptor aborts with a
+      ! clear "re-registered tracer" message. write_tracer_descriptor itself
+      ! guards on inq_varid so callers cannot bypass this.
       do i = 1, ppser_tracer_count
-         call write_tracer_descriptor(ppser_serializer%tracers_grpid, &
-                                      ppser_tracers(i), i)
+         call write_tracer_descriptor(ppser_serializer, i)
       end do
    end subroutine fs_RegisterAllTracers
 
@@ -717,33 +723,55 @@ contains
    !> (value 0) holding type_id, C-order dims, stype, and the 1-based
    !> tracer_index — mirroring the `/_fields` carrier skeleton written by
    !> write_field_registry_entry; keep the two in sync.
-   subroutine write_tracer_descriptor(grpid, entry, tracer_index)
-      integer, intent(in) :: grpid
-      type(t_tracer_entry), intent(in) :: entry
+   !>
+   !> Idempotent like the fs_register_field create branch: if the descriptor
+   !> already exists (a REGISTERTRACERS re-run, e.g. inside a timestep loop)
+   !> it is validated against the registered tracer and the def_var is
+   !> skipped, rather than aborting on NC_ENAMEINUSE. A conflicting descriptor
+   !> aborts via validate_registered_tracer with a "re-registered tracer"
+   !> message.
+   subroutine write_tracer_descriptor(s, tracer_index)
+      type(t_serializer), intent(in) :: s
       integer, intent(in) :: tracer_index
-      integer :: ncerr, varid
+      integer :: ncerr, varid, grpid
       integer(int32) :: zero, tid, idx_attr
       integer(int32), allocatable :: cdims(:)
 
-      zero = 0_int32
-      tid = entry%type_id
-      cdims = tracer_c_order_dims(entry)
+      grpid = s%tracers_grpid
+      associate (entry => ppser_tracers(tracer_index))
 
-      ncerr = nf90_def_var(grpid, trim(entry%name), NF90_INT, varid)
-      call preserf_check_nf_with_msg(ncerr, &
-                                     'def_var /_tracers/'//trim(entry%name))
-      ncerr = nf90_put_att(grpid, varid, 'type_id', tid)
-      call preserf_check_nf_with_msg(ncerr, 'put_att tracer type_id')
-      ncerr = nf90_put_att(grpid, varid, 'dims', cdims)
-      call preserf_check_nf_with_msg(ncerr, 'put_att tracer dims')
-      ncerr = nf90_put_att(grpid, varid, 'stype', trim(entry%stype))
-      call preserf_check_nf_with_msg(ncerr, 'put_att tracer stype')
-      idx_attr = int(tracer_index, int32)
-      ncerr = nf90_put_att(grpid, varid, 'tracer_index', idx_attr)
-      call preserf_check_nf_with_msg(ncerr, 'put_att tracer_index')
-      ncerr = nf90_put_var(grpid, varid, zero)
-      call preserf_check_nf_with_msg(ncerr, &
-                                     'put_var (tracer descriptor placeholder)')
+         ! Skip-and-validate a descriptor that already exists (idempotent
+         ! re-registration), mirroring the inq_varid guard in fs_register_field.
+         ncerr = nf90_inq_varid(grpid, trim(entry%name), varid)
+         if (ncerr == NF90_NOERR) then
+            call validate_registered_tracer(s, entry, tracer_index, &
+                                            context='re-registered tracer')
+            return
+         else if (ncerr /= NF90_ENOTVAR) then
+            call preserf_check_nf_with_msg(ncerr, &
+                                           'inq_varid /_tracers/'//trim(entry%name))
+         end if
+
+         zero = 0_int32
+         tid = entry%type_id
+         cdims = tracer_c_order_dims(entry)
+
+         ncerr = nf90_def_var(grpid, trim(entry%name), NF90_INT, varid)
+         call preserf_check_nf_with_msg(ncerr, &
+                                        'def_var /_tracers/'//trim(entry%name))
+         ncerr = nf90_put_att(grpid, varid, 'type_id', tid)
+         call preserf_check_nf_with_msg(ncerr, 'put_att tracer type_id')
+         ncerr = nf90_put_att(grpid, varid, 'dims', cdims)
+         call preserf_check_nf_with_msg(ncerr, 'put_att tracer dims')
+         ncerr = nf90_put_att(grpid, varid, 'stype', trim(entry%stype))
+         call preserf_check_nf_with_msg(ncerr, 'put_att tracer stype')
+         idx_attr = int(tracer_index, int32)
+         ncerr = nf90_put_att(grpid, varid, 'tracer_index', idx_attr)
+         call preserf_check_nf_with_msg(ncerr, 'put_att tracer_index')
+         ncerr = nf90_put_var(grpid, varid, zero)
+         call preserf_check_nf_with_msg(ncerr, &
+                                        'put_var (tracer descriptor placeholder)')
+      end associate
    end subroutine write_tracer_descriptor
 
    !> Read-mode counterpart to write_tracer_descriptor: confirm the
@@ -754,19 +782,30 @@ contains
    !> the stored value catches a read run that registers tracers in a
    !> different order, which would otherwise make `ppser_write_tracer_by_idx`
    !> resolve a different tracer than was written at that index.
-   subroutine validate_registered_tracer(s, entry, expected_index)
+   !>
+   !> `context` labels the tracer in error messages; it defaults to
+   !> 'read-mode tracer' (the read-mode validate path) and write-mode
+   !> idempotent re-registration passes 're-registered tracer'.
+   subroutine validate_registered_tracer(s, entry, expected_index, context)
       type(t_serializer), intent(in) :: s
       type(t_tracer_entry), intent(in) :: entry
       integer, intent(in) :: expected_index
+      character(len=*), intent(in), optional :: context
       integer :: ncerr, varid, attr_len, axis
       integer(int32) :: stored_tid, stored_idx
       integer(int32), allocatable :: stored_dims(:), cdims(:)
-      character(len=:), allocatable :: stored_stype
+      character(len=:), allocatable :: stored_stype, ctx
+
+      if (present(context)) then
+         ctx = context
+      else
+         ctx = 'read-mode tracer'
+      end if
 
       ncerr = nf90_inq_varid(s%tracers_grpid, trim(entry%name), varid)
       if (ncerr == NF90_ENOTVAR) then
          write (*, '(a,a,a)') &
-            'preserf: read-mode tracer "', trim(entry%name), &
+            'preserf: '//ctx//' "', trim(entry%name), &
             '" is not present in the store /_tracers registry'
          error stop 1
       end if
@@ -777,7 +816,7 @@ contains
       call preserf_check_nf_with_msg(ncerr, 'get_att tracer type_id')
       if (stored_tid /= entry%type_id) then
          write (*, '(a,a,a,i0,a,i0)') &
-            'preserf: read-mode tracer "', trim(entry%name), &
+            'preserf: '//ctx//' "', trim(entry%name), &
             '" type_id mismatch: store has ', stored_tid, &
             ', run expects ', entry%type_id
          error stop 1
@@ -791,14 +830,14 @@ contains
       call preserf_check_nf_with_msg(ncerr, 'get_att tracer dims')
       if (attr_len /= size(cdims)) then
          write (*, '(a,a,a,i0,a,i0)') &
-            'preserf: read-mode tracer "', trim(entry%name), &
+            'preserf: '//ctx//' "', trim(entry%name), &
             '" rank mismatch: store ', attr_len, ', run ', size(cdims)
          error stop 1
       end if
       do axis = 1, attr_len
          if (stored_dims(axis) /= cdims(axis)) then
             write (*, '(a,a,a)') &
-               'preserf: read-mode tracer "', trim(entry%name), &
+               'preserf: '//ctx//' "', trim(entry%name), &
                '" dims mismatch with registered shape'
             error stop 1
          end if
@@ -811,7 +850,7 @@ contains
       call preserf_check_nf_with_msg(ncerr, 'get_att tracer stype')
       if (trim(stored_stype) /= trim(entry%stype)) then
          write (*, '(a,a,a,a,a,a)') &
-            'preserf: read-mode tracer "', trim(entry%name), &
+            'preserf: '//ctx//' "', trim(entry%name), &
             '" stype mismatch: store "', trim(stored_stype), &
             '", run "', trim(entry%stype)
          error stop 1
@@ -821,7 +860,7 @@ contains
       call preserf_check_nf_with_msg(ncerr, 'get_att tracer_index')
       if (int(stored_idx) /= expected_index) then
          write (*, '(a,a,a,i0,a,i0)') &
-            'preserf: read-mode tracer "', trim(entry%name), &
+            'preserf: '//ctx//' "', trim(entry%name), &
             '" tracer_index mismatch: store has ', int(stored_idx), &
             ', run registered it at position ', expected_index
          error stop 1

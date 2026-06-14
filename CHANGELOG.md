@@ -261,6 +261,15 @@ embedded in each spec's Problem section.
 
 ### Fixed
 
+- `fs_RegisterAllTracers` (the `!$SER REGISTERTRACERS` directive) is now
+  idempotent in write mode, matching `fs_register_field`. A second
+  registration — e.g. the directive re-run each iteration of a timestep loop
+  — no longer aborts with a raw netCDF error (`NC_ENAMEINUSE`) on a duplicate
+  `def_var`: each existing `/_tracers/<name>` descriptor is validated against
+  the registered tracer (type_id, C-order dims, stype, tracer_index) and the
+  redefinition is skipped, while a conflicting descriptor aborts with a clear
+  `re-registered tracer` message
+  ([#71](https://github.com/grAItools/preserf/issues/71)).
 - `fs_register_field` no longer aborts with a raw netCDF error when a field
   is registered more than once or on a read-only handle. Re-registering a
   field (a `!$SER REGISTER` in a per-timestep loop, or a field already
