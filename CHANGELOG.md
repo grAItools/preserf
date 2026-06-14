@@ -4,13 +4,7 @@ All notable changes to `preserf` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-Per-slice spec / plan dirs live under [`specs/`](specs/) (overview in
-[`specs/README.md`](specs/README.md)). v0.1 gaps the specs close are
-embedded in each spec's Problem section.
-
-## [0.2.0-dev] — post-v0.1.0 main, unreleased
+## [Unreleased] — post-v0.1.0 main
 
 ### Added
 
@@ -222,6 +216,11 @@ embedded in each spec's Problem section.
 
 ### Changed
 
+- CI now runs the `consumer`-marked external-consumer / `find_package`
+  tests as a dedicated step with `PRESERF_REQUIRE_FORTRAN=1`, and the
+  `test-consumer` pixi task sets the same env var, so the install /
+  discovery integration tests can no longer pass by silently skipping
+  (they previously ran in no automated gate).
 - The Fortran helper sources moved from `src/preserf-fortran/` to
   `src/preserf/fortran/` (no API or behaviour change; updated CMake
   `add_subdirectory` paths, `pixi` fprettify paths, and docs).
@@ -403,6 +402,22 @@ embedded in each spec's Problem section.
   closes a latent truncation on very large dim sizes / halo extents
   ([#16](https://github.com/grAItools/preserf/pull/16)).
 
+### Documentation
+
+- Reconciled the docs with the shipped surface after a code review found
+  several froze at the v0.1 feature set: `docs/architecture.md` (both
+  storage backends described as wired up, `PRESERF_BACKEND` noted,
+  `fortran_dist.py` + CMake helper added to the module map), the Fortran
+  `README.md` (full type matrix / k-buffer / tracer / `fs_Option` surface
+  instead of "v0.1 subset / out of scope"), the `m_preserf` and
+  `utils_ppser` module headers, `specs/README.md` (distribution feature
+  marked shipped), and `docs/testing.md` (corrected file counts and
+  task list). Added `vendor/README.md` noting `pp_ser.py` is GPL
+  reference-only and excluded from the distribution. Collapsed the
+  duplicate `[Unreleased]` / `[0.2.0-dev]` changelog headers and fixed
+  the broken compare link ([#69](https://github.com/grAItools/preserf/issues/69),
+  [#85](https://github.com/grAItools/preserf/issues/85)).
+
 ## [0.1.0] — 2026-05
 
 Initial usable preview: storage mapping decision + minimal Fortran helper
@@ -442,6 +457,4 @@ common shapes.
   document; initial project scaffolding (Python ≥3.12, pixi, MIT
   license) ([#1](https://github.com/grAItools/preserf/pull/1), [#2](https://github.com/grAItools/preserf/pull/2), [#5](https://github.com/grAItools/preserf/pull/5)).
 
-[Unreleased]: https://github.com/grAItools/preserf/compare/v0.2.0-dev...HEAD
-[0.2.0-dev]: https://github.com/grAItools/preserf/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/grAItools/preserf/releases/tag/v0.1.0
+<!-- Compare/release links intentionally omitted until the `v0.1.0` tag is published. -->
