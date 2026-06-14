@@ -1491,6 +1491,65 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: kbuff OK'
                stop
             end block
+         else if (scenario == 'kbuff-offset') then
+            ! Issue #72: the k-buffer size/offset arithmetic was promoted to
+            ! int64 (`allocate(buffer(slice_size*k_size))`, `off =
+            ! (k-1)*slice_size`) so it cannot wrap past 2^31 elements for an
+            ! ICON-scale field. A real >2^31-element buffer is far too large to
+            ! allocate in CI, so this scenario instead pins the *layout* the
+            ! int64 promotion must preserve: with a multi-element slice over
+            ! many levels, every element of the assembled column-major field
+            ! must land at exactly (k-1)*slice_size + slice_index. A botched
+            ! promotion (wrong operand order, a stray default-int truncation,
+            ! or an off-by-one in the int64 section bounds) would shuffle or
+            ! drop elements and fail the per-element round-trip below — so this
+            ! is the regression guard for the arithmetic the issue changed.
+            block
+               integer, parameter :: ni = 5, nj = 3, ke = 64
+               integer, parameter :: ss = ni*nj
+               real(real64) :: sl(ni, nj)
+               integer :: i, j, kk
+               ! Distinct value per (i,j,k) so a misplaced element is caught:
+               ! the assembled buffer position is (k-1)*ss + ((j-1)*ni + i),
+               ! exactly the offset formula promoted to int64.
+               call ppser_initialize(out_dir, 'fkboff', 'w')
+               call fs_register_field(ppser_serializer, 'g', 'double', &
+                                      ppser_reallength, ni, nj, ke, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               do kk = 1, ke
+                  do j = 1, nj
+                     do i = 1, ni
+                        sl(i, j) = real(((kk - 1)*ss + (j - 1)*ni + i), real64)
+                     end do
+                  end do
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'g', &
+                                      sl, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+               end do
+               call ppser_finalize()
+               ! Symmetric read-back: each level must recover its slice with
+               ! the same linear offsets, proving both the write-side
+               ! accumulate offset and the read-side inc offset are int64.
+               call ppser_initialize(out_dir, 'fkboff', 'r')
+               call fs_create_savepoint('step', ppser_savepoint)
+               do kk = 1, ke
+                  sl = 0.0_real64
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'g', &
+                                      sl, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+                  do j = 1, nj
+                     do i = 1, ni
+                        if (sl(i, j) /= &
+                            real(((kk - 1)*ss + (j - 1)*ni + i), real64)) &
+                           error stop 'kbuff-offset: assembled layout mismatch'
+                     end do
+                  end do
+               end do
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: kbuff-offset OK'
+               stop
+            end block
          else if (scenario == 'option') then
             ! Slice C Phase 3: OPTION. fs_Option(verbosity=N) sets the
             ! module verbosity knob and records the reserved

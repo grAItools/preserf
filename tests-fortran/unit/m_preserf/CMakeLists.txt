@@ -515,6 +515,22 @@ set_tests_properties(preserf_fortran_kbuff PROPERTIES
     TIMEOUT 60
 )
 
+# Issue #72: the k-buffer size/offset arithmetic was promoted to int64 so it
+# cannot wrap past 2^31 elements for ICON-scale fields. A real >2^31-element
+# buffer is too large to allocate in CI, so the 'kbuff-offset' scenario pins
+# the column-major layout the int64 offset formula must preserve across many
+# levels — the regression guard for the arithmetic the issue changed.
+add_test(
+    NAME preserf_fortran_kbuff_offset
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" kbuff-offset
+)
+set_tests_properties(preserf_fortran_kbuff_offset PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: kbuff-offset OK"
+    TIMEOUT 60
+)
+
 # Slice C Phase 3: OPTION. fs_Option(verbosity=2) sets the runtime knob and
 # records the _preserf_option_verbosity root attribute; the Python
 # cross-language test reads it back.

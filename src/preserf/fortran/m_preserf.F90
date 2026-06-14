@@ -1007,7 +1007,10 @@ contains
       real(real64), intent(in) :: flat_slice(:)
       integer, intent(in) :: slice_shape(:)
       integer, intent(in) :: k, k_size
-      integer :: idx, slice_size, off
+      integer :: idx, slice_size
+      ! int64 so (k-1)*slice_size cannot wrap past 2^31 for a tall/wide
+      ! field; the buffer is indexed with this offset.
+      integer(int64) :: off
       logical :: is_new
 
       call kbuff_check_k(k, k_size)
@@ -1031,7 +1034,7 @@ contains
          error stop 1
       end if
 
-      off = (k - 1)*slice_size
+      off = int(k - 1, int64)*int(slice_size, int64)
       ppser_kbuffers(idx)%buffer(off + 1:off + slice_size) = flat_slice
       ppser_kbuffers(idx)%filled = ppser_kbuffers(idx)%filled + 1
 
@@ -1138,7 +1141,12 @@ contains
       ppser_kbuffers(idx)%filled = 0
       if (allocated(ppser_kbuffers(idx)%buffer)) &
          deallocate (ppser_kbuffers(idx)%buffer)
-      allocate (ppser_kbuffers(idx)%buffer(slice_size*k_size))
+      ! int64 element count (promote before multiplying) so the buffer can
+      ! exceed 2^31 elements for ICON-scale fields; guards overflow naming
+      ! the field. The int64 upper bound makes the allocation use int64
+      ! addressing.
+      allocate (ppser_kbuffers(idx)%buffer( &
+                kbuff_total_elems(slice_size, k_size, fieldname)))
       is_new = .true.
    end subroutine kbuff_claim
 
@@ -2375,6 +2383,33 @@ contains
          error stop 1
       end if
    end subroutine require_fits_int32
+
+   !> Total element count of a k-buffer (slice_size * k_size) as int64.
+   !>
+   !> Both factors arrive as default-kind integers, so the bare product
+   !> `slice_size*k_size` is evaluated in default integer and silently wraps
+   !> past ~2^31 elements — plausible for an ICON-scale real64 field (a 17 GB
+   !> field is ~2.1e9 elements). This is the wire-boundary integer hazard the
+   !> style guide names (docs/style.md): we promote each operand to int64
+   !> *before* multiplying so the count is exact, and error_stop naming the
+   !> field if even the int64 product would overflow (the buffer allocation
+   !> and every `off + ss` index downstream use this same int64 count).
+   function kbuff_total_elems(slice_size, k_size, fieldname) result(n)
+      integer, intent(in) :: slice_size, k_size
+      character(len=*), intent(in) :: fieldname
+      integer(int64) :: n
+      ! huge(n) / k_size is the largest slice_size whose product with k_size
+      ! still fits int64; comparing before the multiply avoids the overflow
+      ! we are trying to detect. k_size >= 1 is guaranteed by kbuff_check_k.
+      if (int(slice_size, int64) > huge(n)/int(k_size, int64)) then
+         write (*, '(a,a,a,i0,a,i0,a)') &
+            'preserf: fs_write_kbuff for "', trim(fieldname), &
+            '" has too many elements (slice_size=', slice_size, &
+            ', k_size=', k_size, '); product overflows int64'
+         error stop 1
+      end if
+      n = int(slice_size, int64)*int(k_size, int64)
+   end function kbuff_total_elems
 
    subroutine put_halo_attr(grpid, varid, name, value)
       integer, intent(in) :: grpid, varid

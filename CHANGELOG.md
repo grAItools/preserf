@@ -336,6 +336,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- K-buffer size and offset arithmetic no longer overflows default-kind
+  integers for ICON-scale fields (issue #72). The whole-field buffer count
+  (`slice_size * k_size`) and the per-level offsets (`(k-1) * slice_size`) in
+  `fs_write_kbuff` / `kbuff_accumulate` were evaluated in default (32-bit)
+  integer, so a field with more than ~2^31 elements (e.g. a 17 GB `real64`
+  field, ~2.1e9 elements) would silently wrap and under-allocate or
+  mis-index the buffer. The operands are now promoted to `integer(int64)`
+  before multiplying, the buffer is allocated and indexed with `int64`
+  bounds, and a guard `error stop`s naming the field if even the `int64`
+  product would overflow — the wire-boundary integer pattern from
+  `docs/style.md`. A `kbuff-offset` Fortran regression test pins the
+  column-major layout the int64 offsets must preserve across many levels.
 - Subprogram-header detection no longer fires on identifiers that merely begin
   with `function`/`subroutine` (e.g. `functional_x = 1`), and now recognises
   typed and attribute-prefixed function headers (`pure function`,
