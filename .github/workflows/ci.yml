@@ -171,10 +171,11 @@ jobs:
           FC: ${{ steps.setup-fortran.outputs.fc }}
           CC: ${{ steps.setup-fortran.outputs.cc }}
           # Make the ifx-built netcdf-fortran.pc discoverable by pkg-config so
-          # preserf's pkg_check_modules(NETCDF_FORTRAN ...) resolves it. Only the
-          # wrapper's dir is set explicitly; pkg-config's built-in default search
-          # path (which includes the Ubuntu multiarch dir) covers the system
-          # netcdf-c .pc, so we avoid hardcoding the x86_64 triplet.
+          # preserf's pkg_check_modules(NETCDF_FORTRAN ...) resolves it: the
+          # wrapper's .pc is what that query needs. The non-static query does not
+          # pull in Requires.private, so the system netcdf-c .pc (reachable via
+          # pkg-config's default search path) is only consulted for static/private
+          # resolution; hence we set only the wrapper's dir explicitly.
           PKG_CONFIG_PATH: ${{ github.workspace }}/.nf-intel/lib/pkgconfig
         run: |
           set -euxo pipefail
@@ -182,7 +183,7 @@ jobs:
           # it on the runtime loader path, preserving any existing value. (Set
           # here rather than in the step `env:` map so ${LD_LIBRARY_PATH} is
           # expanded by the shell instead of taken literally.)
-          export LD_LIBRARY_PATH="${NFDIR}/lib:${LD_LIBRARY_PATH}"
+          export LD_LIBRARY_PATH="${NFDIR}/lib:${LD_LIBRARY_PATH:-}"
           # Force ifx so CMake does not pick a stray gfortran off PATH.
           cmake -S tests-fortran -B build/intel \
             -DCMAKE_Fortran_COMPILER="${FC}"
