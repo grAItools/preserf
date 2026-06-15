@@ -193,8 +193,10 @@ if(PRESERF_FORTRAN_INSTALL)
     # wrongly advertise every 0.x install as compatible with any other.
     # SameMinorVersion requires both major and minor to agree, so a consumer
     # `find_package(preserf_fortran 0.2)` accepts a 0.2.x install but rejects a
-    # 0.3.x one. Revisit (likely to SameMajorVersion) once the helper reaches
-    # 1.0, when major-version compatibility becomes the SemVer-correct policy.
+    # 0.3.x one; and, as with every CMake basic version file, the requested
+    # version must not exceed the install (0.2.5 is rejected against 0.2.0). We
+    # may revisit this once the helper reaches 1.0, when major-version
+    # compatibility becomes the SemVer-correct policy.
     write_basic_package_version_file(
         ${CMAKE_CURRENT_BINARY_DIR}/preserf_fortranConfigVersion.cmake
         VERSION ${PROJECT_VERSION}
