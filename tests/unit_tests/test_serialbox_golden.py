@@ -103,6 +103,9 @@ def test_golden_dump_disk_round_trips_through_reference_writer() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp)
         dump.write(out)
+        # Scope: this guards element ordering of the raw `.dat` payloads only.
+        # The fields_table SHA256 checksums in ArchiveMetaData-golden.json are
+        # copied over verbatim by the reference writer, not re-verified here.
         for fname in ("u", "nlevels", "ftol"):
             original = (GOLDEN_DIR / f"{GOLDEN_PREFIX}_{fname}.dat").read_bytes()
             rewritten = (out / f"{GOLDEN_PREFIX}_{fname}.dat").read_bytes()

@@ -339,6 +339,8 @@ class SerialboxDump:
                 arr = (
                     np.frombuffer(buf, dtype=dtype).reshape(shape, order="F")
                     if shape
+                    # Rank-0 scalar: a single element is order-independent, so
+                    # the Fortran-order invariant above holds trivially here.
                     else np.frombuffer(buf, dtype=dtype).reshape(())
                 )
                 dump.field_data[fname][idx] = arr.copy()
