@@ -102,8 +102,10 @@ jobs:
 
       - name: Set up Intel ifx
         # Pin to a specific release tag (not the mutable v1 major tag) so this
-        # compiler lane stays reproducible.
-        uses: fortran-lang/setup-fortran@v1.6.1
+        # compiler lane stays reproducible. v1.6.3+ is required for oneAPI
+        # 2025.x: Intel dropped the classic C/C++ compiler in 2024.0, so the
+        # apt package is intel-oneapi-compiler-dpcpp-cpp (not -and-cpp-classic).
+        uses: fortran-lang/setup-fortran@v1.9.1
         id: setup-fortran
         with:
           compiler: intel
