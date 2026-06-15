@@ -224,6 +224,7 @@ CLAUDE.local.md
 .claude/checkpoints/
 .claude/shell-snapshots/
 .claude/worktrees/
+serialbox-*.tar.gz
 .opencode/local/
 .codex/auth.json
 .cursor/settings.local.json
