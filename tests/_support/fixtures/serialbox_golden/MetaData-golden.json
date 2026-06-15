@@ -1,0 +1,95 @@
+{
+ "field_map": {
+  "ftol": {
+   "dims": [
+    2
+   ],
+   "meta_info": null,
+   "type_id": 4
+  },
+  "nlevels": {
+   "dims": [
+    3
+   ],
+   "meta_info": null,
+   "type_id": 2
+  },
+  "u": {
+   "dims": [
+    4,
+    3,
+    2
+   ],
+   "meta_info": null,
+   "type_id": 5
+  }
+ },
+ "global_meta_info": {
+  "author": {
+   "type_id": 6,
+   "value": "serialbox-golden"
+  },
+  "schema_version": {
+   "type_id": 2,
+   "value": 7
+  },
+  "tags": {
+   "type_id": 22,
+   "value": [
+    "alpha",
+    "beta",
+    "gamma"
+   ]
+  },
+  "use_gpu": {
+   "type_id": 1,
+   "value": true
+  }
+ },
+ "prefix": "golden",
+ "savepoint_vector": {
+  "fields_per_savepoint": [
+   {
+    "step": {
+     "nlevels": 0,
+     "u": 0
+    }
+   },
+   {
+    "step": {
+     "ftol": 0,
+     "u": 1
+    }
+   }
+  ],
+  "savepoints": [
+   {
+    "meta_info": {
+     "ntstep": {
+      "type_id": 2,
+      "value": 1
+     },
+     "t": {
+      "type_id": 5,
+      "value": 0.5
+     }
+    },
+    "name": "step"
+   },
+   {
+    "meta_info": {
+     "ntstep": {
+      "type_id": 2,
+      "value": 2
+     },
+     "t": {
+      "type_id": 5,
+      "value": 1.0
+     }
+    },
+    "name": "step"
+   }
+  ]
+ },
+ "serialbox_version": 263
+}

@@ -4,7 +4,8 @@
   "excludes": [
     ".pixi/**",
     "pixi.lock",
-    ".agents/plugins/**"
+    ".agents/plugins/**",
+    "tests/_support/fixtures/serialbox_golden/*.json"
   ],
   "plugins": [
     "https://plugins.dprint.dev/markdown-0.22.1.wasm",
