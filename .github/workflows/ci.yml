@@ -28,6 +28,8 @@ jobs:
           - label: linux-64
             runs-on: ubuntu-latest
           - label: osx-arm64
+            # macos-14 is the arm64 (Apple-silicon) hosted image that backs
+            # the osx-arm64 platform label.
             runs-on: macos-14
     steps:
       - uses: actions/checkout@v6.0.2
@@ -99,7 +101,9 @@ jobs:
       - uses: actions/checkout@v6.0.2
 
       - name: Set up Intel ifx
-        uses: fortran-lang/setup-fortran@v1
+        # Pin to a specific release tag (not the mutable v1 major tag) so this
+        # compiler lane stays reproducible.
+        uses: fortran-lang/setup-fortran@v1.6.1
         id: setup-fortran
         with:
           compiler: intel
@@ -118,7 +122,17 @@ jobs:
           # Do NOT install libnetcdff-dev: the apt build is gfortran-built and
           # its .mod files are unusable from ifx — we build that wrapper below.
 
+      # Cache the ifx-built netcdf-fortran install tree so we only compile it
+      # from source on a cache miss (version/compiler/OS-keyed).
+      - name: Cache netcdf-fortran (ifx) build
+        id: cache-nf
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.NFDIR }}
+          key: netcdf-fortran-${{ env.NETCDF_FORTRAN_VERSION }}-ifx-${{ runner.os }}
+
       - name: Build netcdf-fortran from source with ifx
+        if: steps.cache-nf.outputs.cache-hit != 'true'
         env:
           FC: ${{ steps.setup-fortran.outputs.fc }}
           CC: ${{ steps.setup-fortran.outputs.cc }}
@@ -131,11 +145,19 @@ jobs:
           tar xzf "${src}.tar.gz"
           cd "${src}"
           # netcdf-c (libnetcdf-dev) is C, so CC=icx links the C symbols; FC=ifx
-          # produces the .mod files preserf compiles against. --disable-shared
-          # keeps the link self-contained and the build fast.
+          # produces the .mod files preserf compiles against. Build a SHARED
+          # wrapper: preserf discovers netcdf-fortran via pkg_check_modules
+          # WITHOUT the STATIC keyword (src/preserf/fortran/CMakeLists.txt), so
+          # it only consumes `Libs:` (-lnetcdff) and ignores Libs.private. A
+          # shared libnetcdff.so resolves the netcdf-c (nc_*) symbols
+          # transitively via the system libnetcdf.so at link/run time, which a
+          # static archive cannot.
+          # --disable-fortran-type-check skips netcdf-fortran's configure-time
+          # Fortran type-size compile probes, which non-gfortran compilers (ifx)
+          # can trip on.
           CPPFLAGS="-I${NCDIR}/include" LDFLAGS="-L${NCDIR}/lib" \
             ./configure --prefix="${NFDIR}" \
-            --disable-shared --disable-fortran-type-check
+            --disable-fortran-type-check
           make -j"$(nproc)"
           make install
 
@@ -149,11 +171,18 @@ jobs:
           FC: ${{ steps.setup-fortran.outputs.fc }}
           CC: ${{ steps.setup-fortran.outputs.cc }}
           # Make the ifx-built netcdf-fortran.pc discoverable by pkg-config so
-          # preserf's pkg_check_modules(NETCDF_FORTRAN ...) resolves it; keep the
-          # system path for the netcdf-c .pc the wrapper depends on.
-          PKG_CONFIG_PATH: ${{ github.workspace }}/.nf-intel/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig
+          # preserf's pkg_check_modules(NETCDF_FORTRAN ...) resolves it. Only the
+          # wrapper's dir is set explicitly; pkg-config's built-in default search
+          # path (which includes the Ubuntu multiarch dir) covers the system
+          # netcdf-c .pc, so we avoid hardcoding the x86_64 triplet.
+          PKG_CONFIG_PATH: ${{ github.workspace }}/.nf-intel/lib/pkgconfig
         run: |
           set -euxo pipefail
+          # The freshly built shared libnetcdff.so lives under ${NFDIR}/lib; put
+          # it on the runtime loader path, preserving any existing value. (Set
+          # here rather than in the step `env:` map so ${LD_LIBRARY_PATH} is
+          # expanded by the shell instead of taken literally.)
+          export LD_LIBRARY_PATH="${NFDIR}/lib:${LD_LIBRARY_PATH}"
           # Force ifx so CMake does not pick a stray gfortran off PATH.
           cmake -S tests-fortran -B build/intel \
             -DCMAKE_Fortran_COMPILER="${FC}"
