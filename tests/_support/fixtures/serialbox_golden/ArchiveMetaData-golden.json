@@ -1,0 +1,30 @@
+{
+  "archive_name": "Binary",
+  "archive_version": 0,
+  "fields_table": {
+    "ftol": [
+      [
+        0,
+        "175B66DFBFA81C14B7D5C3981A1451F368B12CBC26BA90A87126282593D4AE"
+      ]
+    ],
+    "nlevels": [
+      [
+        0,
+        "4F97463EF8E1CD228F49098A3619FA8E71250BE6B16F4E42B5E99EFF8BB3093"
+      ]
+    ],
+    "u": [
+      [
+        0,
+        "A8BABFD2CE25ACF2F0D5798E6ADBF4ABCF35E3A567DC37982DBD7A92F38F5C"
+      ],
+      [
+        192,
+        "9EAEE03E16A9B37BC0BDF8E42E67F26EB9A118487B8EC476215253CCB495C3DB"
+      ]
+    ]
+  },
+  "hash_algorithm": "SHA256",
+  "serialbox_version": 263
+}
