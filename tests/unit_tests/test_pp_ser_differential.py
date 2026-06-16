@@ -69,7 +69,12 @@ _AGREEMENT_CASES = {
 def test_preserf_matches_upstream_pp_ser(body: str) -> None:
     """preserf emits the same runtime calls as upstream pp_ser."""
     source = _MODULE.format(body=body)
-    assert _preserf_calls(source) == _ppser_calls(source)
+    preserf = _preserf_calls(source)
+    # Guard against a corpus/regex regression that yields empty output on both
+    # sides, which would otherwise satisfy the equality below for the wrong
+    # reason. Every agreement case generates at least one runtime call.
+    assert preserf, "expected at least one runtime call from preserf"
+    assert preserf == _ppser_calls(source)
 
 
 # Indexed values whose subscripts contain arithmetic: preserf reads these back
@@ -95,3 +100,24 @@ def test_subscript_arithmetic_diverges_from_upstream(value: str) -> None:
     # preserf reads it back; upstream drops the read — the intentional divergence.
     assert any(c.startswith("call fs_read_field") for c in preserf)
     assert not any(c.startswith("call fs_read_field") for c in upstream)
+
+
+def test_extract_runtime_calls_normalizes_fixture() -> None:
+    """``extract_runtime_calls`` joins continuations and drops non-call lines.
+
+    Direct smoke test of the riskiest helper, exercising the cases the
+    differential test only hits transitively: a multi-line ``&``-continued
+    ``call``, a ``! file: lineno:`` annotation, a ``USE`` block line, an inline
+    trailing comment, and a plain single-line call.
+    """
+    fixture = (
+        "! file: input.f90 lineno: 3\n"
+        "        USE m_serialize\n"
+        "        call fs_write_field(serializer, savepoint, 'u', u, &\n"
+        "          1, 2, 3)\n"
+        "        call fs_read_field(serializer, savepoint, 'v', v)  ! reads v\n"
+    )
+    assert extract_runtime_calls(fixture) == [
+        "call fs_write_field(serializer, savepoint, 'u', u, 1, 2, 3)",
+        "call fs_read_field(serializer, savepoint, 'v', v)",
+    ]
