@@ -328,9 +328,19 @@ class SerialboxDump:
                         f"truncated read for field {fname}: got {len(buf)} bytes, "
                         f"need {elt_bytes}"
                     )
+                # Serialbox's BinaryArchive stores array payloads in
+                # column-major (Fortran) order, while FieldMetainfo.dims lists
+                # the extents in declaration order. Reshape with order="F" so a
+                # multi-dimensional field decodes to the same numpy array the
+                # real Serialbox reader returns (verified against a golden
+                # serialbox4py dump — see fixtures/serialbox_golden/). A plain
+                # C-order reshape transposes rank>=2 fields; rank 0/1 coincide,
+                # which is why the symmetric self-round-trip masked this (#68).
                 arr = (
-                    np.frombuffer(buf, dtype=dtype).reshape(shape)
+                    np.frombuffer(buf, dtype=dtype).reshape(shape, order="F")
                     if shape
+                    # Rank-0 scalar: a single element is order-independent, so
+                    # the Fortran-order invariant above holds trivially here.
                     else np.frombuffer(buf, dtype=dtype).reshape(())
                 )
                 dump.field_data[fname][idx] = arr.copy()
@@ -401,8 +411,14 @@ class SerialboxDump:
                         f"but FieldMetainfo declares dims {info.dims} "
                         f"({expected_count} elements)"
                     )
-                arr = np.ascontiguousarray(raw, dtype=info.element_dtype())
-                payload += arr.tobytes(order="C")
+                # Serialbox's BinaryArchive lays array elements out in
+                # column-major (Fortran) order on disk (verified against a
+                # golden serialbox4py dump). tobytes(order="F") emits the
+                # logical elements in that order regardless of the source
+                # array's internal contiguity, keeping the writer symmetric
+                # with the order="F" read above (#68).
+                arr = np.asarray(raw, dtype=info.element_dtype())
+                payload += arr.tobytes(order="F")
             # Rebuild fields_table from ordered_ids so it exactly reflects the
             # on-disk layout we just wrote — stale entries left over from a
             # previous larger payload would otherwise mislead the reader into
