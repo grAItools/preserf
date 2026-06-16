@@ -1876,11 +1876,14 @@ program test_minimal
             ! Issue #48: with no explicit `backend=` argument the helper
             ! resolves the backend from the PRESERF_BACKEND env var (the
             ! ctest target sets PRESERF_BACKEND=nczarr-v2). The store must
-            ! land as a `.zarr` directory, proving the env-var fallback is
-            ! wired through ppser_initialize. An explicit `backend=` then
-            ! overrides the env var, so the same prefix opened with
-            ! backend='netcdf4' must produce a `.nc` file — the
-            ! arg-beats-env precedence.
+            ! land as a `.zarr` directory store; we verify that selection by
+            ! reading the field back through an nczarr-v2 read open rather
+            ! than an `inquire` existence check, since `inquire` on a
+            ! directory store is not portable (see part (a) below). This
+            ! proves the env-var fallback is wired through ppser_initialize.
+            ! An explicit `backend=` then overrides the env var, so the same
+            ! prefix opened with backend='netcdf4' must produce a `.nc` file
+            ! — the arg-beats-env precedence.
             block
                real(real64) :: ue(3), ue_back(3)
                logical :: nc_exists
@@ -1889,7 +1892,8 @@ program test_minimal
                   ue(i) = 600.0_real64 + real(i, real64)
                end do
                ! Clear any stores a prior run may have left so the
-               ! existence checks below reflect only this run.
+               ! round-trip read (a) and existence check (b) below reflect
+               ! only this run.
                call delete_dir_if_exists(trim(out_dir)//'/fenv.zarr')
                call delete_if_exists(trim(out_dir)//'/fenv_arg.nc')
 
@@ -1913,6 +1917,8 @@ program test_minimal
                ! resolved to netcdf4, no `.zarr` store would exist and this
                ! read open would fail.
                call ppser_initialize(out_dir, 'fenv', 'r', backend='nczarr-v2')
+               if (ppser_get_mode() /= 1) error stop &
+                  'backend-env: read open should set mode 1'
                call fs_register_field(ppser_serializer, 'u', 'double', &
                                       ppser_reallength, 3, 0, 0, 0, &
                                       0, 0, 0, 0, 0, 0, 0, 0)
