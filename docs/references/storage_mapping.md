@@ -485,7 +485,7 @@ Resulting NetCDF4 / NCZarr store:
   in a netcdf-c build, so `compression>0` combined with `backend=nczarr-v2`
   is **rejected** at `ppser_initialize` (clear abort rather than an
   unreadable store). Attaching a Zarr compressor filter on the NCZarr
-  backend is a tracked follow-up.
+  backend is a tracked follow-up (issue #111).
 
   **Runtime override (`PRESERF_COMPRESSION`).** Like `backend`, the level can
   be set without editing/recompiling source via the `PRESERF_COMPRESSION`
