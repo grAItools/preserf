@@ -19,6 +19,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Differential test pinning preserf's `!$SER` expansion against the upstream
+  Serialbox `pp_ser` preprocessor it ports. `tests/unit_tests/`
+  `test_pp_ser_differential.py` runs both preserf and the vendored
+  `vendor/pp_ser.py` (Serialbox 2.6.3) over a directive corpus and compares the
+  normalized sequence of generated runtime calls (`fs_*` / `ppser_*`), giving the
+  preprocessor external ground truth instead of only hand-written expectations.
+  It asserts exact agreement for the core directives and explicitly **pins the
+  intentional divergence** where preserf reads back indexed values with
+  arithmetic in the subscript (`arr(i+1)`) that upstream drops — anchoring the
+  subscript-arithmetic fix against the reference implementation. Fully hermetic
+  (the vendored `pp_ser` is pure-stdlib; no `serialbox4py`/pip dependency).
 - PyPI distribution metadata: `[project]` in `pyproject.toml` now declares
   `authors`/`maintainers`, `keywords`, trove `classifiers` (supported
   Python versions, topics, development status), and `[project.urls]`
