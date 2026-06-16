@@ -2,8 +2,12 @@
 
 ## Phase 1 — reference harness (`tests/_support/ppser_reference.py`)
 
-- Load `vendor/pp_ser.py` by path via `importlib` (it is not a package), once at
-  module import, suppressing its Python-2-era `SyntaxWarning`s.
+- Load upstream `pp_ser` from the installed `serialbox4py` distribution (added as
+  a test-only dev dependency in `pixi.toml`; see ADR 0006). It ships at
+  `serialbox/python/pp_ser/pp_ser.py` but is not an importable submodule, so
+  locate it via `importlib.util.find_spec("serialbox")` — which does not execute
+  the native `serialbox/__init__.py` — and load it by path, once at module
+  import, suppressing its Python-2-era `SyntaxWarning`s.
 - `expand_with_ppser(source, *, real="ireals") -> str`: write `source` to a temp
   file, run `PpSer(infile, outfile=..., real=...).preprocess()`, return the
   expanded text. Default `real="ireals"` to match preserf's `Options` default
@@ -35,7 +39,9 @@ green, with both new tests collected and passing.
 
 - `CHANGELOG.md`: Added entry under Unreleased.
 - `docs/testing.md`: one line noting preserf's expansion is now differentially
-  tested against the vendored upstream `pp_ser`.
+  tested against the upstream `pp_ser` from `serialbox4py`.
+- `docs/adr/0006-ppser-differential-dependency.md`: record the decision to depend
+  on `serialbox4py` (test-only) instead of vendoring `pp_ser`.
 - Keep `specs/2026-06-pp_ser-differential/` as the design record.
 
 ## Verification

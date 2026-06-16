@@ -1,11 +1,20 @@
-"""Run the vendored upstream Serialbox ``pp_ser`` preprocessor in-process.
+"""Run the upstream Serialbox ``pp_ser`` preprocessor in-process.
 
-preserf is a re-implementation of the upstream ``pp_ser.py`` preprocessor, and
-the repository vendors the real thing at ``vendor/pp_ser.py`` (Serialbox 2.6.3)
-specifically so preserf can be validated against it (see ``vendor/README.md``).
+preserf is a re-implementation of the upstream ``pp_ser.py`` preprocessor. To
+validate preserf against the real thing, this helper loads ``pp_ser`` from the
+installed ``serialbox4py`` distribution — a **test-only** dependency declared in
+``pixi.toml`` — rather than vendoring a pinned copy in-tree (see
+``docs/adr/0006-ppser-differential-dependency.md``).
 
-This helper loads that vendored module by path (it is *not* a package and must
-never be imported into shipped code — it stays test-only) and exposes:
+``pp_ser.py`` ships inside the ``serialbox`` package at
+``serialbox/python/pp_ser/pp_ser.py``, but it is *not* an importable submodule:
+that directory has no ``__init__.py``, and importing the top-level ``serialbox``
+package would pull in the native Serialbox runtime, which this differential test
+does not need. The script itself is pure stdlib, so we locate it via the
+``serialbox`` package's search path — without executing ``serialbox/__init__.py``
+— and load it by path.
+
+Exposes:
 
 * :func:`expand_with_ppser` — expand a Fortran source string with upstream
   ``pp_ser`` and return the expanded text;
@@ -27,28 +36,39 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from types import ModuleType
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_PP_SER_PATH = _REPO_ROOT / "vendor" / "pp_ser.py"
 
+def _load_upstream_ppser() -> ModuleType:
+    """Load ``pp_ser`` from the installed ``serialbox4py`` package, once.
 
-def _load_vendored_ppser() -> ModuleType:
-    """Import ``vendor/pp_ser.py`` by path, once, ignoring its legacy warnings."""
-    spec = importlib.util.spec_from_file_location("_vendor_pp_ser", _PP_SER_PATH)
+    Resolves the ``serialbox`` package location with :func:`importlib.util.find_spec`
+    (which does *not* execute ``serialbox/__init__.py`` and so never touches the
+    native runtime), then loads the pure-stdlib ``pp_ser.py`` by path, ignoring
+    its legacy Python-2-era ``SyntaxWarning``s.
+    """
+    pkg_spec = importlib.util.find_spec("serialbox")
+    if pkg_spec is None or not pkg_spec.submodule_search_locations:
+        raise RuntimeError(
+            "serialbox4py is not installed; it is a test-only dependency "
+            "(see docs/adr/0006-ppser-differential-dependency.md)"
+        )
+    pkg_dir = Path(next(iter(pkg_spec.submodule_search_locations)))
+    pp_ser_path = pkg_dir / "python" / "pp_ser" / "pp_ser.py"
+    spec = importlib.util.spec_from_file_location("_serialbox_pp_ser", pp_ser_path)
     if spec is None or spec.loader is None:  # pragma: no cover - defensive
-        raise RuntimeError(f"cannot load vendored pp_ser from {_PP_SER_PATH}")
+        raise RuntimeError(f"cannot load pp_ser from {pp_ser_path}")
     module = importlib.util.module_from_spec(spec)
     with warnings.catch_warnings():
-        # vendor/pp_ser.py predates Python 3.12's stricter escape-sequence rules.
+        # pp_ser.py predates Python 3.12's stricter escape-sequence rules.
         warnings.simplefilter("ignore", SyntaxWarning)
         spec.loader.exec_module(module)
     return module
 
 
-_PPSER = _load_vendored_ppser()
+_PPSER = _load_upstream_ppser()
 
 
 def expand_with_ppser(source: str, *, real: str = "ireals") -> str:
-    """Expand ``source`` with the vendored upstream ``pp_ser``, returning text.
+    """Expand ``source`` with the upstream ``pp_ser``, returning text.
 
     ``real`` defaults to ``"ireals"`` to match preserf's :class:`Options`
     default (the ``PpSer`` class default is ``ireals``; only upstream's
@@ -59,7 +79,7 @@ def expand_with_ppser(source: str, *, real: str = "ireals") -> str:
         out_path = Path(tmp) / "output.f90"
         in_path.write_text(source)
         # No SyntaxWarning suppression is needed here: those fire at compile
-        # time during exec_module (handled once in _load_vendored_ppser), not
+        # time during exec_module (handled once in _load_upstream_ppser), not
         # while running the already-loaded module.
         _PPSER.PpSer(str(in_path), outfile=str(out_path), real=real).preprocess()
         return out_path.read_text()

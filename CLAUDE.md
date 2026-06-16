@@ -23,8 +23,7 @@
   `specs/` (per-slice spec/plan dirs), `docs/references/` (long-form
   schemas / directive grammar), and `CHANGELOG.md` at the repo root.
   `docs/` is for evergreen architecture/style/testing prose;
-  `docs/adr/` is for ADRs; `vendor/` is for upstream source kept for
-  reference.
+  `docs/adr/` is for ADRs.
 
 # Working with this repo
 

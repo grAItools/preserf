@@ -4,11 +4,11 @@ preserf re-implements ``pp_ser``, expanding ``!$SER`` directives into calls
 against the *same* Serialbox Fortran runtime API (``fs_*`` / ``ppser_*``).
 Rather than only checking preserf against hand-written expectations (which can
 encode the same misunderstanding the code has), this pins preserf against
-**external ground truth**: the vendored upstream ``vendor/pp_ser.py``
-(Serialbox 2.6.3), run on the same inputs. We compare the normalized sequence
-of generated runtime calls — *serialization intent*, not byte-for-byte text —
-because that is where real bugs live (e.g. issue #103: subscript arithmetic
-wrongly dropped on read).
+**external ground truth**: the upstream ``pp_ser`` shipped in the
+``serialbox4py`` distribution (a test-only dependency), run on the same inputs.
+We compare the normalized sequence of generated runtime calls — *serialization
+intent*, not byte-for-byte text — because that is where real bugs live (e.g.
+issue #103: subscript arithmetic wrongly dropped on read).
 
 Two tiers:
 
@@ -17,7 +17,7 @@ Two tiers:
   whose subscripts contain arithmetic (``arr(i+1)``), which upstream
   misclassifies as write-only. Pinned explicitly so the divergence stays
   intentional and visible: the test fails if preserf regresses to dropping the
-  read (re-breaking #103) or if the vendored upstream behaviour changes.
+  read (re-breaking #103) or if the upstream ``pp_ser`` behaviour changes.
 """
 
 from __future__ import annotations

@@ -10,10 +10,11 @@ against the **same** Serialbox runtime API (`fs_write_field`, `fs_read_field`,
 Today preserf's expansion is validated only against **hand-written** expected
 strings in `tests/unit_tests/test_preprocessor.py`. If a hand-written
 expectation encodes a misunderstanding of the directive semantics, the test
-agrees with the bug. The repo already vendors the real upstream preprocessor at
-`vendor/pp_ser.py` (Serialbox 2.6.3) for exactly this reason — per
-`vendor/README.md`, it is "kept so the preserf preprocessor can be validated
-against the upstream behaviour." Nothing yet uses it.
+agrees with the bug. The real upstream preprocessor is published in the
+`serialbox4py` distribution (it ships `pp_ser.py` inside the `serialbox`
+package), so we can run it directly as external ground truth — see
+[ADR 0006](../../docs/adr/0006-ppser-differential-dependency.md) for why we
+depend on the published package rather than vendoring a pinned copy.
 
 This is the follow-up to PR #106's golden-fixture work: that pinned the
 test-support Serialbox _dump reader_ against external ground truth; this pins
@@ -23,7 +24,7 @@ implementation it ports.
 ## What
 
 A differential test that, for a corpus of `!$SER` inputs, runs **both** preserf
-(in-process) and the vendored upstream `pp_ser` (in-process) and compares the
+(in-process) and the upstream `pp_ser` from `serialbox4py` (in-process) and compares the
 **normalized sequence of generated runtime calls** (`call fs_*` / `call
 ppser_*`), ignoring incidental formatting (comments, `#ifdef` wrapper,
 `USE`-block ordering, `! file: lineno:` annotations, whitespace/continuations).
@@ -47,16 +48,16 @@ wrongly classified as write-only and silently dropped on read).
    upstream `pp_ser` misclassifies them as computed and drops the read. The test
    asserts this _specific_ difference so the divergence stays **intentional and
    visible** — it fails if preserf regresses to dropping the read (re-breaking
-   #103) **or** if upstream's vendored behaviour ever changes.
+   #103) **or** if upstream's published behaviour ever changes.
 
 ## Acceptance criteria
 
-- A new unit test (no Fortran toolchain, no network, no new dependency) that:
+- A new unit test (no Fortran toolchain, no network at test time) that:
   - passes the agreement corpus by exact normalized-call equality;
   - pins each subscript-arithmetic divergence (preserf reads back, upstream does
     not, both write);
-  - imports the vendored `pp_ser` by path (it is not a package and must never be
-    imported into shipped code — it stays test-only, matching `vendor/README.md`).
+  - loads the upstream `pp_ser` from the installed `serialbox4py` package
+    (test-only dependency) without importing the native Serialbox runtime.
 - `pixi run verify` stays green.
 - No change to preserf's `src/` behaviour — this is a characterization/diff test
   only.
@@ -65,14 +66,8 @@ wrongly classified as write-only and silently dropped on read).
 
 - No runtime round-trip (compiling/running the generated Fortran against the
   real Serialbox library) — out of scope and toolchain-heavy.
-- No new `serialbox4py` / pip dependency: the vendored `pp_ser.py` is pure
-  stdlib Python, so the test is fully hermetic.
+- No bundling of upstream `pp_ser` source in-tree: it comes from the published
+  `serialbox4py` package (test/dev only — not a runtime dependency, not shipped
+  in preserf's wheel/sdist). See ADR 0006.
 - Not exhaustive directive coverage; a representative corpus that exercises the
   core directives and the known classification boundary.
-
-## Open item for a maintainer (flagged, not changed here)
-
-`vendor/README.md` records `pp_ser.py`'s license as **GPL**, but the vendored
-file's own header (Serialbox 2.6.3) states **BSD**. Test-only, non-distributed
-use is fine either way, so this PR does not touch the license note — but the
-discrepancy should be reconciled separately.
