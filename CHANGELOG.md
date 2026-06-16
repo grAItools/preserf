@@ -276,6 +276,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The installed Fortran-runtime CMake package-version file
+  (`preserf_fortranConfigVersion.cmake`) now declares
+  `COMPATIBILITY SameMinorVersion` instead of `SameMajorVersion`. The helper
+  is pre-1.0 (major `0`), where a SemVer minor bump (`0.2` -> `0.3`) may carry
+  breaking changes, so the previous major-only match wrongly advertised every
+  `0.x` install as compatible with any other. `SameMinorVersion` requires both
+  major and minor to agree, so `find_package(preserf_fortran 0.2)` resolves a
+  `0.2.x` install but not a `0.3.x` one (and, as always, the requested version
+  must not exceed the install); the choice is documented inline to be
+  revisited at `1.0` ([#85](https://github.com/grAItools/preserf/issues/85)).
 - Test-suite polish (no behaviour change): the subprocess-driving wire-compat
   integration tests now share a single `run_scenario()` helper (run + assert
   exit 0 + OK marker) instead of repeating the same `subprocess.run` /

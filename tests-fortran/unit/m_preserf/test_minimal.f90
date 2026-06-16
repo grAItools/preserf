@@ -1876,20 +1876,24 @@ program test_minimal
             ! Issue #48: with no explicit `backend=` argument the helper
             ! resolves the backend from the PRESERF_BACKEND env var (the
             ! ctest target sets PRESERF_BACKEND=nczarr-v2). The store must
-            ! land as a `.zarr` directory, proving the env-var fallback is
-            ! wired through ppser_initialize. An explicit `backend=` then
-            ! overrides the env var, so the same prefix opened with
-            ! backend='netcdf4' must produce a `.nc` file — the
-            ! arg-beats-env precedence.
+            ! land as a `.zarr` directory store; we verify that selection by
+            ! reading the field back through an nczarr-v2 read open rather
+            ! than an `inquire` existence check, since `inquire` on a
+            ! directory store is not portable (see part (a) below). This
+            ! proves the env-var fallback is wired through ppser_initialize.
+            ! An explicit `backend=` then overrides the env var, so the same
+            ! prefix opened with backend='netcdf4' must produce a `.nc` file
+            ! — the arg-beats-env precedence.
             block
-               real(real64) :: ue(3)
-               logical :: zarr_exists, nc_exists
+               real(real64) :: ue(3), ue_back(3)
+               logical :: nc_exists
                integer :: i
                do i = 1, 3
                   ue(i) = 600.0_real64 + real(i, real64)
                end do
                ! Clear any stores a prior run may have left so the
-               ! existence checks below reflect only this run.
+               ! round-trip read (a) and existence check (b) below reflect
+               ! only this run.
                call delete_dir_if_exists(trim(out_dir)//'/fenv.zarr')
                call delete_if_exists(trim(out_dir)//'/fenv_arg.nc')
 
@@ -1902,9 +1906,29 @@ program test_minimal
                call fs_create_savepoint('step', ppser_savepoint)
                call fs_write_field(ppser_serializer, ppser_savepoint, 'u', ue)
                call ppser_finalize()
-               inquire (file=trim(out_dir)//'/fenv.zarr', exist=zarr_exists)
-               if (.not. zarr_exists) error stop &
-                  'backend-env: PRESERF_BACKEND=nczarr-v2 did not select nczarr'
+               ! Verify the env-var path selected nczarr-v2 by re-opening the
+               ! store read-only as nczarr-v2 and reading the field back, the
+               ! way `backend-nczarr` proves its round-trip. inquire(file=) on
+               ! a directory store is NOT portable: Intel ifx reports an
+               ! absolute directory path as non-existent (issue #107), so a
+               ! `.zarr`-directory existence check spuriously fails there even
+               ! though the store was written. A successful nczarr-v2 read is
+               ! the authoritative proof of selection: had the env var instead
+               ! resolved to netcdf4, no `.zarr` store would exist and this
+               ! read open would fail.
+               call ppser_initialize(out_dir, 'fenv', 'r', backend='nczarr-v2')
+               if (ppser_get_mode() /= 1) error stop &
+                  'backend-env: read open should set mode 1'
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', ue_back)
+               call ppser_finalize()
+               do i = 1, 3
+                  if (ue_back(i) /= 600.0_real64 + real(i, real64)) error stop &
+                     'backend-env: PRESERF_BACKEND=nczarr-v2 did not select nczarr'
+               end do
 
                ! (b) Explicit backend= beats the env var: backend='netcdf4'
                ! must produce a plain `.nc` file even though
