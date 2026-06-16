@@ -11,9 +11,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # pixi-driven verify gate. Runs on the two platforms preserf advertises in
+  # pixi.toml that GitHub provides hosted runners for: linux-64 (ubuntu) and
+  # osx-arm64 (macOS Apple-silicon). Both use the conda-forge gfortran the
+  # pixi env resolves; the macOS lane closes the osx-arm64 platform gap from
+  # issue #78 (linux-aarch64 has no hosted runner, so it stays uncovered).
+  # ---------------------------------------------------------------------------
   verify:
-    name: verify (linux-64)
-    runs-on: ubuntu-latest
+    name: verify (${{ matrix.label }})
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-64
+            runs-on: ubuntu-latest
+          - label: osx-arm64
+            # macos-14 is the arm64 (Apple-silicon) hosted image that backs
+            # the osx-arm64 platform label.
+            runs-on: macos-14
     steps:
       - uses: actions/checkout@v6.0.2
 
@@ -57,3 +74,137 @@ jobs:
         env:
           PRESERF_REQUIRE_FORTRAN: "1"
         run: pixi run test-consumer
+
+  # ---------------------------------------------------------------------------
+  # Non-GNU compiler lane (issue #78). The pixi env above only ever resolves
+  # gfortran, so the per-compiler flag branches added in #97 for Intel /
+  # IntelLLVM (and the FATAL_ERROR fallthrough) were never exercised. This job
+  # builds the runtime + native ctest suite with Intel's `ifx`, proving the
+  # `-fpp` / `-stand f08` / `-warn all` branch in PreserfFortranFlags.cmake
+  # actually compiles the cpp-template runtime, and runs the #64 nvfortran
+  # codegen regression test (resolve_relpath) under a second compiler.
+  #
+  # netcdf-c is a C ABI, so the apt (gfortran-built) libnetcdf-dev links fine
+  # under ifx; only netcdf-FORTRAN exposes compiler-specific `.mod` files, so
+  # we rebuild just that thin wrapper from source against the system netcdf-c.
+  # The preserf CLI is pure Python and is pip-installed (no compiler needed) so
+  # the e2e subtree builds too.
+  fortran-intel:
+    name: fortran (intel ifx)
+    runs-on: ubuntu-latest
+    env:
+      # Where the ifx-built netcdf-fortran wrapper is installed; its
+      # netcdf-fortran.pc is what preserf's pkg_check_modules discovers.
+      NFDIR: ${{ github.workspace }}/.nf-intel
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Derive netcdf-fortran version from pixi.lock
+        # Single source of truth: build the SAME netcdf-fortran version the
+        # pixi-driven gfortran lanes resolve, instead of a second hardcoded
+        # value that can silently drift. pixi.toml only declares a floor
+        # (`netcdf-fortran = ">=4.6.0"`); the exact resolved version lives in
+        # pixi.lock (as the conda package filename), so parse it from there and
+        # export it for the cache key and the source build below.
+        run: |
+          set -euo pipefail
+          ver="$(grep -oE 'netcdf-fortran-[0-9]+\.[0-9]+\.[0-9]+' pixi.lock \
+                 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sort -V -u | tail -n1)"
+          if [ -z "${ver}" ]; then
+            echo "could not derive netcdf-fortran version from pixi.lock" >&2
+            exit 1
+          fi
+          echo "NETCDF_FORTRAN_VERSION=${ver}" >> "$GITHUB_ENV"
+          echo "Derived netcdf-fortran version from pixi.lock: ${ver}"
+
+      - name: Set up Intel ifx
+        # Pin to a specific release tag (not the mutable v1 major tag) so this
+        # compiler lane stays reproducible. v1.6.3+ is required for oneAPI
+        # 2025.x: Intel dropped the classic C/C++ compiler in 2024.0, so the
+        # apt package is intel-oneapi-compiler-dpcpp-cpp (not -and-cpp-classic).
+        uses: fortran-lang/setup-fortran@v1.9.1
+        id: setup-fortran
+        with:
+          compiler: intel
+          version: "2025.0"
+
+      - name: Set up Python (for the pure-Python preserf CLI)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install netcdf-c (C ABI; compiler-agnostic) + build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libnetcdf-dev pkg-config cmake make wget ca-certificates
+          # Do NOT install libnetcdff-dev: the apt build is gfortran-built and
+          # its .mod files are unusable from ifx — we build that wrapper below.
+
+      # Cache the ifx-built netcdf-fortran install tree so we only compile it
+      # from source on a cache miss (version/compiler/OS-keyed).
+      - name: Cache netcdf-fortran (ifx) build
+        id: cache-nf
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.NFDIR }}
+          key: netcdf-fortran-${{ env.NETCDF_FORTRAN_VERSION }}-ifx-${{ runner.os }}
+
+      - name: Build netcdf-fortran from source with ifx
+        if: steps.cache-nf.outputs.cache-hit != 'true'
+        env:
+          FC: ${{ steps.setup-fortran.outputs.fc }}
+          CC: ${{ steps.setup-fortran.outputs.cc }}
+        run: |
+          set -euxo pipefail
+          # netcdf-c install root (apt puts headers/libs under /usr).
+          NCDIR=/usr
+          src="netcdf-fortran-${NETCDF_FORTRAN_VERSION}"
+          wget -q "https://downloads.unidata.ucar.edu/netcdf-fortran/${NETCDF_FORTRAN_VERSION}/${src}.tar.gz"
+          tar xzf "${src}.tar.gz"
+          cd "${src}"
+          # netcdf-c (libnetcdf-dev) is C, so CC=icx links the C symbols; FC=ifx
+          # produces the .mod files preserf compiles against. Build a SHARED
+          # wrapper: preserf discovers netcdf-fortran via pkg_check_modules
+          # WITHOUT the STATIC keyword (src/preserf/fortran/CMakeLists.txt), so
+          # it only consumes `Libs:` (-lnetcdff) and ignores Libs.private. A
+          # shared libnetcdff.so resolves the netcdf-c (nc_*) symbols
+          # transitively via the system libnetcdf.so at link/run time, which a
+          # static archive cannot.
+          # --disable-fortran-type-check skips netcdf-fortran's configure-time
+          # Fortran type-size compile probes, which non-gfortran compilers (ifx)
+          # can trip on.
+          CPPFLAGS="-I${NCDIR}/include" LDFLAGS="-L${NCDIR}/lib" \
+            ./configure --prefix="${NFDIR}" \
+            --disable-fortran-type-check
+          make -j"$(nproc)"
+          make install
+
+      - name: Install preserf CLI (pure Python; no compiler needed)
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install .
+
+      - name: Build + run native Fortran ctest suite with ifx
+        env:
+          FC: ${{ steps.setup-fortran.outputs.fc }}
+          CC: ${{ steps.setup-fortran.outputs.cc }}
+          # Make the ifx-built netcdf-fortran.pc discoverable by pkg-config so
+          # preserf's pkg_check_modules(NETCDF_FORTRAN ...) resolves it: the
+          # wrapper's .pc is what that query needs. The non-static query does not
+          # pull in Requires.private, so the system netcdf-c .pc (reachable via
+          # pkg-config's default search path) is only consulted for static/private
+          # resolution; hence we set only the wrapper's dir explicitly.
+          PKG_CONFIG_PATH: ${{ github.workspace }}/.nf-intel/lib/pkgconfig
+        run: |
+          set -euxo pipefail
+          # The freshly built shared libnetcdff.so lives under ${NFDIR}/lib; put
+          # it on the runtime loader path, preserving any existing value. (Set
+          # here rather than in the step `env:` map so ${LD_LIBRARY_PATH} is
+          # expanded by the shell instead of taken literally.)
+          export LD_LIBRARY_PATH="${NFDIR}/lib:${LD_LIBRARY_PATH:-}"
+          # Force ifx so CMake does not pick a stray gfortran off PATH.
+          cmake -S tests-fortran -B build/intel \
+            -DCMAKE_Fortran_COMPILER="${FC}"
+          cmake --build build/intel
+          ctest --test-dir build/intel --output-on-failure
