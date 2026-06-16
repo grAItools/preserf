@@ -96,9 +96,26 @@ jobs:
       # Where the ifx-built netcdf-fortran wrapper is installed; its
       # netcdf-fortran.pc is what preserf's pkg_check_modules discovers.
       NFDIR: ${{ github.workspace }}/.nf-intel
-      NETCDF_FORTRAN_VERSION: "4.6.1"
     steps:
       - uses: actions/checkout@v6.0.2
+
+      - name: Derive netcdf-fortran version from pixi.lock
+        # Single source of truth: build the SAME netcdf-fortran version the
+        # pixi-driven gfortran lanes resolve, instead of a second hardcoded
+        # value that can silently drift. pixi.toml only declares a floor
+        # (`netcdf-fortran = ">=4.6.0"`); the exact resolved version lives in
+        # pixi.lock (as the conda package filename), so parse it from there and
+        # export it for the cache key and the source build below.
+        run: |
+          set -euo pipefail
+          ver="$(grep -oE 'netcdf-fortran-[0-9]+\.[0-9]+\.[0-9]+' pixi.lock \
+                 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sort -V -u | tail -n1)"
+          if [ -z "${ver}" ]; then
+            echo "could not derive netcdf-fortran version from pixi.lock" >&2
+            exit 1
+          fi
+          echo "NETCDF_FORTRAN_VERSION=${ver}" >> "$GITHUB_ENV"
+          echo "Derived netcdf-fortran version from pixi.lock: ${ver}"
 
       - name: Set up Intel ifx
         # Pin to a specific release tag (not the mutable v1 major tag) so this
