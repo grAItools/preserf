@@ -29,6 +29,7 @@ the test instead of skipping it.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from typing import TYPE_CHECKING
 
@@ -769,6 +770,130 @@ def test_fortran_compression_roundtrips_and_shrinks(
     big = dump.field_data["big"][0]
     expected = np.array([i // 64 for i in range(1, 4097)], dtype=np.float64)
     np.testing.assert_array_equal(big, expected)
+
+
+def test_fortran_compression_via_env(tmp_path: Path, fortran_binary: Path) -> None:
+    """issue #46: PRESERF_COMPRESSION enables compression at runtime.
+
+    The ``compression-default-off`` scenario passes no ``compression``
+    keyword, so the level falls through to the ``PRESERF_COMPRESSION`` env
+    var (mirroring ``PRESERF_BACKEND``). With it set, the field variable must
+    come out chunked + zlib-deflated and meaningfully smaller than the same
+    scenario with the env var unset — proving the knob can be flipped without
+    editing/recompiling the source.
+    """
+    import netCDF4  # local import; netCDF4 is a dev-only dependency
+
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    plain_dir = tmp_path / "plain"
+    plain_dir.mkdir()
+
+    env_on = subprocess.run(
+        [str(fortran_binary), str(env_dir), "compression-default-off"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+        env={**os.environ, "PRESERF_COMPRESSION": "1"},
+    )
+    assert env_on.returncode == 0, (
+        f"Fortran binary exited {env_on.returncode}.\n"
+        f"stdout: {env_on.stdout}\nstderr: {env_on.stderr}"
+    )
+
+    plain = subprocess.run(
+        [str(fortran_binary), str(plain_dir), "compression-default-off"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert plain.returncode == 0, (
+        f"Fortran binary exited {plain.returncode}.\n"
+        f"stdout: {plain.stdout}\nstderr: {plain.stderr}"
+    )
+
+    env_nc = env_dir / "fnocomp.nc"
+    plain_nc = plain_dir / "fnocomp.nc"
+
+    # PRESERF_COMPRESSION=1 must deflate + chunk the field variable.
+    raw = netCDF4.Dataset(str(env_nc), "r")
+    try:
+        var = raw.groups["savepoints"].groups["sp_000000"].variables["big"]
+        filt = var.filters()
+        assert filt is not None and filt.get("zlib") is True, (
+            f"PRESERF_COMPRESSION=1 should deflate 'big', got {filt}"
+        )
+        assert var.chunking() != "contiguous", (
+            "deflate requires chunked storage; 'big' must not be contiguous"
+        )
+    finally:
+        raw.close()
+
+    # Same scenario without the env var stays uncompressed/contiguous.
+    raw = netCDF4.Dataset(str(plain_nc), "r")
+    try:
+        var = raw.groups["savepoints"].groups["sp_000000"].variables["big"]
+        filt = var.filters()
+        assert filt is None or filt.get("zlib") in (False, None), (
+            f"without the env var 'big' must be uncompressed, got {filt}"
+        )
+    finally:
+        raw.close()
+
+    assert env_nc.stat().st_size < plain_nc.stat().st_size, (
+        "env-compressed store should be smaller than the uncompressed default: "
+        f"{env_nc.stat().st_size} vs {plain_nc.stat().st_size}"
+    )
+
+    # netCDF decompresses transparently on read: values are unchanged.
+    dump = read_dump(str(env_nc))
+    big = dump.field_data["big"][0]
+    expected = np.array([i // 64 for i in range(1, 4097)], dtype=np.float64)
+    np.testing.assert_array_equal(big, expected)
+
+
+def test_fortran_compression_argument_overrides_env(
+    tmp_path: Path, fortran_binary: Path
+) -> None:
+    """issue #46: an explicit ``compression=`` keyword wins over the env var.
+
+    Precedence mirrors ``PRESERF_BACKEND``: the argument is authoritative and
+    the env var only fills in when the call omits the keyword. The
+    ``compression`` scenario passes ``compression=1`` explicitly, so running
+    it with ``PRESERF_COMPRESSION=0`` must still produce a compressed store —
+    the env var does not override the baked-in keyword.
+    """
+    import netCDF4  # local import; netCDF4 is a dev-only dependency
+
+    out_dir = tmp_path / "argwins"
+    out_dir.mkdir()
+
+    result = subprocess.run(
+        [str(fortran_binary), str(out_dir), "compression"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+        env={**os.environ, "PRESERF_COMPRESSION": "0"},
+    )
+    assert result.returncode == 0, (
+        f"Fortran binary exited {result.returncode}.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "preserf-fortran: compression OK" in result.stdout
+
+    raw = netCDF4.Dataset(str(out_dir / "fcomp.nc"), "r")
+    try:
+        var = raw.groups["savepoints"].groups["sp_000000"].variables["big"]
+        filt = var.filters()
+        assert filt is not None and filt.get("zlib") is True, (
+            "explicit compression=1 must win over PRESERF_COMPRESSION=0 "
+            f"(store should stay deflated), got {filt}"
+        )
+    finally:
+        raw.close()
 
 
 def test_fortran_compression_bad_level_aborts(

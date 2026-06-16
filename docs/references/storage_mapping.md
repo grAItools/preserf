@@ -487,10 +487,21 @@ Resulting NetCDF4 / NCZarr store:
   unreadable store). Attaching a Zarr compressor filter on the NCZarr
   backend is a tracked follow-up.
 
+  **Runtime override (`PRESERF_COMPRESSION`).** Like `backend`, the level can
+  be set without editing/recompiling source via the `PRESERF_COMPRESSION`
+  environment variable, resolved by `ppser_resolve_compression` with the same
+  precedence as `PRESERF_BACKEND`: the explicit `compression=` keyword wins,
+  else `PRESERF_COMPRESSION`, else OFF. It accepts `on`
+  (→ `PPSER_DEFAULT_DEFLATE_LEVEL`), `off`, or an integer `0..9`; a blank
+  value is treated as unset, and an unrecognised or out-of-range value aborts
+  at `ppser_initialize` (as a typo'd `PRESERF_BACKEND` does). Because the
+  keyword wins, a source that hard-codes `compression=` is unaffected by the
+  env var — to drive it purely at runtime, leave `compression` off the
+  directive/call.
+
   The `shuffle` filter and a general-purpose (compression-independent)
-  chunking knob remain unexposed; both are natural follow-ups. Whether to
-  also surface compression as a `!$SER OPTION` key and/or a build/env
-  default (as for `backend`) can be revisited if needed.
+  chunking knob remain unexposed; both are natural follow-ups. Surfacing
+  compression as a `!$SER OPTION` key can be revisited if needed.
 - **Per-rank stores under MPI.** `ppser_initialize`'s `mpi_rank` argument
   currently maps to a `_rank<n>` suffix on the store name. Parallel HDF5 /
   parallel NCZarr is a future option.

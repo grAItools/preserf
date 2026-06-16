@@ -236,6 +236,37 @@ set_tests_properties(preserf_fortran_compression_nczarr_env PROPERTIES
     TIMEOUT 60
 )
 
+# issue #46 negative: an unrecognised PRESERF_COMPRESSION value aborts at the
+# ppser_initialize boundary (mirrors the unknown-PRESERF_BACKEND guard). Run
+# the no-keyword `compression-default-off` scenario so the env var is the only
+# source of the level.
+add_test(
+    NAME preserf_fortran_compression_env_bad
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" compression-default-off
+)
+set_tests_properties(preserf_fortran_compression_env_bad PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    ENVIRONMENT "PRESERF_COMPRESSION=banana"
+    PASS_REGULAR_EXPRESSION "unknown PRESERF_COMPRESSION value"
+    TIMEOUT 60
+)
+
+# issue #46 negative: compression enabled via PRESERF_COMPRESSION must hit the
+# same nczarr-v2 rejection as the keyword, since the guard checks the resolved
+# level + resolved backend (here both come from env vars, no arguments).
+add_test(
+    NAME preserf_fortran_compression_env_nczarr
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" compression-default-off
+)
+set_tests_properties(preserf_fortran_compression_env_nczarr PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    ENVIRONMENT "PRESERF_COMPRESSION=on;PRESERF_BACKEND=nczarr-v2"
+    PASS_REGULAR_EXPRESSION "compression is not supported with the 'nczarr-v2' backend"
+    TIMEOUT 60
+)
+
 # -----------------------------------------------------------------------------
 # Slice A-1: read-mode create-or-resolve-and-validate.
 #

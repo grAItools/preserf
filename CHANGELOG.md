@@ -45,7 +45,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `compression-nczarr` Fortran scenarios plus `test_fortran_wire_compat.py`
   tests assert lossless round-trip, the on-disk deflate filter, that the
   compressed store shrinks, that the default stays uncompressed, and that
-  the out-of-range / nczarr cases abort.
+  the out-of-range / nczarr cases abort. The level is also settable at
+  runtime via the `PRESERF_COMPRESSION` environment variable
+  (`on`/`off`/`0`–`9`), resolved with the same precedence as
+  `PRESERF_BACKEND` (explicit `compression=` keyword wins, else the env var,
+  else OFF), so compression can be toggled without recompiling; covered by
+  `compression_env_bad` / `compression_env_nczarr` ctests and
+  `test_fortran_compression_via_env` /
+  `test_fortran_compression_argument_overrides_env`.
 - Differential test pinning preserf's `!$SER` expansion against the upstream
   Serialbox `pp_ser` preprocessor it ports. `tests/unit_tests/`
   `test_pp_ser_differential.py` runs both preserf and the upstream `pp_ser` over

@@ -120,9 +120,12 @@ module utils_preserf
    !     storage (deflate requires chunking in NetCDF4/HDF5) and attaches
    !     `nf90_def_var_deflate` at that level.
    ! The knob is reset to the default on every fresh `ppser_initialize`
-   ! (it is module SAVE state) and is set from the `compression` keyword.
-   ! `compression=on` maps to PPSER_DEFAULT_DEFLATE_LEVEL; an explicit
-   ! integer 1..9 selects the level directly. Compression is NetCDF4-only
+   ! (it is module SAVE state) and resolved by `ppser_resolve_compression`:
+   ! the explicit `compression` keyword wins, else the `PRESERF_COMPRESSION`
+   ! environment variable (a runtime override, like `PRESERF_BACKEND`), else
+   ! OFF. `compression=on` / `PRESERF_COMPRESSION=on` map to
+   ! PPSER_DEFAULT_DEFLATE_LEVEL; an explicit integer 1..9 selects the level
+   ! directly. Compression is NetCDF4-only
    ! in v1: NCZarr deflate needs an HDF5 filter plugin that is not always
    ! present, so enabling it on the nczarr-v2 backend is rejected at the
    ! `ppser_initialize` boundary (NCZarr compressor support is a tracked
@@ -401,6 +404,88 @@ contains
       end if
    end function ppser_resolve_backend
 
+   !> Resolve the effective opt-in compression level (issue #46), applying
+   !> the same selection precedence as `ppser_resolve_backend`
+   !> (most → least specific):
+   !>   1. the explicit `compression` argument (the `!$SER INIT compression=`
+   !>      keyword; the preprocessor maps `on` → the default level and
+   !>      `off` → 0 before this point), when present;
+   !>   2. the `PRESERF_COMPRESSION` environment variable, when set to a
+   !>      non-blank value — a runtime override for callers that never
+   !>      surface the keyword, so compression can be toggled without editing
+   !>      and recompiling source (as `PRESERF_BACKEND` does for the
+   !>      backend). Accepts `on` (→ PPSER_DEFAULT_DEFLATE_LEVEL), `off`, or
+   !>      an integer `0..9`. A blank / whitespace-only value is treated as
+   !>      unset; a value too long for the read buffer aborts rather than
+   !>      acting on a truncated value;
+   !>   3. otherwise 0 (OFF, the default — the contiguous, uncompressed
+   !>      byte-parity layout).
+   !> The resolved level is range-checked (0..9); an out-of-range argument,
+   !> or an unrecognised / out-of-range `PRESERF_COMPRESSION` value, aborts
+   !> at this user-facing boundary with a clear message (mirroring how a
+   !> typo'd backend aborts). `on` maps to PPSER_DEFAULT_DEFLATE_LEVEL so the
+   !> env var and the `compression=on` directive shorthand agree.
+   function ppser_resolve_compression(compression) result(level)
+      integer, intent(in), optional :: compression
+      integer :: level
+      ! Generous buffer; values are short ('off' / 'on' / '0'..'9').
+      character(len=64) :: env_value
+      character(len=:), allocatable :: eff
+      integer :: env_stat, ios
+
+      if (present(compression)) then
+         ! Explicit argument wins (mirrors PRESERF_BACKEND precedence): the
+         ! env var is a fallback for callers that never pass the keyword, not
+         ! an override of an explicit one. Range-check here so a bad
+         ! hand-written integer keyword (or direct call) aborts at the
+         ! boundary rather than reaching nf90_def_var_deflate.
+         if (compression < 0 .or. compression > 9) then
+            write (error_unit, '(a,i0,a)') &
+               'preserf: compression level ', compression, &
+               ' is out of range; expected 0 (off) or 1..9'
+            error stop 1
+         end if
+         level = compression
+         return
+      end if
+
+      ! No explicit argument: consult PRESERF_COMPRESSION. Status semantics
+      ! match ppser_resolve_backend (F2008 16.9.84): < 0 = value truncated
+      ! (abort); 1/2 = unset/unsupported (default OFF); 0 = set (parse it,
+      ! treating a blank/whitespace-only value as unset).
+      call get_environment_variable('PRESERF_COMPRESSION', value=env_value, &
+                                    status=env_stat)
+      if (env_stat < 0) then
+         write (error_unit, '(a,i0,a)') &
+            'preserf: PRESERF_COMPRESSION value too long ', &
+            len(env_value), ' chars max (it was truncated)'
+         error stop 1
+      else if (env_stat /= 0 .or. len_trim(env_value) == 0) then
+         level = 0
+         return
+      end if
+
+      ! Accept the same shorthand as the directive (`on`/`off`) plus a bare
+      ! integer 0..9. Anything else (a typo like 'yes', or a non-integer like
+      ! '4.5') yields the -1 sentinel that the range check below rejects.
+      eff = preserf_to_lower(trim(adjustl(env_value)))
+      if (eff == 'off') then
+         level = 0
+      else if (eff == 'on') then
+         level = PPSER_DEFAULT_DEFLATE_LEVEL
+      else
+         read (eff, *, iostat=ios) level
+         if (ios /= 0 .or. verify(eff, '0123456789') /= 0) level = -1
+      end if
+      if (level < 0 .or. level > 9) then
+         write (error_unit, '(a,a)') &
+            'preserf: unknown PRESERF_COMPRESSION value: ', eff
+         write (error_unit, '(a)') &
+            "preserf: PRESERF_COMPRESSION must be 'on', 'off', or an integer 0..9"
+         error stop 1
+      end if
+   end function ppser_resolve_compression
+
    !> Resolve a (possibly relative) `directory` to an absolute path for the
    !> NCZarr V2 `file://` URL. NetCDF4 (and Serialbox) accept a relative
    !> directory like `./ser_data` because the OS resolves it against the
@@ -585,10 +670,13 @@ contains
       ! which turns it into the right on-disk URL / extension.
       character(len=*), intent(in), optional :: backend
       ! Opt-in field-write compression (issue #46): an integer zlib
-      ! deflate level. 0 (or absent) leaves field variables uncompressed
-      ! and contiguous (the default — preserves byte parity). 1..9 turns
-      ! on chunked + deflate on the field-write path; the preprocessor
-      ! maps `!$SER INIT compression=on` to PPSER_DEFAULT_DEFLATE_LEVEL.
+      ! deflate level. 1..9 turns on chunked + deflate on the field-write
+      ! path; 0 leaves field variables uncompressed and contiguous (the
+      ! default — preserves byte parity). The preprocessor maps
+      ! `!$SER INIT compression=on` to PPSER_DEFAULT_DEFLATE_LEVEL. When
+      ! this argument is absent, the level is taken from the
+      ! PRESERF_COMPRESSION env var (a runtime override, like
+      ! PRESERF_BACKEND), else OFF — see ppser_resolve_compression.
       integer, intent(in), optional :: compression
 
       ! Effective open mode passed to preserf_open_serializer. Deferred
@@ -674,35 +762,26 @@ contains
       ppser_savepoint%idx = -1
       ppser_savepoint%owner_ncid = -1
 
-      ! Resolve the opt-in compression knob (issue #46). Reset to the
-      ! OFF default first (module SAVE state, so a prior init's override
-      ! must not stick across a later init that omits the keyword), then
-      ! apply the keyword. A negative level, or a level above the zlib
-      ! ceiling of 9, is a user-authored `!$SER INIT` mistake — reject it
-      ! loudly rather than passing a bad level into nf90_def_var_deflate.
-      ppser_deflate_level = 0
-      if (present(compression)) then
-         if (compression < 0 .or. compression > 9) then
-            write (*, '(a,i0,a)') &
-               'preserf: compression level ', compression, &
-               ' is out of range; expected 0 (off) or 1..9'
-            error stop 1
-         end if
-         ! NetCDF4-only in v1: NCZarr deflate needs an HDF5 filter plugin
-         ! that may be absent, and silently writing an unreadable store is
-         ! worse than a clear up-front abort. Check the *resolved* backend:
-         ! eff_backend already folds in the `backend` argument, the
-         ! PRESERF_BACKEND env var, and the default, so the combination is
-         ! rejected however nczarr-v2 was selected — not only when it is
-         ! passed as an argument. Rejected before any store is opened (NCZarr
-         ! compressor support is a follow-up — storage_mapping.md §9).
-         if (compression > 0 .and. eff_backend == 'nczarr-v2') then
-            write (*, '(a)') &
-               'preserf: compression is not supported with the '// &
-               "'nczarr-v2' backend in this release (netcdf4 only)"
-            error stop 1
-         end if
-         ppser_deflate_level = compression
+      ! Resolve the opt-in compression level (issue #46): the explicit
+      ! `compression` keyword wins, else the PRESERF_COMPRESSION env var,
+      ! else OFF (ppser_resolve_compression mirrors ppser_resolve_backend's
+      ! precedence and validates the result). Module SAVE state, so resolve
+      ! unconditionally — a prior init's override must not stick across a
+      ! later init that omits both the keyword and the env var.
+      ppser_deflate_level = ppser_resolve_compression(compression)
+      ! NetCDF4-only in v1: NCZarr deflate needs an HDF5 filter plugin that
+      ! may be absent, and silently writing an unreadable store is worse than
+      ! a clear up-front abort. Check the *resolved* backend (eff_backend
+      ! folds in the `backend` argument, PRESERF_BACKEND, and the default),
+      ! so the combination is rejected however nczarr-v2 was selected — and
+      ! however compression was selected (keyword or PRESERF_COMPRESSION).
+      ! Rejected before any store is opened (NCZarr compressor support is a
+      ! follow-up — storage_mapping.md §9).
+      if (ppser_deflate_level > 0 .and. eff_backend == 'nczarr-v2') then
+         write (*, '(a)') &
+            'preserf: compression is not supported with the '// &
+            "'nczarr-v2' backend in this release (netcdf4 only)"
+         error stop 1
       end if
 
       ! Behaviour-changing keywords: update the module state that
