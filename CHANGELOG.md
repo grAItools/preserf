@@ -46,6 +46,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tests assert lossless round-trip, the on-disk deflate filter, that the
   compressed store shrinks, that the default stays uncompressed, and that
   the out-of-range / nczarr cases abort.
+- Differential test pinning preserf's `!$SER` expansion against the upstream
+  Serialbox `pp_ser` preprocessor it ports. `tests/unit_tests/`
+  `test_pp_ser_differential.py` runs both preserf and the upstream `pp_ser` over
+  a directive corpus and compares the normalized sequence of generated runtime
+  calls (`fs_*` / `ppser_*`), giving the preprocessor external ground truth
+  instead of only hand-written expectations. It asserts exact agreement for the
+  core directives and explicitly **pins the intentional divergence** where
+  preserf reads back indexed values with arithmetic in the subscript (`arr(i+1)`)
+  that upstream drops — anchoring the subscript-arithmetic fix against the
+  reference implementation. The upstream `pp_ser` is loaded from the
+  `serialbox4py` distribution, added as a **test-only** dependency (dev feature
+  in `pixi.toml`) so the test tracks the published release rather than a
+  hand-maintained vendored copy — see
+  `docs/adr/0006-ppser-differential-dependency.md`.
 - Golden Serialbox fixture + decode test (issue #68): a small dump produced
   by upstream Serialbox (`serialbox4py` 2.6.3) is committed under
   `tests/_support/fixtures/serialbox_golden/` (with the `generate_golden.py`
