@@ -75,12 +75,19 @@ into three layers:
 `tests/_support/` is shared fixtures: `storage.py` (the preserf
 NetCDF4/Zarr V2 reader-writer used to round-trip stores in pure Python),
 `serialbox.py` (a re-implementation of the legacy Serialbox dump format,
-used to validate schema mapping — note: validated only by self-round-trip,
-see issue #68), `ppser_reference.py` (runs the vendored upstream
-`vendor/pp_ser.py` in-process and normalizes generated runtime calls, so
-preserf's `!$SER` expansion can be diffed against the reference preprocessor
-it ports — see `test_pp_ser_differential.py`), and `consumer.py` (helper for
-the external-consumer build tests).
+used to validate schema mapping), `ppser_reference.py` (runs the vendored
+upstream `vendor/pp_ser.py` in-process and normalizes generated runtime
+calls, so preserf's `!$SER` expansion can be diffed against the reference
+preprocessor it ports — see `test_pp_ser_differential.py`), and `consumer.py`
+(helper for the external-consumer build tests). `serialbox.py` is no longer
+validated only by a self-round-trip: `fixtures/serialbox_golden/` holds a
+committed dump produced by upstream Serialbox (`serialbox4py` 2.6.3 — see
+that directory's `README.md` / `generate_golden.py` for provenance), and
+`tests/unit_tests/test_serialbox_golden.py` asserts the reimplementation
+decodes it to the values real Serialbox reads back. That golden test caught
+a column-major storage-order bug (Serialbox's `BinaryArchive` lays array
+payloads out in Fortran order) that the symmetric self-round-trip had
+masked (issue #68).
 
 ## CI mode
 

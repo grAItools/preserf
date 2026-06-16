@@ -8,6 +8,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The Serialbox reference reader/writer (`tests/_support/serialbox.py`)
+  decoded multi-dimensional fields in the wrong element order: Serialbox's
+  `BinaryArchive` lays array payloads out in **column-major (Fortran) order**
+  while `MetaData`'s `dims` lists extents in declaration order, so reshaping
+  the raw `.dat` blob in C-order transposed rank >= 2 fields. Rank 0/1
+  coincide, so the symmetric self-round-trip never noticed. Both the read
+  reshape and the write `tobytes` now use `order="F"`, verified both ways
+  against a real `serialbox4py` dump ([#68](https://github.com/grAItools/preserf/issues/68)).
 - `!$SER DATA` values with arithmetic _inside subscripts_ (e.g.
   `x=arr(i-1)`, `arr(i+1)`, `arr(2*i)`, `a(i)%b(j-1)`) are no longer
   misclassified as computed (write-only) and silently dropped on read.
@@ -30,6 +38,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   arithmetic in the subscript (`arr(i+1)`) that upstream drops — anchoring the
   subscript-arithmetic fix against the reference implementation. Fully hermetic
   (the vendored `pp_ser` is pure-stdlib; no `serialbox4py`/pip dependency).
+- Golden Serialbox fixture + decode test (issue #68): a small dump produced
+  by upstream Serialbox (`serialbox4py` 2.6.3) is committed under
+  `tests/_support/fixtures/serialbox_golden/` (with the `generate_golden.py`
+  that produced it and a `README.md` documenting provenance / the Serialbox
+  version). `tests/unit_tests/test_serialbox_golden.py` asserts the reference
+  reader in `tests/_support/serialbox.py` decodes it to the exact values real
+  Serialbox reads back — giving the reimplementation external ground truth
+  instead of only a self-round-trip. The fixture covers two same-named
+  savepoints, mixed dtypes/ranks, a multi-snapshot field, and an
+  `ArrayOfString` metainfo entry; it is what surfaced the column-major
+  storage-order bug fixed above.
 - PyPI distribution metadata: `[project]` in `pyproject.toml` now declares
   `authors`/`maintainers`, `keywords`, trove `classifiers` (supported
   Python versions, topics, development status), and `[project.urls]`
