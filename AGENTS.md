@@ -67,6 +67,8 @@ this file.
 ## Conventions
 
 - Code style: see `docs/style.md`. One worked example > a page of prose.
+- Comments describe the code, not the process: explain _why_, keep them
+  accurate, no review/release-process prose. See [`docs/style.md`](docs/style.md#comments).
 - Tests are the spec. If you change behaviour, change a test first.
 - Commit messages: **Conventional Commits 1.0.0** — apply the format to the **PR title** (squash-merge).
   See [`docs/style.md`](docs/style.md#commit-messages) for the format,

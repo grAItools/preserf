@@ -44,6 +44,9 @@ phase boundary.
   must be skipped, draft an ADR under `docs/adr/` and ask before
   proceeding.
 - Never edit anything under `*/generated/`.
+- Comments describe the code, not the PR: explain _why_, keep them accurate,
+  and never commit review/release-process prose or commented-out code — the
+  verify gate enforces this (see `docs/style.md`, "Comments").
 - Never run destructive Git (`push --force`, `reset --hard origin/*`,
   history rewrites on shared branches).
 - If you discover the plan is wrong or missing a phase, stop and hand

@@ -178,7 +178,7 @@ def _assert_dumps_equal(a: SerialboxDump, b: SerialboxDump) -> None:
                 arr_a, arr_b, err_msg=f"field {fname}[{fid}] data"
             )
 
-    # Tracers + OPTION (Slice C / ADR 0003).
+    # Tracers + OPTION (ADR 0003).
     assert set(a.tracer_map.keys()) == set(b.tracer_map.keys()), "tracer_map keys"
     for tname, ta in a.tracer_map.items():
         tb = b.tracer_map[tname]
@@ -215,7 +215,7 @@ def test_round_trip(tmp_path: Path, backend: str) -> None:
 
 
 def _make_tracer_dump() -> SerialboxDump:
-    """A dump exercising the write side of tracers + OPTION (Slice C)."""
+    """A dump exercising the write side of tracers + OPTION."""
     dump = SerialboxDump(prefix="trc")
     dump.option_verbosity = 1
     dump.tracer_map = {
@@ -248,7 +248,7 @@ def test_write_dump_rejects_field_tracer_name_overlap(tmp_path: Path) -> None:
     """A name registered as both a field and a tracer is rejected on write.
 
     read_dump() refuses such a store, so write_dump() must fail fast rather
-    than produce an unreadable one (symmetry, Slice C review)."""
+    than produce an unreadable one (symmetry with read_dump)."""
     dump = SerialboxDump(prefix="clash")
     dump.field_map = {"x": FieldMetainfo(type_id=TypeID.Float64, dims=[2])}
     dump.tracer_map = {"x": FieldMetainfo(type_id=TypeID.Float64, dims=[2])}

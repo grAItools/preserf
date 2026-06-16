@@ -62,7 +62,11 @@ fix before the next push.
      were undocumented detours taken?
   3. **Implementation quality** — bugs, dead code, style violations,
      missing tests, untouched `tasks.md` boxes, undocumented
-     decisions that should have been ADRs.
+     decisions that should have been ADRs, and comment hygiene:
+     review/release-process prose (`Slice X` / `Phase N` labels, `v0.x`
+     scope notes, "out of scope for this PR"), stale or inaccurate
+     comments, comments that merely restate the code, and duplicated
+     rationale blocks. See `docs/style.md` ("Comments").
 - Run the project's verification gate. A failing gate is an automatic
   NEEDS-WORK with the failure cited verbatim.
 - Be specific. Every defect must cite `path/to/file.ext:LINE` and a

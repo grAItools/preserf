@@ -67,7 +67,7 @@ module m_preserf
    public :: fs_disable_serialization
    public :: fs_serialization_status
 
-   ! Tracers (Slice C / ADR 0003). `ppser_register_tracer` is the
+   ! Tracers (ADR 0003). `ppser_register_tracer` is the
    ! host-side registration entry point (not pp_ser-generated); the
    ! `fs_RegisterAllTracers` and `ppser_write_tracer_*` names are what
    ! pp_ser emits for REGISTERTRACERS / TRACER.
@@ -90,7 +90,7 @@ module m_preserf
    public :: ppser_write_tracer_by_idx
    public :: ppser_write_tracer_all
 
-   ! DATA_KBUFF (Slice C / ADR 0003 §5). pp_ser emits one fs_write_kbuff
+   ! DATA_KBUFF (ADR 0003 §5). pp_ser emits one fs_write_kbuff
    ! call per vertical level; the overloads differ by the slice's rank.
    interface fs_write_kbuff
       module procedure fs_write_kbuff_r8_1d
@@ -99,7 +99,7 @@ module m_preserf
    end interface
    public :: fs_write_kbuff
 
-   ! OPTION (Slice C / ADR 0003 §4). The helper exposes a single fixed
+   ! OPTION (ADR 0003 §4). The helper exposes a single fixed
    ! keyword, `verbosity`; the preprocessor rejects any other OPTION key.
    public :: fs_Option
 
@@ -529,7 +529,7 @@ contains
    !
    ! Write mode writes the array; read / read-perturb mode reads the stored
    ! variable back into the same host array (so a !$SER TRACER round-trips).
-   ! v1.0 binds real(real64) arrays of rank 1-4; fs_RegisterAllTracers also
+   ! Binds real(real64) arrays of rank 1-4; fs_RegisterAllTracers also
    ! resolves-and-validates the descriptors in read mode.
    ! ========================================================================
 
@@ -1482,7 +1482,7 @@ contains
    ! scalar sibling; the `<key>__preserf_type_id` shadow records the
    ! array TypeID (TID_ARRAY .or. base) so readers decode it as an array
    ! (storage_mapping.md §1, §3.3). Array STRING metainfo (NC_STRING) is
-   ! deferred to Slice B' alongside string data fields — the F90
+   ! unsupported alongside string data fields — the F90
    ! nf90_put_att API has no clean vector-of-strings path.
    ! ========================================================================
    subroutine fs_add_savepoint_metainfo_l_1d(sp, key, value)
@@ -2365,7 +2365,7 @@ contains
       ! A fully-zero tuple is a rank-0 (scalar) field: the `dims`
       ! attribute is a zero-length vector and the per-savepoint variable
       ! is a netCDF scalar. This is the 0-D corner of the type-coverage
-      ! matrix (Slice B); ranks 1-4 fall through to the checks below.
+      ! matrix; ranks 1-4 fall through to the checks below.
       if (iSize == 0 .and. jSize == 0 .and. kSize == 0 .and. lSize == 0) then
          allocate (d(0))
          return

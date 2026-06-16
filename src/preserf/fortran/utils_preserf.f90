@@ -95,15 +95,15 @@ module utils_preserf
    ! Serialbox defaults for the metadata-only `!$SER INIT` keywords.
    ! These do not change runtime behaviour on the preserf side; they
    ! are recorded verbatim in `_preserf_*` root attributes so a store
-   ! round-trips the values pp_ser passed through (Slice D Phase 3).
+   ! round-trips the values pp_ser passed through.
    ! The effective value written is the keyword when supplied, else the
    ! default below, so the reader always finds a complete set.
    logical, parameter, public :: PPSER_DEFAULT_SINGLEFILE = .false.
    character(len=*), parameter, public :: PPSER_DEFAULT_ARCHIVE = 'Binary'
    integer, parameter, public :: PPSER_DEFAULT_UNIQUE_ID = 0
 
-   ! Storage backend selector (Slice E). 'netcdf4' writes a `.nc` file
-   ! (the v0.1 behaviour, kept as the default for backward compatibility);
+   ! Storage backend selector. 'netcdf4' writes a `.nc` file
+   ! (the default, for backward compatibility);
    ! 'nczarr-v2' writes a `.zarr` directory store via netcdf-c's NCZarr
    ! backend. The label matches the selector used by the Python reference
    ! path in tests/_support/storage.py so a Fortran-written store and the
@@ -146,7 +146,7 @@ module utils_preserf
    ! then writes one `/_tracers/<name>` descriptor per entry, and the
    ! `ppser_write_tracer_*` entry points resolve the data from here.
    !
-   ! v1.0 binds real(real64) tracer data. The registry holds a *pointer*
+   ! Tracer data is real(real64). The registry holds a *pointer*
    ! to the host's array (rank-specific component, one set per rank) rather
    ! than a copy, so a read-mode `!$SER TRACER` can read the stored field
    ! back into the host's array. The host array MUST have the TARGET
@@ -182,7 +182,7 @@ module utils_preserf
    ! horizontal slice at that level; the helper buffers each slice and, on
    ! the last level (k == k_size), assembles the full field and writes it
    ! like a !$SER DATA field. One active buffer per (savepoint group, field
-   ! name); a slot is freed on flush. v1.0 buffers real(real64) slices of
+   ! name); a slot is freed on flush. Buffers real(real64) slices of
    ! rank 1-3 (full fields rank 2-4). `fshape` is the full field's Fortran
    ! shape: the slice shape followed by k_size.
    integer, parameter, public :: PPSER_MAX_KBUFF = 64
@@ -559,7 +559,7 @@ contains
       character(len=*), intent(in), optional :: realtype
       character(len=*), intent(in), optional :: archive
       integer, intent(in), optional :: unique_id
-      ! Storage backend selector (Slice E): 'netcdf4' (default) or
+      ! Storage backend selector: 'netcdf4' (default) or
       ! 'nczarr-v2'. When omitted, resolved from the PRESERF_BACKEND env
       ! var, else the default. Threaded through to preserf_open_serializer,
       ! which turns it into the right on-disk URL / extension.
@@ -655,7 +655,7 @@ contains
       ! here for interface compatibility but not currently used — the
       ! real byte length is determined by `realtype` / the real kind.
       ! `realtype` is the type string passed to `fs_register_field`;
-      ! `rperturb` feeds the read-perturb path (Slice A-2) via
+      ! `rperturb` feeds the read-perturb path via
       ! `ppser_zrperturb`.
       !
       ! Reset to the Serialbox defaults FIRST. All three of
@@ -899,7 +899,7 @@ contains
       logical, intent(in), optional :: singlefile
       character(len=*), intent(in), optional :: archive
       integer, intent(in), optional :: unique_id
-      ! Storage backend (Slice E); defaults to PPSER_DEFAULT_BACKEND.
+      ! Storage backend; defaults to PPSER_DEFAULT_BACKEND.
       character(len=*), intent(in), optional :: backend
 
       character(len=:), allocatable :: path, base, eff_backend
@@ -1269,10 +1269,10 @@ contains
       ncerr = nf90_inq_ncid(s%ncid, 'savepoints', s%savepoints_grpid)
       call preserf_check_nf_with_msg(ncerr, 'inq_ncid /savepoints')
 
-      ! Append-mode index resumption (scanning existing /savepoints/sp_*
-      ! groups to pick up where the previous run left off) is intentionally
-      ! deferred — it requires nf90_inq_grps with a pre-sized output array,
-      ! and 'a' mode is out of scope for the minimal v0.1 helper.
+      ! Append-mode ('a') index resumption (scanning existing /savepoints/sp_*
+      ! groups to pick up where the previous run left off) is not implemented:
+      ! it would require nf90_inq_grps with a pre-sized output array, so the
+      ! resolver starts the savepoint index at 0.
       s%next_sp_index = 0
    end subroutine preserf_resolve_skeleton_groups
 
