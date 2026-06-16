@@ -57,13 +57,15 @@ _LANGUAGE = {
     "off": ("OFF",),
 }
 
-# Symbolic serialization modes accepted by the MODE directive.
+# Symbolic serialization modes accepted by the MODE directive. Keys are
+# lower-case; the lookup lower-cases the directive argument so spellings are
+# matched case-insensitively (``WRITE``, ``Cpu``, ``gpu`` all resolve).
 _MODES = {
     "write": 0,
     "read": 1,
     "read-perturb": 2,
-    "CPU": 0,
-    "GPU": 1,
+    "cpu": 0,
+    "gpu": 1,
 }
 
 # Field-registration dimension shortcuts. Each expands to the 12 values
@@ -87,17 +89,19 @@ _REG_SHORTCUTS = {
 }
 
 # A DATA value is "computed" (written but never read back) when it is an
-# expression rather than a plain field reference: it contains an arithmetic
-# operator or a ``merge`` intrinsic.
+# expression rather than a plain field reference: it contains a *top-level*
+# arithmetic operator or a top-level ``merge`` intrinsic. Operators inside
+# subscripts (e.g. ``arr(i-1)``) do not count -- see ``_is_computed``.
 _COMPUTED_OPS = ("*", "+", "-", "/")
 _RE_MERGE = re.compile(r"\bmerge\b", re.IGNORECASE)
 
-# Utility-module symbols always imported alongside any serialization call.
 # Public `integer, parameter` exported by utils_ppser (re-exported from
-# utils_preserf). `!$SER INIT ... compression=on` expands to this symbol, so
-# it must be imported via the generated `USE utils_ppser, ONLY:` list.
+# utils_preserf). Unlike `_ALWAYS_PPSER`, this is imported via the generated
+# `USE utils_ppser, ONLY:` list *only* when `!$SER INIT ... compression=on`
+# expands to this symbol; it is deliberately not always imported.
 _DEFAULT_DEFLATE_LEVEL_PARAM = "PPSER_DEFAULT_DEFLATE_LEVEL"
 
+# Utility-module symbols always imported alongside any serialization call.
 _ALWAYS_PPSER = (
     "ppser_savepoint",
     "ppser_serializer",
@@ -110,7 +114,6 @@ _ALWAYS_PPSER = (
 )
 
 _RE_SER = re.compile(r"^ *!\$ser *(.*)$", re.IGNORECASE)
-_RE_SER_CONT_OUT = re.compile(r"^ *!\$ser *(.*) & *$", re.IGNORECASE)
 _RE_SER_CONT_IN = re.compile(r"^ *!\$ser& *", re.IGNORECASE)
 _RE_TOKENS = re.compile(r"""((?:[^ "']|"[^"]*"|'[^']*')+)""")
 _RE_MODULE = re.compile(
@@ -120,8 +123,31 @@ _RE_MODULE = re.compile(
 _RE_ENDMODULE = re.compile(
     r"^ *end *(module|program) *([a-z][a-z0-9_]*|)", re.IGNORECASE
 )
-_RE_SUBPROG = re.compile(r"^ *(subroutine|function).*", re.IGNORECASE)
-_RE_SUBPROG_CONT = re.compile(r"^ *(subroutine|function)([^!]*)&", re.IGNORECASE)
+# A bare ``END`` (no ``MODULE``/``PROGRAM`` keyword) legally closes a program
+# unit; recognise it so the scope tracker clears an open MODULE/PROGRAM.
+_RE_END_BARE = re.compile(r"^ *end *$", re.IGNORECASE)
+# Subprogram headers. A ``function`` may be preceded by attribute prefixes
+# (``pure``/``elemental``/``recursive``/``impure``/``non_recursive``) and a
+# type spec (``integer``, ``real(real64)``, ``type(...)``, ...); a
+# ``subroutine`` only by attribute prefixes. The keyword is matched as a whole
+# word (trailing ``\b``) so identifiers like ``functional_x`` do not match, and
+# the leading ``^ *`` anchor keeps ``end function``/``end subroutine`` and
+# ``module procedure`` from being mistaken for headers.
+_SUBPROG_ATTRS = r"(?:(?:pure|impure|elemental|recursive|non_recursive)\s+)*"
+_SUBPROG_TYPESPEC = (
+    r"(?:(?:integer|real|logical|complex|character|double\s+precision|type|class)"
+    r"\b\s*(?:\([^)]*\))?\s*)?"
+)
+_SUBPROG_HEAD = (
+    r"^ *"
+    + _SUBPROG_ATTRS
+    + r"(?:"
+    + _SUBPROG_TYPESPEC
+    + _SUBPROG_ATTRS
+    + r"function|subroutine)\b"
+)
+_RE_SUBPROG = re.compile(_SUBPROG_HEAD, re.IGNORECASE)
+_RE_SUBPROG_CONT = re.compile(_SUBPROG_HEAD + r"([^!]*)&", re.IGNORECASE)
 _RE_CONTINUED = re.compile(r"^([^!]*)&")
 _RE_INTENT_IN = re.compile(r".*intent *\(in\)[^:]*::\s*([^!]*)\s*.*", re.IGNORECASE)
 _RE_INTENT_IN_CONT = re.compile(
@@ -135,11 +161,116 @@ _RE_TRACER = re.compile(
 )
 
 
+def _strip_parens(value: str) -> str:
+    """Drop balanced ``(...)`` spans, keeping only top-level text.
+
+    Used to ignore arithmetic and intrinsics that live inside subscripts or
+    kind specifiers (e.g. ``arr(i-1)``) when classifying a DATA value, so only
+    operators at the top level mark it as computed. Unbalanced text is left
+    as-is rather than raising; classification is heuristic, not a parser.
+    """
+    out: list[str] = []
+    depth = 0
+    for ch in value:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            if depth > 0:
+                depth -= 1
+        elif depth == 0:
+            out.append(ch)
+    return "".join(out)
+
+
 def _is_computed(value: str) -> bool:
-    """Whether a DATA value is a computed expression, so write-only."""
-    if any(op in value for op in _COMPUTED_OPS):
+    """Whether a DATA value is a computed expression, so write-only.
+
+    Only *top-level* arithmetic or a top-level ``merge`` intrinsic count: index
+    arithmetic inside subscripts (e.g. ``arr(i-1)``) is part of a plain field
+    reference and must still be read back. We therefore strip balanced
+    parenthesised spans before scanning.
+    """
+    top_level = _strip_parens(value)
+    if any(op in top_level for op in _COMPUTED_OPS):
         return True
-    return _RE_MERGE.search(value) is not None
+    return _RE_MERGE.search(top_level) is not None
+
+
+def _strip_trailing_comment(text: str) -> str:
+    """Strip a trailing inline Fortran comment from directive body text.
+
+    Finds the first ``!`` that is not inside a single- or double-quoted string
+    and drops it together with everything after it.  A ``!`` inside a quoted
+    literal (e.g. ``name='a!b'``) is *not* treated as a comment delimiter.
+    """
+    in_single = False
+    in_double = False
+    for i, ch in enumerate(text):
+        if ch == "'" and not in_double:
+            in_single = not in_single
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+        elif ch == "!" and not in_single and not in_double:
+            return text[:i].rstrip()
+    return text
+
+
+def _split_top_level(text: str) -> list[str]:
+    """Split ``text`` on commas that sit outside any parenthesis.
+
+    A simple ``str.split(",")`` would break ``a(b(1,2)), c`` apart at the
+    inner commas; a bracket-depth scan tracks ``(`` / ``)`` nesting so only
+    the top-level commas separate declared entities.
+    """
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(text):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        elif ch == "," and depth == 0:
+            parts.append(text[start:i].strip())
+            start = i + 1
+    parts.append(text[start:].strip())
+    return parts
+
+
+def _strip_subscript(text: str) -> str:
+    """Return the base name of ``text``, dropping the first subscript onward.
+
+    ``a(i)`` -> ``a`` and ``a(i)%b(j)`` -> ``a`` (the base of a derived-type
+    reference). Everything from the first ``(`` is removed, which is safe
+    because a Fortran entity name never contains a parenthesis.
+    """
+    idx = text.find("(")
+    return text if idx < 0 else text[:idx]
+
+
+def _ser_continuation(line: str) -> str | None:
+    """Return the accumulated directive text if ``line`` continues, else ``None``.
+
+    A ``!$SER`` line is a continuation when its directive body — *after* any
+    trailing inline comment is stripped (quote-aware) — ends in ``&``. This
+    keeps a ``&`` that appears inside a trailing comment (e.g.
+    ``!$SER DATA vn=vn ! foo &``) from being mistaken for a line continuation.
+    Returns the directive text with the trailing ``&`` removed, ready to be
+    prepended to the next line.
+    """
+    m = _RE_SER.match(line)
+    if not m:
+        return None
+    # Normalise trailing whitespace so a directive that ends in ``&`` followed
+    # by spaces (e.g. ``!$SER DATA a=x &   ``) is still recognised, matching the
+    # whitespace tolerance of the original ``& *$`` regex.
+    body = _strip_trailing_comment(m.group(1)).rstrip()
+    if not body.endswith("&"):
+        return None
+    # Reconstruct the directive prefix (preserving leading whitespace and the
+    # original ``!$SER`` casing) with the comment dropped and the ``&`` chopped.
+    prefix = line[: m.start(1)]
+    return (prefix + body[:-1]).rstrip()
 
 
 @dataclass
@@ -241,10 +372,11 @@ class Preprocessor:
                     raise self._error(msg="Incorrect line continuation encountered")
             self._line = pending + line
 
-            cont = _RE_SER_CONT_OUT.match(self._line)
-            if cont:
-                # Chop the trailing ``&`` and keep accumulating.
-                pending = re.sub(r" +& *$", "", self._line).rstrip()
+            cont = _ser_continuation(self._line)
+            if cont is not None:
+                # Comment-aware: ``&`` inside a trailing comment is not a
+                # continuation. Keep accumulating the chopped directive text.
+                pending = cont
                 continue
             pending = ""
 
@@ -332,6 +464,12 @@ class Preprocessor:
     def _scan_endmodule(self) -> None:
         m = _RE_ENDMODULE.search(self._line)
         if not m:
+            # A bare ``END`` closes the current program unit, but only when one
+            # is open: outside a MODULE/PROGRAM it is an ``END`` of some other
+            # construct (subroutine, function, block, ...) and must be ignored.
+            if self._module and _RE_END_BARE.search(self._line):
+                self._module = ""
+                self._use_stmt_in_module = False
             return
         if not self._module:
             raise self._error(msg=f'Unexpected "end {m.group(1)}" statement')
@@ -387,10 +525,8 @@ class Preprocessor:
     @staticmethod
     def _declared_names(text: str) -> set[str]:
         """Variable names from a comma-separated Fortran declaration fragment."""
-        var_with_dim = (
-            x.strip().replace(" ", "") for x in re.split(r",(?![^(]*\))", text)
-        )
-        return {re.sub(r"\(.*?\)", "", x) for x in var_with_dim}
+        var_with_dim = (x.replace(" ", "") for x in _split_top_level(text))
+        return {_strip_subscript(x) for x in var_with_dim if x}
 
     # -- USE statement ------------------------------------------------------
 
@@ -432,7 +568,7 @@ class Preprocessor:
         m = _RE_SER.search(self._line)
         if not m:
             return False
-        body = m.group(1)
+        body = _strip_trailing_comment(m.group(1))
         if not body:
             return True  # bare ``!$SER`` line: directive for grouping only
         args = _RE_TOKENS.split(body)[1::2]
@@ -749,7 +885,7 @@ class Preprocessor:
             tab = "  "
         self._calls.add(_METHODS["mode"])
         value = positionals[0]
-        rendered = str(_MODES[value]) if value in _MODES else value
+        rendered = str(_MODES.get(value.lower(), value))
         out += tab + f"call {_METHODS['mode']}({rendered})\n"
         if if_statement:
             out += "ENDIF\n"
@@ -925,7 +1061,7 @@ class Preprocessor:
     def _track_intentin(self, values: list[str]) -> None:
         """Record DATA value variables whose INTENT(IN) must later be stripped."""
         for value in values:
-            base = re.sub(r"\(.+\)", "", value)
+            base = _strip_subscript(value.replace(" ", ""))
             if base not in self.intentin_to_remove:
                 self.intentin_to_remove.append(base)
 

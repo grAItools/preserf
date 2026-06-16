@@ -14,7 +14,8 @@
 !> directly via netCDF4 (so the kind-specific `nf90_put_att` branches
 !> are protected against on-disk type regressions).
 program test_minimal
-   use, intrinsic :: iso_fortran_env, only: int32, int64, real32, real64
+   use, intrinsic :: iso_fortran_env, only: int32, int64, real32, real64, &
+                                            error_unit
    ! Deliberately import the alias module names rather than the real
    ! ones (utils_preserf, m_preserf). pp_ser-generated source uses
    ! `USE m_serialize` / `USE utils_ppser`, so wiring the integration
@@ -105,9 +106,10 @@ program test_minimal
          else if (scenario == 'init-keywords') then
             ! Exercise the behaviour-changing keywords widened onto
             ! ppser_initialize in Slice D: realtype / rprecision (real
-            ! field type metadata), rperturb (read-perturb scale), and
-            ! mpi_rank (per-rank store suffix). Metadata-only keywords
-            ! (singlefile / archive / unique_id) are Slice D Phase 3.
+            ! tolerance value, not byte length — see issue #38), rperturb
+            ! (read-perturb scale), and mpi_rank (per-rank store suffix).
+            ! Metadata-only keywords (singlefile / archive / unique_id)
+            ! are Slice D Phase 3.
             block
                use netcdf
                ! Mirrors the (private) TID_FLOAT32 in m_preserf; the
@@ -117,14 +119,18 @@ program test_minimal
                integer(int32) :: type_id_back
                logical :: exist0, exist1, exist_plain
 
-               ! --- realtype / rprecision override ppser_realtype /
-               ! ppser_reallength so a real field registers as float32 ---
+               ! --- realtype overrides ppser_realtype and auto-derives
+               ! ppser_reallength so a real field registers as float32.
+               ! rprecision is accepted as a real tolerance (Serialbox
+               ! compat, e.g. ICON passes 10.0**(-PRECISION(1.0))) but
+               ! does not affect ppser_reallength (see issue #38). ---
                call ppser_initialize(out_dir, 'fkw', 'w', &
-                                     realtype='float', rprecision=4)
+                                     realtype='float', &
+                                     rprecision=1.0e-6_real64)
                if (trim(ppser_realtype) /= 'float') error stop &
                   'init-keywords: realtype did not update ppser_realtype'
                if (ppser_reallength /= 4) error stop &
-                  'init-keywords: rprecision did not update ppser_reallength'
+                  'init-keywords: realtype=float did not derive ppser_reallength=4'
                call fs_register_field(ppser_serializer, 'f32', &
                                       ppser_realtype, ppser_reallength, &
                                       3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
@@ -140,18 +146,31 @@ program test_minimal
                   'init-keywords: realtype=float did not register float32'
                call ppser_finalize()
 
+               ! --- realtype matching is case-insensitive: an uppercase
+               ! 'FLOAT' must still derive ppser_reallength=4. type_id_from_datatype
+               ! lowercases the datatype, so a case-sensitive length
+               ! derivation here would leave ppser_reallength at the default
+               ! 8 and abort fs_register_field on a byte-length mismatch
+               ! (issue #38, PR #40 review). ---
+               call ppser_initialize(out_dir, 'fkw', 'w', realtype='FLOAT')
+               if (trim(ppser_realtype) /= 'FLOAT') error stop &
+                  'init-keywords: uppercase realtype did not update ppser_realtype'
+               if (ppser_reallength /= 4) error stop &
+                  'init-keywords: realtype=FLOAT did not derive ppser_reallength=4'
+               call ppser_finalize()
+
                ! --- rperturb threads to ppser_zrperturb (Slice A-2) ---
                call ppser_initialize(out_dir, 'fkw', 'w', rperturb=1.5_real64)
                if (ppser_zrperturb /= 1.5_real64) error stop &
                   'init-keywords: rperturb did not update ppser_zrperturb'
-               ! realtype / rprecision were omitted on this init, so the
-               ! prior init's overrides must NOT stick: they are module
-               ! SAVE state and ppser_initialize resets them to the
-               ! Serialbox defaults on every fresh session.
+               ! realtype was omitted on this init, so the prior init's
+               ! overrides must NOT stick: they are module SAVE state and
+               ! ppser_initialize resets them to the Serialbox defaults on
+               ! every fresh session.
                if (trim(ppser_realtype) /= 'double') error stop &
                   'init-keywords: realtype override stuck across re-init'
                if (ppser_reallength /= 8) error stop &
-                  'init-keywords: rprecision override stuck across re-init'
+                  'init-keywords: ppser_reallength override stuck across re-init'
                call ppser_finalize()
 
                ! rperturb omitted here must likewise fall back to the
@@ -194,7 +213,7 @@ program test_minimal
                call ppser_initialize(out_dir, 'fmeta', 'w', &
                                      singlefile=.true., archive='netcdf', &
                                      unique_id=42, mpi_rank=0, &
-                                     rprecision=8, rperturb=0.0_real64, &
+                                     rprecision=1.0e-6_real64, rperturb=0.0_real64, &
                                      realtype='double')
                call ppser_finalize()
 
@@ -212,6 +231,53 @@ program test_minimal
             ! Unreachable: the length guard must abort before returning.
             error stop &
                'preserf-test_minimal: over-long realtype was accepted'
+         else if (scenario == 'realtype-bad') then
+            ! Issue #56: an unrecognised realtype (e.g. the typo 'flaot')
+            ! must abort at the ppser_initialize boundary, before any field
+            ! is registered, with a clear message naming the bad value —
+            ! mirroring the backend allowlist check. Without this guard the
+            ! bad name is stored verbatim and only blows up much later inside
+            ! type_id_from_datatype when fs_register_field runs.
+            call ppser_initialize(out_dir, 'frtbad', 'w', realtype='flaot')
+            ! Unreachable: the realtype allowlist must abort first.
+            error stop &
+               'preserf-test_minimal: unknown realtype was accepted'
+         else if (scenario == 'realtype-valid') then
+            ! Issue #56: the four recognised names (case-insensitive) keep
+            ! setting ppser_realtype / ppser_reallength consistently after
+            ! the boundary check is added. 'single' → 4 bytes; 'real' → 8.
+            call ppser_initialize(out_dir, 'frtv1', 'w', realtype='single')
+            if (trim(ppser_realtype) /= 'single') error stop &
+               'realtype-valid: single did not update ppser_realtype'
+            if (ppser_reallength /= 4) error stop &
+               'realtype-valid: single did not derive ppser_reallength=4'
+            call ppser_finalize()
+            call ppser_initialize(out_dir, 'frtv2', 'w', realtype='REAL')
+            if (trim(ppser_realtype) /= 'REAL') error stop &
+               'realtype-valid: REAL did not update ppser_realtype'
+            if (ppser_reallength /= 8) error stop &
+               'realtype-valid: REAL did not derive ppser_reallength=8'
+            call ppser_finalize()
+            call ppser_initialize(out_dir, 'frtv3', 'w', realtype='Double')
+            if (ppser_reallength /= 8) error stop &
+               'realtype-valid: Double did not derive ppser_reallength=8'
+            call ppser_finalize()
+            call ppser_initialize(out_dir, 'frtv4', 'w', realtype='float')
+            if (ppser_reallength /= 4) error stop &
+               'realtype-valid: float did not derive ppser_reallength=4'
+            call ppser_finalize()
+            ! A padded actual (leading/trailing blanks, as a fixed-length
+            ! character variable can carry) must be normalised with
+            ! trim(adjustl(...)) like `backend`, so it is accepted and stored
+            ! blank-free in ppser_realtype.
+            call ppser_initialize(out_dir, 'frtv5', 'w', realtype='  double  ')
+            if (trim(ppser_realtype) /= 'double') error stop &
+               'realtype-valid: padded realtype not normalised in ppser_realtype'
+            if (ppser_reallength /= 8) error stop &
+               'realtype-valid: padded realtype did not derive ppser_reallength=8'
+            call ppser_finalize()
+            write (*, '(a)') 'preserf-fortran: realtype-valid OK'
+            stop
          else if (scenario == 'backend-nczarr') then
             ! Slice E: ppser_initialize(..., backend='nczarr-v2') makes
             ! the helper emit an NCZarr V2 `.zarr` directory store (via a
@@ -265,15 +331,28 @@ program test_minimal
             error stop &
                'preserf-test_minimal: unknown backend was accepted'
          else if (scenario == 'backend-nczarr-relpath') then
-            ! Slice E: NCZarr's file:// URL needs an absolute directory.
-            ! A relative directory must abort with a clear message rather
-            ! than build a malformed file://<authority>/... URL that would
-            ! silently target the wrong store.
-            call ppser_initialize('relative_dir_not_absolute', 'frel', 'w', &
-                                  backend='nczarr-v2')
-            ! Unreachable: the absolute-directory guard must abort first.
-            error stop &
-               'preserf-test_minimal: relative nczarr directory was accepted'
+            ! Issue #49: NCZarr's file:// URL needs an absolute directory, but
+            ! netcdf4 (and Serialbox) accept a relative one like './ser_data',
+            ! so nczarr-v2 must resolve a relative directory against the CWD
+            ! rather than reject it (drop-in parity). The relative dir is
+            ! pre-created by the CMakeLists fixture relative to the ctest
+            ! working dir, so this scenario ignores out_dir. See
+            ! roundtrip_nczarr_relpath.
+            call roundtrip_nczarr_relpath('backend-nczarr-relpath', &
+                                          'rel_zarr_dir', 'frel', 3, 700.0_real64)
+            write (*, '(a)') 'preserf-fortran: backend-nczarr-relpath OK'
+            stop
+         else if (scenario == 'resolve-relpath') then
+            ! Issue #63: regression guard for resolve_abs_dir's getcwd copy
+            ! loop against the nvfortran char()-concat miscompile (see the
+            ! comment on that loop in utils_preserf.f90). Uses a MULTI-SEGMENT
+            ! relative directory so a corrupted resolved CWD lands the store
+            ! far off target and the relative inquire — resolving against the
+            ! real process CWD — fails to find it.
+            call roundtrip_nczarr_relpath('resolve-relpath', &
+                                          'resolve_rel_dir/leaf', 'fres', 4, 900.0_real64)
+            write (*, '(a)') 'preserf-fortran: resolve-relpath OK'
+            stop
          else if (scenario == 'backend-nczarr-badchar') then
             ! Slice E: the nczarr-v2 URL is built by raw concatenation, so
             ! a directory (or prefix) carrying a URI-significant character
@@ -367,6 +446,16 @@ program test_minimal
             ! Unreachable: the backend guard must abort first.
             error stop &
                'preserf-test_minimal: nczarr + compression was accepted'
+         else if (scenario == 'compression-nczarr-env') then
+            ! issue #46: the compression+nczarr guard checks the *resolved*
+            ! backend, so selecting nczarr-v2 via PRESERF_BACKEND (no
+            ! backend= argument) must abort just like an explicit
+            ! backend='nczarr-v2'. Guards against an env-var-selected backend
+            ! slipping past and writing an unreadable store.
+            call ppser_initialize(out_dir, 'fcze', 'w', compression=1)
+            ! Unreachable: the backend guard must abort first.
+            error stop &
+               'preserf-test_minimal: nczarr (env) + compression was accepted'
          else if (scenario == 'read-roundtrip') then
             ! Slice A-1 Phase 1 + Phase 3: write a store, finalize, then
             ! re-open read-only and replay the same REGISTER / SAVEPOINT /
@@ -411,6 +500,102 @@ program test_minimal
                end do
                call ppser_finalize()
                write (*, '(a)') 'preserf-fortran: read-roundtrip OK'
+               stop
+            end block
+         else if (scenario == 'reinit-lifecycle') then
+            ! Issue #67: ppser_initialize called twice in one process
+            ! without an intervening ppser_finalize must auto-close the
+            ! previous session, NOT leak its handle and corrupt its store.
+            ! This covers all three defects from the issue:
+            !   (1) handle leak / no re-open guard,
+            !   (2) the first store left advertising _preserf_savepoint_count
+            !       = 0 (the count is only flushed on close), and
+            !   (3) a stale ppser_savepoint outliving its serializer and
+            !       defeating require_savepoint_owner with a recycled ncid.
+            block
+               use netcdf
+               real(real64) :: u_a(3), u_b(3), u_back(3)
+               integer :: ncerr, ncid_a
+               integer(int32) :: sp_count
+               integer :: prev_owner, i
+               do i = 1, 3
+                  u_a(i) = 800.0_real64 + real(i, real64)
+                  u_b(i) = 900.0_real64 + real(i, real64)
+               end do
+
+               ! --- Session A: write one savepoint, then RE-INIT (write)
+               ! into a different store WITHOUT finalize. ---
+               call ppser_initialize(out_dir, 'freinit_a', 'w')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u_a)
+               ! Remember the owner_ncid of session A's savepoint so we can
+               ! prove the re-init below cleared it (defect 3).
+               prev_owner = ppser_savepoint%owner_ncid
+               if (prev_owner == -1) error stop &
+                  'reinit-lifecycle: session A savepoint should have an owner'
+
+               ! Re-init WITHOUT an intervening finalize: this must
+               ! auto-close session A (flushing its savepoint count and
+               ! releasing the handle) and reset ppser_savepoint.
+               call ppser_initialize(out_dir, 'freinit_b', 'w')
+
+               ! (3) ppser_savepoint reset to the empty sentinel: no
+               ! savepoint may outlive the serializer that created it.
+               if (ppser_savepoint%grpid /= -1 .or. &
+                   ppser_savepoint%idx /= -1 .or. &
+                   ppser_savepoint%owner_ncid /= -1) error stop &
+                  'reinit-lifecycle: re-init left a stale ppser_savepoint'
+
+               ! (2) Session A's store closed cleanly with the correct
+               ! non-zero _preserf_savepoint_count (one savepoint), not the
+               ! creation-time 0 that a leaked/abandoned handle leaves.
+               ncerr = nf90_open(trim(out_dir)//'/freinit_a.nc', &
+                                 NF90_NOWRITE, ncid_a)
+               if (ncerr /= nf90_noerr) error stop &
+                  'reinit-lifecycle: session A store not openable after re-init'
+               ncerr = nf90_get_att(ncid_a, NF90_GLOBAL, &
+                                    '_preserf_savepoint_count', sp_count)
+               if (ncerr /= nf90_noerr) error stop &
+                  'reinit-lifecycle: _preserf_savepoint_count missing on store A'
+               if (sp_count /= 1) error stop &
+                  'reinit-lifecycle: store A savepoint count not flushed (got /= 1)'
+               ncerr = nf90_close(ncid_a)
+               if (ncerr /= nf90_noerr) error stop &
+                  'reinit-lifecycle: nf90_close store A failed'
+
+               ! (1)/(3) The fresh session B is usable end-to-end: a write
+               ! through a NEW savepoint succeeds. With a stale savepoint
+               ! from session A, require_savepoint_owner would either reject
+               ! the paired serializer or pass a dangling grpid into
+               ! nf90_put_var. Round-trip it to prove store B is intact.
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               if (ppser_savepoint%owner_ncid == prev_owner .and. &
+                   ppser_savepoint%idx /= 0) error stop &
+                  'reinit-lifecycle: session B savepoint did not start fresh'
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u_b)
+               call ppser_finalize()
+
+               ! Re-open store B read-only and confirm the data landed in
+               ! the right (second) store.
+               call ppser_initialize(out_dir, 'freinit_b', 'r')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', u_back)
+               do i = 1, 3
+                  if (u_back(i) /= u_b(i)) error stop &
+                     'reinit-lifecycle: store B data round-trip mismatch'
+               end do
+               call ppser_finalize()
+
+               write (*, '(a)') 'preserf-fortran: reinit-lifecycle OK'
                stop
             end block
          else if (scenario == 'init-default-mode') then
@@ -491,6 +676,69 @@ program test_minimal
                call ppser_finalize()
 
                write (*, '(a)') 'preserf-fortran: init-default-mode OK'
+               stop
+            end block
+         else if (scenario == 'init-mkdir') then
+            ! Issue #42: in write mode ppser_initialize must create
+            ! `directory` (mkdir -p semantics) before nf90_create, matching
+            ! Serialbox — whose serializer creation made the output
+            ! directory, so drop-in `!$SER INIT directory='...'` call sites
+            ! never mkdir it. Point INIT at a fresh nested subdirectory that
+            ! does NOT exist, write a field, finalize, and assert the store
+            ! file was created (i.e. the directory was created first). A
+            ! second init into the same (now-existing) directory proves
+            ! mkdir -p is idempotent. The Python wire-compat counterpart is
+            ! not needed: this is a pure local-filesystem behaviour.
+            block
+               character(len=:), allocatable :: nested_dir
+               character(len=:), allocatable :: store_path
+               real(real64) :: u_w(3)
+               logical :: store_pre, store_post
+               integer :: i
+               do i = 1, 3
+                  u_w(i) = 700.0_real64 + real(i, real64)
+               end do
+               ! A two-level nested path under the ctest output dir, so the
+               ! mkdir must create more than one missing component. The ctest
+               ! output dir is reused (not cleaned), so a prior run may have
+               ! left `nested_dir` (and its parent `mkdir_a`) behind. Remove
+               ! the whole `mkdir_a` subtree recursively and assert the leaf
+               ! directory is genuinely absent, so the test actually
+               ! exercises ppser_initialize creating a *missing* directory
+               ! rather than passing trivially against a pre-existing one.
+               nested_dir = trim(out_dir)//'/mkdir_a/mkdir_b'
+               store_path = nested_dir//'/fmkdir.nc'
+               call remove_dir_recursive(trim(out_dir)//'/mkdir_a')
+               if (dir_exists(nested_dir)) error stop &
+                  'init-mkdir: nested output directory unexpectedly present '// &
+                  'before init (precondition cleanup failed)'
+               inquire (file=store_path, exist=store_pre)
+               if (store_pre) error stop &
+                  'init-mkdir: store file unexpectedly present before init'
+
+               call ppser_initialize(nested_dir, 'fmkdir', 'w')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u_w)
+               call ppser_finalize()
+
+               inquire (file=store_path, exist=store_post)
+               if (.not. store_post) error stop &
+                  'init-mkdir: store file not created (directory not made)'
+
+               ! mkdir -p is idempotent: a second write into the now-existing
+               ! directory must succeed, not abort.
+               call ppser_initialize(nested_dir, 'fmkdir2', 'w')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u_w)
+               call ppser_finalize()
+
+               write (*, '(a)') 'preserf-fortran: init-mkdir OK'
                stop
             end block
          else if (scenario == 'perturb-roundtrip') then
@@ -605,6 +853,193 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: perturb-roundtrip OK'
                stop
             end block
+         else if (scenario == 'perturb-noop') then
+            ! Issue #39: the 5-arg fs_read_field(s, sp, name, data, perturb)
+            ! must resolve for integer (int32 / int64) and logical fields.
+            ! The perturb argument is accepted but ignored; the field is
+            ! read identically to the 4-arg form. This scenario proves the
+            ! generic interface resolves for all three non-float dtypes at
+            ! ranks 0-4, and that the round-trip values are bit-identical
+            ! regardless of the perturb scale.
+            block
+               logical :: lsc, l1(2), l2(2, 3), l3(2, 3, 4), l4(2, 3, 4, 5)
+               logical :: lsc_b, l1_b(2), l2_b(2, 3), l3_b(2, 3, 4), l4_b(2, 3, 4, 5)
+               integer(int32) :: i4sc, i41(2), i42(2, 3), i43(2, 3, 4), i44(2, 3, 4, 5)
+               integer(int32) :: i4sc_b, i41_b(2), i42_b(2, 3), i43_b(2, 3, 4), i44_b(2, 3, 4, 5)
+               integer(int64) :: i8sc, i81(2), i82(2, 3), i83(2, 3, 4), i84(2, 3, 4, 5)
+               integer(int64) :: i8sc_b, i81_b(2), i82_b(2, 3), i83_b(2, 3, 4), i84_b(2, 3, 4, 5)
+               integer :: ii
+               ! Mixed true/false pattern (true on odd linear index) so a
+               ! wrong element ordering or partial read changes at least one
+               ! element and fails the bit-identical round-trip assertion.
+               lsc = .true.
+               l1 = reshape([(mod(ii, 2) == 1, ii=1, size(l1))], shape(l1))
+               l2 = reshape([(mod(ii, 2) == 1, ii=1, size(l2))], shape(l2))
+               l3 = reshape([(mod(ii, 2) == 1, ii=1, size(l3))], shape(l3))
+               l4 = reshape([(mod(ii, 2) == 1, ii=1, size(l4))], shape(l4))
+               i4sc = 99_int32
+               i41 = reshape([(int(ii, int32), ii=1, size(i41))], shape(i41))
+               i42 = reshape([(int(ii, int32), ii=1, size(i42))], shape(i42))
+               i43 = reshape([(int(ii, int32), ii=1, size(i43))], shape(i43))
+               i44 = reshape([(int(ii, int32), ii=1, size(i44))], shape(i44))
+               i8sc = 9999_int64
+               i81 = reshape([(int(ii, int64), ii=1, size(i81))], shape(i81))
+               i82 = reshape([(int(ii, int64), ii=1, size(i82))], shape(i82))
+               i83 = reshape([(int(ii, int64), ii=1, size(i83))], shape(i83))
+               i84 = reshape([(int(ii, int64), ii=1, size(i84))], shape(i84))
+
+               ! Write a store with one field of each (dtype, rank).
+               call ppser_initialize(out_dir, 'fperturb_noop', 'w')
+               call fs_register_field(ppser_serializer, 'lsc', 'bool', 1, &
+                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'l1', 'bool', 1, &
+                                      2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'l2', 'bool', 1, &
+                                      2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'l3', 'bool', 1, &
+                                      2, 3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'l4', 'bool', 1, &
+                                      2, 3, 4, 5, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i4sc', 'int', 4, &
+                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i41', 'int', 4, &
+                                      2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i42', 'int', 4, &
+                                      2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i43', 'int', 4, &
+                                      2, 3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i44', 'int', 4, &
+                                      2, 3, 4, 5, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i8sc', 'int64', 8, &
+                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i81', 'int64', 8, &
+                                      2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i82', 'int64', 8, &
+                                      2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i83', 'int64', 8, &
+                                      2, 3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i84', 'int64', 8, &
+                                      2, 3, 4, 5, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'lsc', lsc)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'l1', l1)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'l2', l2)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'l3', l3)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'l4', l4)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i4sc', i4sc)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i41', i41)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i42', i42)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i43', i43)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i44', i44)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i8sc', i8sc)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i81', i81)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i82', i82)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i83', i83)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'i84', i84)
+               call ppser_finalize()
+
+               ! Re-open read-only and use the 5-arg perturb form for every
+               ! field. The values must be bit-identical to the written ones
+               ! regardless of the (ignored) perturb scale.
+               call ppser_initialize(out_dir, 'fperturb_noop', 'r')
+               call fs_register_field(ppser_serializer, 'lsc', 'bool', 1, &
+                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'l1', 'bool', 1, &
+                                      2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'l2', 'bool', 1, &
+                                      2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'l3', 'bool', 1, &
+                                      2, 3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'l4', 'bool', 1, &
+                                      2, 3, 4, 5, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i4sc', 'int', 4, &
+                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i41', 'int', 4, &
+                                      2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i42', 'int', 4, &
+                                      2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i43', 'int', 4, &
+                                      2, 3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i44', 'int', 4, &
+                                      2, 3, 4, 5, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i8sc', 'int64', 8, &
+                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i81', 'int64', 8, &
+                                      2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i82', 'int64', 8, &
+                                      2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i83', 'int64', 8, &
+                                      2, 3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'i84', 'int64', 8, &
+                                      2, 3, 4, 5, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               ! Use a non-zero perturb scale (0.5) to confirm it is truly
+               ! ignored — if applied to an integer bit-pattern it would
+               ! produce garbage, so any non-identity result would be visible.
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'lsc', lsc_b, 0.5_real64)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'l1', l1_b, 0.5_real64)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'l2', l2_b, 0.5_real64)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'l3', l3_b, 0.5_real64)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'l4', l4_b, 0.5_real64)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'i4sc', i4sc_b, 0.5_real64)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'i41', i41_b, 0.5_real64)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'i42', i42_b, 0.5_real64)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'i43', i43_b, 0.5_real64)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'i44', i44_b, 0.5_real64)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'i8sc', i8sc_b, 0.5_real64)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'i81', i81_b, 0.5_real64)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'i82', i82_b, 0.5_real64)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'i83', i83_b, 0.5_real64)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'i84', i84_b, 0.5_real64)
+               if (lsc_b .neqv. lsc) error stop &
+                  'perturb-noop: 0-D logical mismatch'
+               if (any(l1_b .neqv. l1)) error stop &
+                  'perturb-noop: 1-D logical mismatch'
+               if (any(l2_b .neqv. l2)) error stop &
+                  'perturb-noop: 2-D logical mismatch'
+               if (any(l3_b .neqv. l3)) error stop &
+                  'perturb-noop: 3-D logical mismatch'
+               if (any(l4_b .neqv. l4)) error stop &
+                  'perturb-noop: 4-D logical mismatch'
+               if (i4sc_b /= i4sc) error stop &
+                  'perturb-noop: 0-D int32 mismatch'
+               if (any(i41_b /= i41)) error stop &
+                  'perturb-noop: 1-D int32 mismatch'
+               if (any(i42_b /= i42)) error stop &
+                  'perturb-noop: 2-D int32 mismatch'
+               if (any(i43_b /= i43)) error stop &
+                  'perturb-noop: 3-D int32 mismatch'
+               if (any(i44_b /= i44)) error stop &
+                  'perturb-noop: 4-D int32 mismatch'
+               if (i8sc_b /= i8sc) error stop &
+                  'perturb-noop: 0-D int64 mismatch'
+               if (any(i81_b /= i81)) error stop &
+                  'perturb-noop: 1-D int64 mismatch'
+               if (any(i82_b /= i82)) error stop &
+                  'perturb-noop: 2-D int64 mismatch'
+               if (any(i83_b /= i83)) error stop &
+                  'perturb-noop: 3-D int64 mismatch'
+               if (any(i84_b /= i84)) error stop &
+                  'perturb-noop: 4-D int64 mismatch'
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: perturb-noop OK'
+               stop
+            end block
          else if (scenario == 'read-ref') then
             ! Slice A-1 Phase 2: with an explicit directory_ref / prefix_ref
             ! the savepoint is resolved against the PRIMARY serializer (as
@@ -702,6 +1137,66 @@ program test_minimal
                call fs_read_field(ppser_serializer, ppser_savepoint, 'u', u_back)
             end block
             call abort_unexpected('read-bad-xtype')
+         else if (scenario == 'tracer-read-bad-xtype') then
+            ! Issue #70: a tracer read must apply the same on-disk variable
+            ! validation as a field read. Hand-build a store whose
+            ! /_tracers/q descriptor records FLOAT64 + dims [3] (so
+            ! validate_registered_tracer passes) but whose savepoint
+            ! variable q is FLOAT32, isolating the require_variable_layout
+            ! xtype rejection on the tracer read branch.
+            call build_tracer_xtype_mismatch_store(trim(out_dir)//'/ftrbx.nc')
+            block
+               real(real64), target :: q(3)
+               q = 0.0_real64
+               call ppser_initialize(out_dir, 'ftrbx', 'r')
+               call ppser_register_tracer('q', q, stype='')
+               call fs_RegisterAllTracers()
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+            end block
+            call abort_unexpected('tracer-read-bad-xtype')
+         else if (scenario == 'kbuff-read-bad-xtype') then
+            ! Issue #70: a k-buffer read must apply the same on-disk
+            ! variable validation as a field read. Hand-build a store whose
+            ! /_fields/t registry records FLOAT64 + dims [3,2,4]
+            ! (so validate_field_shape passes) but whose savepoint variable
+            ! t is FLOAT32, isolating the require_variable_layout xtype
+            ! rejection inside kbuff_load_full.
+            call build_kbuff_xtype_mismatch_store(trim(out_dir)//'/fkbbx.nc')
+            block
+               real(real64) :: tslice(3, 2)
+               tslice = 0.0_real64
+               call ppser_initialize(out_dir, 'fkbbx', 'r')
+               call fs_register_field(ppser_serializer, 't', 'double', &
+                                      ppser_reallength, 3, 2, 4, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_kbuff(ppser_serializer, ppser_savepoint, 't', &
+                                   tslice, k=1, k_size=4, mode=ppser_get_mode())
+            end block
+            call abort_unexpected('kbuff-read-bad-xtype')
+         else if (scenario == 'kbuff-read-bad-extent') then
+            ! Issue #70: a k-buffer read must reject a store whose on-disk
+            ! variable is *larger* than the expected shape, not let
+            ! nf90_get_var silently sub-sample a corner. Hand-build a store
+            ! whose /_fields/t registry records FLOAT64 + Fortran shape
+            ! [3,2,4] (so validate_field_shape passes) but whose savepoint
+            ! variable t is FLOAT64 with the larger Fortran shape [4,2,4],
+            ! isolating the require_variable_layout extent rejection inside
+            ! kbuff_load_full.
+            call build_kbuff_extent_mismatch_store(trim(out_dir)//'/fkbbe.nc')
+            block
+               real(real64) :: tslice(3, 2)
+               tslice = 0.0_real64
+               call ppser_initialize(out_dir, 'fkbbe', 'r')
+               call fs_register_field(ppser_serializer, 't', 'double', &
+                                      ppser_reallength, 3, 2, 4, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_kbuff(ppser_serializer, ppser_savepoint, 't', &
+                                   tslice, k=1, k_size=4, mode=ppser_get_mode())
+            end block
+            call abort_unexpected('kbuff-read-bad-extent')
          else if (scenario == 'type-matrix') then
             ! Slice B: smoke-test the new dtype x rank overloads end to
             ! end. One 1-D write+read round-trip per dtype (logical /
@@ -1079,6 +1574,60 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: tracers-roundtrip OK'
                stop
             end block
+         else if (scenario == 'tracers-register-twice') then
+            ! Issue #71: a second REGISTERTRACERS — e.g. fs_RegisterAllTracers
+            ! re-run each iteration of a timestep loop — must be idempotent
+            ! and NOT abort on NC_ENAMEINUSE redefining the /_tracers
+            ! descriptors. Register two tracers, call fs_RegisterAllTracers
+            ! twice (writing data after each, as a loop body would), then
+            ! re-open read-only and round-trip the tracers back to prove the
+            ! descriptors written by the first call are intact and reused.
+            block
+               real(real64), target :: qv(3), qc(2, 3)
+               real(real64) :: qv0(3), qc0(2, 3)
+               integer :: i, j
+               do i = 1, 3
+                  qv(i) = real(10 + i, real64)
+               end do
+               do j = 1, 3
+                  do i = 1, 2
+                     qc(i, j) = real(100*i + j, real64)
+                  end do
+               end do
+               qv0 = qv
+               qc0 = qc
+               call ppser_initialize(out_dir, 'ftrtwice', 'w')
+               call ppser_register_tracer('q_v', qv, stype='tens')
+               call ppser_register_tracer('q_c', qc, stype='bd')
+               ! First "timestep": register descriptors and write.
+               call fs_RegisterAllTracers()
+               call fs_create_savepoint('step0', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+               ! Second "timestep": REGISTERTRACERS runs again. Without the
+               ! idempotent guard this aborts on a duplicate def_var.
+               call fs_RegisterAllTracers()
+               call fs_create_savepoint('step1', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+               call ppser_finalize()
+               ! Re-open read-only and validate the descriptors round-trip.
+               qv = 0.0_real64
+               qc = 0.0_real64
+               call ppser_initialize(out_dir, 'ftrtwice', 'r')
+               call ppser_register_tracer('q_v', qv, stype='tens')
+               call ppser_register_tracer('q_c', qc, stype='bd')
+               call fs_RegisterAllTracers()
+               ! Read back at the first savepoint (positional match to the
+               ! store's sp_000000 = 'step0').
+               call fs_create_savepoint('step0', ppser_savepoint)
+               call ppser_write_tracer_all(stype='')
+               if (any(qv /= qv0)) error stop &
+                  'tracers-register-twice: q_v did not read back'
+               if (any(qc /= qc0)) error stop &
+                  'tracers-register-twice: q_c did not read back'
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: tracers-register-twice OK'
+               stop
+            end block
          else if (scenario == 'kbuff') then
             ! Slice C Phase 2: DATA_KBUFF. Write two fields one vertical
             ! level at a time through fs_write_kbuff — a 3-D field t(i,j,k)
@@ -1147,6 +1696,65 @@ program test_minimal
                end do
                call ppser_finalize()
                write (*, '(a)') 'preserf-fortran: kbuff OK'
+               stop
+            end block
+         else if (scenario == 'kbuff-offset') then
+            ! Issue #72: the k-buffer size/offset arithmetic was promoted to
+            ! int64 (`allocate(buffer(slice_size*k_size))`, `off =
+            ! (k-1)*slice_size`) so it cannot wrap past 2^31 elements for an
+            ! ICON-scale field. A real >2^31-element buffer is far too large to
+            ! allocate in CI, so this scenario instead pins the *layout* the
+            ! int64 promotion must preserve: with a multi-element slice over
+            ! many levels, every element of the assembled column-major field
+            ! must land at exactly (k-1)*slice_size + slice_index. A botched
+            ! promotion (wrong operand order, a stray default-int truncation,
+            ! or an off-by-one in the int64 section bounds) would shuffle or
+            ! drop elements and fail the per-element round-trip below — so this
+            ! is the regression guard for the arithmetic the issue changed.
+            block
+               integer, parameter :: ni = 5, nj = 3, ke = 64
+               integer, parameter :: ss = ni*nj
+               real(real64) :: sl(ni, nj)
+               integer :: i, j, kk
+               ! Distinct value per (i,j,k) so a misplaced element is caught:
+               ! the assembled buffer position is (k-1)*ss + ((j-1)*ni + i),
+               ! exactly the offset formula promoted to int64.
+               call ppser_initialize(out_dir, 'fkboff', 'w')
+               call fs_register_field(ppser_serializer, 'g', 'double', &
+                                      ppser_reallength, ni, nj, ke, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               do kk = 1, ke
+                  do j = 1, nj
+                     do i = 1, ni
+                        sl(i, j) = real(((kk - 1)*ss + (j - 1)*ni + i), real64)
+                     end do
+                  end do
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'g', &
+                                      sl, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+               end do
+               call ppser_finalize()
+               ! Symmetric read-back: each level must recover its slice with
+               ! the same linear offsets, proving both the write-side
+               ! accumulate offset and the read-side inc offset are int64.
+               call ppser_initialize(out_dir, 'fkboff', 'r')
+               call fs_create_savepoint('step', ppser_savepoint)
+               do kk = 1, ke
+                  sl = 0.0_real64
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'g', &
+                                      sl, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+                  do j = 1, nj
+                     do i = 1, ni
+                        if (sl(i, j) /= &
+                            real(((kk - 1)*ss + (j - 1)*ni + i), real64)) &
+                           error stop 'kbuff-offset: assembled layout mismatch'
+                     end do
+                  end do
+               end do
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: kbuff-offset OK'
                stop
             end block
          else if (scenario == 'option') then
@@ -1356,6 +1964,640 @@ program test_minimal
                call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'f', s2, &
                                    k=2, k_size=3, mode=ppser_get_mode())
                call abort_unexpected('kbuff-bad-shape')
+            end block
+         else if (scenario == 'backend-env') then
+            ! Issue #48: with no explicit `backend=` argument the helper
+            ! resolves the backend from the PRESERF_BACKEND env var (the
+            ! ctest target sets PRESERF_BACKEND=nczarr-v2). The store must
+            ! land as a `.zarr` directory store; we verify that selection by
+            ! reading the field back through an nczarr-v2 read open rather
+            ! than an `inquire` existence check, since `inquire` on a
+            ! directory store is not portable (see part (a) below). This
+            ! proves the env-var fallback is wired through ppser_initialize.
+            ! An explicit `backend=` then overrides the env var, so the same
+            ! prefix opened with backend='netcdf4' must produce a `.nc` file
+            ! — the arg-beats-env precedence.
+            block
+               real(real64) :: ue(3), ue_back(3)
+               logical :: nc_exists
+               integer :: i
+               do i = 1, 3
+                  ue(i) = 600.0_real64 + real(i, real64)
+               end do
+               ! Clear any stores a prior run may have left so the
+               ! round-trip read (a) and existence check (b) below reflect
+               ! only this run.
+               call delete_dir_if_exists(trim(out_dir)//'/fenv.zarr')
+               call delete_if_exists(trim(out_dir)//'/fenv_arg.nc')
+
+               ! (a) No backend= argument: PRESERF_BACKEND=nczarr-v2 selects
+               ! the NCZarr V2 backend, yielding a `.zarr` directory store.
+               call ppser_initialize(out_dir, 'fenv', 'w')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', ue)
+               call ppser_finalize()
+               ! Verify the env-var path selected nczarr-v2 by re-opening the
+               ! store read-only as nczarr-v2 and reading the field back, the
+               ! way `backend-nczarr` proves its round-trip. inquire(file=) on
+               ! a directory store is NOT portable: Intel ifx reports an
+               ! absolute directory path as non-existent (issue #107), so a
+               ! `.zarr`-directory existence check spuriously fails there even
+               ! though the store was written. A successful nczarr-v2 read is
+               ! the authoritative proof of selection: had the env var instead
+               ! resolved to netcdf4, no `.zarr` store would exist and this
+               ! read open would fail.
+               call ppser_initialize(out_dir, 'fenv', 'r', backend='nczarr-v2')
+               if (ppser_get_mode() /= 1) error stop &
+                  'backend-env: read open should set mode 1'
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', ue_back)
+               call ppser_finalize()
+               do i = 1, 3
+                  if (ue_back(i) /= 600.0_real64 + real(i, real64)) error stop &
+                     'backend-env: PRESERF_BACKEND=nczarr-v2 did not select nczarr'
+               end do
+
+               ! (b) Explicit backend= beats the env var: backend='netcdf4'
+               ! must produce a plain `.nc` file even though
+               ! PRESERF_BACKEND=nczarr-v2 is still set.
+               call ppser_initialize(out_dir, 'fenv_arg', 'w', backend='netcdf4')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', ue)
+               call ppser_finalize()
+               inquire (file=trim(out_dir)//'/fenv_arg.nc', exist=nc_exists)
+               if (.not. nc_exists) error stop &
+                  'backend-env: explicit backend= did not override PRESERF_BACKEND'
+
+               write (*, '(a)') 'preserf-fortran: backend-env OK'
+               stop
+            end block
+         else if (scenario == 'backend-env-bad') then
+            ! Issue #48: an unknown PRESERF_BACKEND value (the ctest target
+            ! sets PRESERF_BACKEND=zarr3) must abort at the ppser_initialize
+            ! boundary with the same clear "unknown backend" message as an
+            ! unknown explicit backend= argument, rather than a deep netCDF
+            ! URL error.
+            call ppser_initialize(out_dir, 'fenvbad', 'w')
+            ! Unreachable: the env-var backend allowlist must abort first.
+            call abort_unexpected('backend-env-bad')
+         else if (scenario == 'backend-env-blank') then
+            ! Issue #48 (review): a whitespace-only PRESERF_BACKEND value
+            ! (the ctest target sets PRESERF_BACKEND='   ') is blank after
+            ! trim and must be treated as *unset* — falling back to the
+            ! 'netcdf4' default and producing a `.nc` file — rather than
+            ! failing the allowlist with an unhelpful "unknown backend:"
+            ! message on an empty string.
+            block
+               real(real64) :: ue(3)
+               logical :: nc_exists
+               integer :: i
+               do i = 1, 3
+                  ue(i) = 700.0_real64 + real(i, real64)
+               end do
+               call delete_if_exists(trim(out_dir)//'/fenvblank.nc')
+               call ppser_initialize(out_dir, 'fenvblank', 'w')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', ue)
+               call ppser_finalize()
+               inquire (file=trim(out_dir)//'/fenvblank.nc', exist=nc_exists)
+               if (.not. nc_exists) error stop &
+                  'backend-env-blank: blank PRESERF_BACKEND did not fall back to default'
+               write (*, '(a)') 'preserf-fortran: backend-env-blank OK'
+               stop
+            end block
+         else if (scenario == 'backend-arg-padded') then
+            ! Issue #48 (review): an explicit `backend=` actual is commonly a
+            ! fixed-length character variable, which pads the logical value
+            ! with trailing blanks (and a caller may prepend leading ones).
+            ! ppser_resolve_backend must normalise both away (trim+adjustl) so
+            ! a logically valid value is accepted rather than rejected as
+            ! "unknown backend". A padded 'netcdf4' must still write a `.nc`
+            ! file. No env var is needed for this scenario.
+            block
+               character(len=16) :: padded
+               real(real64) :: ue(3)
+               logical :: nc_exists
+               integer :: i
+               padded = '  netcdf4'   ! leading + trailing blanks
+               do i = 1, 3
+                  ue(i) = 800.0_real64 + real(i, real64)
+               end do
+               call delete_if_exists(trim(out_dir)//'/fpadded.nc')
+               call ppser_initialize(out_dir, 'fpadded', 'w', backend=padded)
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', ue)
+               call ppser_finalize()
+               inquire (file=trim(out_dir)//'/fpadded.nc', exist=nc_exists)
+               if (.not. nc_exists) error stop &
+                  'backend-arg-padded: padded backend= was not accepted as netcdf4'
+               write (*, '(a)') 'preserf-fortran: backend-arg-padded OK'
+               stop
+            end block
+         else if (scenario == 'autoregister') then
+            ! Issue #43: Serialbox's fs_write_field auto-registers a field
+            ! on its first write, so pp_ser !$SER DATA / !$SER ACCDATA call
+            ! sites (which never emit !$SER REGISTER) write without an
+            ! explicit registration. Write one field of representative
+            ! dtypes and ranks with NO prior fs_register_field call, then
+            ! re-open read-only and round-trip them back: the read path can
+            ! only resolve the field through the registry, so a lossless
+            ! round-trip proves the write path auto-registered the inferred
+            ! type_id + dims. No fs_register_field appears anywhere here.
+            block
+               real(real64) :: r8f(3), r8fb(3)
+               integer(int32) :: i4f(2, 3), i4fb(2, 3), sc, scb
+               logical :: lf(4), lfb(4)
+               real(real32) :: a4(2, 2, 2, 2), a4b(2, 2, 2, 2)
+               integer :: i, j, k, l
+               do i = 1, 3
+                  r8f(i) = real(i, real64) + 0.25_real64
+               end do
+               do j = 1, 3
+                  do i = 1, 2
+                     i4f(i, j) = int(10*i + j, int32)
+                  end do
+               end do
+               lf = [.true., .false., .false., .true.]
+               sc = 4242_int32
+               do l = 1, 2
+                  do k = 1, 2
+                     do j = 1, 2
+                        do i = 1, 2
+                           a4(i, j, k, l) = &
+                              real(1000*i + 100*j + 10*k + l, real32)
+                        end do
+                     end do
+                  end do
+               end do
+
+               call ppser_initialize(out_dir, 'fauto', 'w')
+               call fs_create_savepoint('step', ppser_savepoint)
+               ! First write of each field, with no prior registration:
+               ! covers real64 1-D, int32 2-D, logical 1-D, int32 0-D
+               ! (scalar) and real32 4-D.
+               call fs_write_field(ppser_serializer, ppser_savepoint, &
+                                   'r8f', r8f)
+               call fs_write_field(ppser_serializer, ppser_savepoint, &
+                                   'i4f', i4f)
+               call fs_write_field(ppser_serializer, ppser_savepoint, &
+                                   'lf', lf)
+               call fs_write_field(ppser_serializer, ppser_savepoint, &
+                                   'sc', sc)
+               call fs_write_field(ppser_serializer, ppser_savepoint, &
+                                   'a4', a4)
+               ! A second write of an already auto-registered field must
+               ! still validate against the inferred metadata (it must not
+               ! re-register), so reuse the same shapes here.
+               call fs_write_field(ppser_serializer, ppser_savepoint, &
+                                   'r8f', r8f)
+               call ppser_finalize()
+
+               call ppser_initialize(out_dir, 'fauto', 'r')
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'r8f', r8fb)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'i4f', i4fb)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'lf', lfb)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'sc', scb)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'a4', a4b)
+               if (any(r8fb /= r8f)) error stop &
+                  'autoregister: real64 1-D mismatch'
+               if (any(i4fb /= i4f)) error stop &
+                  'autoregister: int32 2-D mismatch'
+               if (any(lfb .neqv. lf)) error stop &
+                  'autoregister: logical 1-D mismatch'
+               if (scb /= sc) error stop &
+                  'autoregister: int32 0-D scalar mismatch'
+               if (any(a4b /= a4)) error stop &
+                  'autoregister: real32 4-D mismatch'
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: autoregister OK'
+               stop
+            end block
+         else if (scenario == 'write-readmode-unregistered') then
+            ! A direct fs_write_field on a read-opened serializer, for a
+            ! never-registered field, must abort with the friendly
+            ! "call fs_register_field first" message rather than auto-register
+            ! (which would def_var on the read-only handle). Build a store,
+            ! re-open read-only, then write an unregistered field.
+            block
+               real(real64) :: nf(3)
+               integer :: i
+               do i = 1, 3
+                  nf(i) = real(i, real64)
+               end do
+               call write_store(out_dir, 'frmwrite', 7.0_real64)
+               call ppser_initialize(out_dir, 'frmwrite', 'r')
+               if (ppser_get_mode() /= 1) error stop &
+                  'write-readmode-unregistered: "r" should set mode 1'
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, &
+                                   'never_registered', nf)
+               ! Reached only if the guard regressed: emit a non-matching
+               ! line so PASS_REGULAR_EXPRESSION fails.
+               call ppser_finalize()
+               write (*, '(a)') &
+                  'write-readmode-unregistered: FAILED (no abort)'
+               stop
+            end block
+         else if (scenario == 'write-readhandle-mode0-unregistered') then
+            ! The gate keys on the handle's writable flag, not the global
+            ! ppser_get_mode(): a read-only handle with the global mode
+            ! forced to 0 (write) must STILL abort, never reaching
+            ! autoregister_field on the read-only handle.
+            block
+               real(real64) :: nf(3)
+               integer :: i
+               do i = 1, 3
+                  nf(i) = real(i, real64)
+               end do
+               call write_store(out_dir, 'frhm0', 7.0_real64)
+               call ppser_initialize(out_dir, 'frhm0', 'r')
+               ! Resolve the savepoint in read mode so the only write
+               ! attempt comes from fs_write_field.
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_set_mode(0)
+               if (ppser_get_mode() /= 0) error stop &
+                  'write-readhandle-mode0-unregistered: set_mode(0) failed'
+               call fs_write_field(ppser_serializer, ppser_savepoint, &
+                                   'never_registered', nf)
+               ! Reached only if the writable gate regressed.
+               call ppser_finalize()
+               write (*, '(a)') &
+                  'write-readhandle-mode0-unregistered: FAILED (no abort)'
+               stop
+            end block
+         else if (scenario == 'write-writable-mode1-autoregister') then
+            ! The converse: a writable handle must auto-register a first
+            ! write regardless of the global mode. Open 'w', force the
+            ! global mode to 1 (read), write an unregistered field, and
+            ! assert it round-trips losslessly rather than aborting.
+            block
+               real(real64) :: nf(3), nfb(3)
+               integer :: i
+               do i = 1, 3
+                  nf(i) = real(i, real64) + 0.5_real64
+               end do
+               call ppser_initialize(out_dir, 'fwm1', 'w')
+               call fs_create_savepoint('step', ppser_savepoint)
+               call ppser_set_mode(1)
+               if (ppser_get_mode() /= 1) error stop &
+                  'write-writable-mode1-autoregister: set_mode(1) failed'
+               call fs_write_field(ppser_serializer, ppser_savepoint, &
+                                   'auto_in_mode1', nf)
+               call ppser_finalize()
+               ! A read resolves the field only through the registry, so a
+               ! lossless read-back proves the write auto-registered it.
+               call ppser_initialize(out_dir, 'fwm1', 'r')
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  'auto_in_mode1', nfb)
+               if (any(nfb /= nf)) error stop &
+                  'write-writable-mode1-autoregister: round-trip mismatch'
+               call ppser_finalize()
+               write (*, '(a)') &
+                  'preserf-fortran: writable-mode1 autoregister OK'
+               stop
+            end block
+         else if (scenario == 'register-duplicate-ok') then
+            ! Re-registering a field with identical metadata is idempotent
+            ! (Serialbox parity): the second REGISTER validates the existing
+            ! entry and returns instead of aborting on a duplicate def_var.
+            ! Models a `!$SER REGISTER` directive in a per-timestep loop.
+            block
+               real(real64) :: u_w(3)
+               integer :: i
+               do i = 1, 3
+                  u_w(i) = real(i, real64)
+               end do
+               call ppser_initialize(out_dir, 'fdupok', 'w')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u_w)
+               call ppser_finalize()
+               write (*, '(a)') &
+                  'preserf-fortran: register-duplicate-ok OK'
+               stop
+            end block
+         else if (scenario == 'register-duplicate-mismatch') then
+            ! Re-registering a field with a different shape must abort with
+            ! a clear "re-registered field" mismatch, not a duplicate
+            ! def_var crash.
+            block
+               call ppser_initialize(out_dir, 'fdupmm', 'w')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 5, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call abort_unexpected('register-duplicate-mismatch')
+            end block
+         else if (scenario == 'register-after-autowrite-halo') then
+            ! A first `!$SER DATA` write auto-registers the field with zero
+            ! halos; a later explicit REGISTER that declares a non-zero halo
+            ! must surface the dropped halo as a "re-registered field" halo
+            ! mismatch rather than silently disagreeing or crashing.
+            block
+               real(real64) :: u_w(3)
+               integer :: i
+               do i = 1, 3
+                  u_w(i) = real(i, real64)
+               end do
+               call ppser_initialize(out_dir, 'fawh', 'w')
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u_w)
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      1, 0, 0, 0, 0, 0, 0, 0)
+               call abort_unexpected('register-after-autowrite-halo')
+            end block
+         else if (scenario == 'register-readonly-handle') then
+            ! REGISTER reaching the create path (global write mode) on a
+            ! read-only handle must abort with a clear "opened read-only"
+            ! message, not a raw netCDF def_var error. Build a store, reopen
+            ! it read-only, force write mode, then REGISTER.
+            block
+               call write_store(out_dir, 'frohandle', 7.0_real64)
+               call ppser_initialize(out_dir, 'frohandle', 'r')
+               call ppser_set_mode(0)
+               if (ppser_get_mode() /= 0) error stop &
+                  'register-readonly-handle: set_mode(0) failed'
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      1, 2, 0, 0, 0, 0, 0, 0)
+               call abort_unexpected('register-readonly-handle')
+            end block
+         else if (scenario == 'autoregister-zero-extent') then
+            ! Auto-registering a zero-size array (a 0 runtime extent) must
+            ! abort with a clear message: the explicit REGISTER tuple cannot
+            ! express such a shape, and a 0 extent would otherwise reach
+            ! nf90_def_dim where netCDF reads it as NF90_UNLIMITED.
+            block
+               real(real64) :: z(0)
+               call ppser_initialize(out_dir, 'fze', 'w')
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'z', z)
+               call abort_unexpected('autoregister-zero-extent')
+            end block
+         else if (scenario == 'nan-metainfo-roundtrip') then
+            ! Issue #81 item 2: a NaN metainfo value that round-tripped
+            ! bit-for-bit must validate on read. Plain `/=` aborts because
+            ! NaN /= NaN; the NaN-aware comparison treats two NaNs as equal.
+            ! Covers scalar real32 / real64 and a real64 array.
+            block
+               use, intrinsic :: ieee_arithmetic, only: ieee_value, &
+                                                         ieee_quiet_nan
+               real(real32) :: nan32
+               real(real64) :: nan64, nanvec(3)
+               real(real64) :: uo(3)
+               integer :: i
+               nan32 = ieee_value(0.0_real32, ieee_quiet_nan)
+               nan64 = ieee_value(0.0_real64, ieee_quiet_nan)
+               nanvec = nan64
+               do i = 1, 3
+                  uo(i) = real(i, real64)
+               end do
+               ! Write a store carrying NaN metainfo of each float flavour.
+               call ppser_initialize(out_dir, 'fnan', 'w')
+               call fs_add_serializer_metainfo(ppser_serializer, 'nan_r4', nan32)
+               call fs_add_serializer_metainfo(ppser_serializer, 'nan_r8', nan64)
+               call fs_add_serializer_metainfo(ppser_serializer, 'nan_arr', nanvec)
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_add_savepoint_metainfo(ppser_savepoint, 'sp_nan', nan64)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', uo)
+               call ppser_finalize()
+               ! Re-open read-only and replay the SAME NaN metainfo. With the
+               ! bug present, validation aborts with "value mismatch"; with
+               ! the fix it round-trips cleanly.
+               call ppser_initialize(out_dir, 'fnan', 'r')
+               call fs_add_serializer_metainfo(ppser_serializer, 'nan_r4', nan32)
+               call fs_add_serializer_metainfo(ppser_serializer, 'nan_r8', nan64)
+               call fs_add_serializer_metainfo(ppser_serializer, 'nan_arr', nanvec)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_add_savepoint_metainfo(ppser_savepoint, 'sp_nan', nan64)
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: nan-metainfo-roundtrip OK'
+               stop
+            end block
+         else if (scenario == 'explicit-ref-tracer-kbuff') then
+            ! Issue #81 item 4: with an explicit directory_ref / prefix_ref,
+            ! DATA, TRACER, and KBUFF reads must ALL resolve against the
+            ! reference store, not the primary. The primary store carries
+            ! deliberately WRONG values; only the reference holds the right
+            ! ones, so a read that returns the reference values proves all
+            ! three paths honour the ref serializer.
+            block
+               real(real64), target :: trc(3)
+               real(real64) :: u_back(3), tslice(3), cslice0(3)
+               integer, parameter :: ke = 2
+               integer :: i, kk
+               ! --- Reference store: the values the reads must recover. ---
+               call ppser_initialize(out_dir, 'fref2', 'w')
+               do i = 1, 3
+                  trc(i) = 200.0_real64 + real(i, real64)
+               end do
+               call ppser_register_tracer('q', trc, stype='tens')
+               call fs_RegisterAllTracers()
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               u_back = [201.0_real64, 202.0_real64, 203.0_real64]
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u_back)
+               call ppser_write_tracer_by_name('q', stype='tens')
+               do kk = 1, ke
+                  do i = 1, 3
+                     tslice(i) = 200.0_real64 + real(10*i + kk, real64)
+                  end do
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'c', &
+                                      tslice, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+               end do
+               call ppser_finalize()
+               ! --- Primary store: same schema, WRONG values (100-based). ---
+               call ppser_initialize(out_dir, 'fprim2', 'w')
+               do i = 1, 3
+                  trc(i) = 100.0_real64 + real(i, real64)
+               end do
+               call ppser_register_tracer('q', trc, stype='tens')
+               call fs_RegisterAllTracers()
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               u_back = [101.0_real64, 102.0_real64, 103.0_real64]
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u_back)
+               call ppser_write_tracer_by_name('q', stype='tens')
+               do kk = 1, ke
+                  do i = 1, 3
+                     tslice(i) = 100.0_real64 + real(10*i + kk, real64)
+                  end do
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'c', &
+                                      tslice, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+               end do
+               call ppser_finalize()
+               ! --- Read primary with reference; expect reference values. ---
+               trc = 0.0_real64
+               call ppser_initialize(out_dir, 'fprim2', 'r', &
+                                     directory_ref=out_dir, prefix_ref='fref2')
+               call ppser_register_tracer('q', trc, stype='tens')
+               call fs_RegisterAllTracers()
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               ! DATA read (already known to honour the ref): sanity check.
+               u_back = 0.0_real64
+               call fs_read_field(ppser_serializer_ref, ppser_savepoint, 'u', &
+                                  u_back)
+               do i = 1, 3
+                  if (u_back(i) /= 200.0_real64 + real(i, real64)) error stop &
+                     'explicit-ref: DATA read returned primary data'
+               end do
+               ! TRACER read: must land the reference values in trc.
+               call ppser_write_tracer_by_name('q', stype='tens')
+               do i = 1, 3
+                  if (trc(i) /= 200.0_real64 + real(i, real64)) error stop &
+                     'explicit-ref: TRACER read returned primary data'
+               end do
+               ! KBUFF read: each level must come from the reference store.
+               do kk = 1, ke
+                  cslice0 = 0.0_real64
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 'c', &
+                                      cslice0, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+                  do i = 1, 3
+                     if (cslice0(i) /= 200.0_real64 + real(10*i + kk, real64)) &
+                        error stop 'explicit-ref: KBUFF read returned primary data'
+                  end do
+               end do
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: explicit-ref-tracer-kbuff OK'
+               stop
+            end block
+         else if (scenario == 'read-python-store') then
+            ! Issue #68: reverse-direction wire-compat — Python writes a
+            ! preserf store (tests/_support/storage.py write_dump), then the
+            ! Fortran helper opens it READ-ONLY and reads the fields back.
+            !
+            ! Every other cross-language test is "Fortran writes -> Python
+            ! reads", so the Fortran writer and reader could share a
+            ! symmetric encoding quirk (axis order, registry layout, an
+            ! attribute convention) that no test catches. Driving
+            ! fs_read_field against a store the Fortran side never produced
+            ! exercises the read path against an independent producer.
+            !
+            ! A third argument selects the backend so the SAME scenario
+            ! covers both 'netcdf4' and 'nczarr-v2'. The Python side
+            ! (tests/integration_tests/test_fortran_wire_compat.py) writes
+            ! the store with matching field shapes / values, then runs this
+            ! scenario and asserts a clean exit.
+            !
+            ! Field layout (declared here in Fortran column-major order;
+            ! the Python writer stores the C-order reverse, and the helper
+            ! reverses again on read, so Fortran sees u(i,j,k) etc.):
+            !   u(4,3,2)  u(i,j,k) = 100*i + 10*j + k
+            !   v(5)      v(i)     = real(i)
+            !   w(3,4)    w(i,j)   = 10*i + j
+            block
+               character(len=:), allocatable :: backend
+               integer :: b_len, b_stat
+               real(real64) :: pu(4, 3, 2), pv(5), pw(3, 4)
+               integer :: pi, pj, pk
+               if (command_argument_count() < 3) error stop &
+                  'read-python-store: missing backend argument (3rd arg)'
+               call get_command_argument(3, length=b_len, status=b_stat)
+               if (b_stat /= 0) error stop &
+                  'read-python-store: get_command_argument(3,length) failed'
+               allocate (character(len=b_len) :: backend)
+               call get_command_argument(3, value=backend, status=b_stat)
+               if (b_stat /= 0) error stop &
+                  'read-python-store: get_command_argument(3,value) failed'
+
+               ! Open the Python-written store read-only. The 'r' mode +
+               ! the matching backend make ppser_initialize resolve the
+               ! existing store (a .nc file for netcdf4, a .zarr directory
+               ! store for nczarr-v2) rather than create one.
+               call ppser_initialize(out_dir, 'fpystore', 'r', backend=backend)
+               if (ppser_get_mode() /= 1) error stop &
+                  'read-python-store: read open should set mode 1'
+
+               ! REGISTER in read mode resolves + validates each /_fields
+               ! entry Python wrote (type_id, C-order dims, halos). A
+               ! mismatch between the Python writer's registry and the
+               ! Fortran reader's expectation aborts here — that is the
+               ! cross-producer check this scenario exists for.
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 4, 3, 2, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'v', 'double', &
+                                      ppser_reallength, 5, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'w', 'double', &
+                                      ppser_reallength, 3, 4, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+
+               call fs_create_savepoint('step', ppser_savepoint)
+               if (ppser_savepoint%idx /= 0) error stop &
+                  'read-python-store: savepoint should resolve idx 0'
+
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', pu)
+               do pk = 1, 2
+                  do pj = 1, 3
+                     do pi = 1, 4
+                        if (pu(pi, pj, pk) /= &
+                            real(100*pi + 10*pj + pk, real64)) error stop &
+                           'read-python-store: u value/axis-order mismatch'
+                     end do
+                  end do
+               end do
+
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'v', pv)
+               do pi = 1, 5
+                  if (pv(pi) /= real(pi, real64)) error stop &
+                     'read-python-store: v value mismatch'
+               end do
+
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'w', pw)
+               do pj = 1, 4
+                  do pi = 1, 3
+                     if (pw(pi, pj) /= real(10*pi + pj, real64)) error stop &
+                        'read-python-store: w value/axis-order mismatch'
+                  end do
+               end do
+
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: read-python-store OK'
+               stop
             end block
          else
             write (*, '(a,a)') &
@@ -1613,6 +2855,134 @@ contains
       if (ios == 0) close (unit, status='delete')
    end subroutine delete_if_exists
 
+   !> Recursively delete a directory store (e.g. a `.zarr` directory) if it
+   !> exists. The backend-env scenario uses this to clear a store left by a
+   !> prior run before asserting on its existence, since the ctest output
+   !> dir is reused, not cleaned. Fortran has no intrinsic directory remove,
+   !> so shell out to `rm -rf` (the test harness already targets POSIX
+   !> shells via the ctest COMMAND list).
+   subroutine delete_dir_if_exists(path)
+      character(len=*), intent(in) :: path
+      ! Delegate to remove_dir_recursive which single-quotes the path and
+      ! escapes embedded single quotes via the '\'' idiom, preventing shell
+      ! metacharacter injection for any path the test harness could produce.
+      call remove_dir_recursive(path)
+   end subroutine delete_dir_if_exists
+
+   !> Round-trip a `real64` field of length `n` (values `base + i`) through a
+   !> RELATIVE nczarr-v2 directory and assert the store lands at exactly
+   !> `<CWD>/<reldir>/<prefix>.zarr`. Shared by the backend-nczarr-relpath
+   !> (#49) and resolve-relpath (#63) scenarios: both prove a relative
+   !> `directory` is resolved against the process CWD (getcwd(3)) rather than
+   !> rejected or mis-targeted. Any store left by a prior ctest run is cleared
+   !> first (the output dir is reused, not cleaned), so a stale store cannot
+   !> satisfy the existence check after a write that landed at a corrupted
+   !> absolute path. `tag` names the calling scenario in failure diagnostics.
+   subroutine roundtrip_nczarr_relpath(tag, reldir, prefix, n, base)
+      character(len=*), intent(in) :: tag, reldir, prefix
+      integer, intent(in) :: n
+      real(real64), intent(in) :: base
+      real(real64) :: uz(n), uz_back(n)
+      integer :: i
+      logical :: store_exists
+      character(len=:), allocatable :: store
+      store = reldir//'/'//prefix//'.zarr'
+      do i = 1, n
+         uz(i) = base + real(i, real64)
+      end do
+      call delete_dir_if_exists(store)
+      call ppser_initialize(reldir, prefix, 'w', backend='nczarr-v2')
+      call fs_register_field(ppser_serializer, 'u', 'double', &
+                             ppser_reallength, n, 0, 0, 0, &
+                             0, 0, 0, 0, 0, 0, 0, 0)
+      call fs_create_savepoint('step', ppser_savepoint)
+      call fs_write_field(ppser_serializer, ppser_savepoint, 'u', uz)
+      call ppser_finalize()
+      ! The store must exist at <CWD>/<reldir>/<prefix>.zarr, proving the
+      ! relative directory resolved against the process CWD — the inquire path
+      ! is itself relative, so it resolves against the same CWD. A corrupted
+      ! resolution would target a garbage absolute path, absent here.
+      inquire (file=store//'/.zgroup', exist=store_exists)
+      if (.not. store_exists) inquire (file=store, exist=store_exists)
+      if (.not. store_exists) then
+         write (error_unit, '(a)') tag// &
+            ': store not created at resolved relative path '//store
+         error stop 1
+      end if
+      ! Re-open via the SAME relative directory and read back, proving read
+      ! resolves to the identical absolute path the write used.
+      call ppser_initialize(reldir, prefix, 'r', backend='nczarr-v2')
+      call fs_register_field(ppser_serializer, 'u', 'double', &
+                             ppser_reallength, n, 0, 0, 0, &
+                             0, 0, 0, 0, 0, 0, 0, 0)
+      call fs_create_savepoint('step', ppser_savepoint)
+      call fs_read_field(ppser_serializer, ppser_savepoint, 'u', uz_back)
+      do i = 1, n
+         if (uz_back(i) /= base + real(i, real64)) then
+            write (error_unit, '(a)') tag//': data round-trip mismatch'
+            error stop 1
+         end if
+      end do
+      call ppser_finalize()
+   end subroutine roundtrip_nczarr_relpath
+
+   !> Recursively remove a directory subtree (`rm -rf`) if it exists. The
+   !> init-mkdir scenario uses this to clear a nested output directory that
+   !> a prior run may have left behind, so the "directory was missing
+   !> before init" precondition genuinely holds (the ctest output dir is
+   !> reused, not cleaned). `rm -rf` is a no-op on a missing path, so the
+   !> exit status is asserted only to surface a real removal failure.
+   subroutine remove_dir_recursive(path)
+      character(len=*), intent(in) :: path
+      integer :: exitstat, cmdstat, i
+      character(len=:), allocatable :: escaped
+      ! Single-quote the path so spaces and shell metacharacters are taken
+      ! literally; embedded single quotes are escaped via the standard
+      ! '\'' close-reopen idiom (mirroring preserf_ensure_directory, whose
+      ! replace_single_quotes helper is private to utils_preserf) so a quote
+      ! in the path cannot break out of the quoting. `--` terminates option
+      ! parsing so a path beginning with `-` is treated as an operand rather
+      ! than an `rm` flag.
+      escaped = ''
+      do i = 1, len_trim(path)
+         if (path(i:i) == "'") then
+            escaped = escaped//"'\''"
+         else
+            escaped = escaped//path(i:i)
+         end if
+      end do
+      call execute_command_line("rm -rf -- '"//escaped//"'", &
+                                wait=.true., exitstat=exitstat, cmdstat=cmdstat)
+      ! Test cmdstat FIRST: per the Fortran standard, exitstat is not
+      ! guaranteed to be defined when cmdstat is non-zero, and `.or.` is not
+      ! guaranteed to short-circuit, so reading exitstat in the same condition
+      ! could read an undefined value. Split the checks (mirroring the
+      ! cmdstat-then-exitstat ordering in preserf_ensure_directory).
+      ! `error stop` only takes a constant message, so emit the offending
+      ! path (which CI needs to diagnose the failure) to stderr first.
+      if (cmdstat /= 0) then
+         write (error_unit, '(a)') &
+            'remove_dir_recursive: failed to clear precondition directory: '// &
+            trim(path)
+         error stop 'remove_dir_recursive: failed to clear precondition directory'
+      end if
+      if (exitstat /= 0) then
+         write (error_unit, '(a)') &
+            'remove_dir_recursive: failed to clear precondition directory: '// &
+            trim(path)
+         error stop 'remove_dir_recursive: failed to clear precondition directory'
+      end if
+   end subroutine remove_dir_recursive
+
+   !> Return .true. iff `path` is an existing directory. gfortran's
+   !> `inquire(file=...//'/.', exist=)` form detects a directory (the
+   !> trailing `/.` only resolves when the path is a directory), which a
+   !> bare `inquire(file=path)` does not portably do.
+   logical function dir_exists(path)
+      character(len=*), intent(in) :: path
+      inquire (file=trim(path)//'/.', exist=dir_exists)
+   end function dir_exists
+
    !> Register a field of the given datatype and (i,j,k,l) sizes with all
    !> halos zero, against the module-level ppser_serializer. Keeps the
    !> wire-matrix scenario's 25 registrations terse.
@@ -1696,6 +3066,148 @@ contains
       call nc_must(nf90_put_var(spid, uvid, vals), 'put_var sp_000000/u')
       call nc_must(nf90_close(ncid), 'nf90_close')
    end subroutine build_xtype_mismatch_store
+
+   !> Issue #70 tracer counterpart of build_xtype_mismatch_store: a
+   !> schema-valid store whose `/_tracers/q` descriptor records type_id
+   !> FLOAT64 and dims [3] but whose savepoints/sp_000000/q variable is
+   !> NF90_FLOAT. validate_registered_tracer (descriptor-only) passes, so
+   !> this isolates the read-side require_variable_layout rejection on the
+   !> tracer read branch.
+   subroutine build_tracer_xtype_mismatch_store(path)
+      use netcdf
+      character(len=*), intent(in) :: path
+      integer :: ncid, tgid, vid, spsid, spid, dimid, qvid, fgid
+      integer(int32) :: schema, tid_f64, idx0, dimsvec(1)
+      real(real32) :: vals(3)
+
+      schema = 1_int32        ! PRESERF_SCHEMA_VERSION
+      tid_f64 = 5_int32       ! TID_FLOAT64
+      idx0 = 0_int32
+      dimsvec = [3_int32]
+      vals = [1.0_real32, 2.0_real32, 3.0_real32]
+
+      call nc_must(nf90_create(path, NF90_NETCDF4, ncid), 'nf90_create')
+      call nc_must(nf90_put_att(ncid, NF90_GLOBAL, '_preserf_schema_version', &
+                                schema), 'put_att _preserf_schema_version')
+      ! Read open expects the `/_fields` skeleton group even when this store
+      ! carries only tracers; create it empty.
+      call nc_must(nf90_def_grp(ncid, '_fields', fgid), 'def_grp _fields')
+      ! /_tracers/q descriptor carrier (scalar NF90_INT) with type_id, dims,
+      ! stype, tracer_index — mirrors write_tracer_descriptor.
+      call nc_must(nf90_def_grp(ncid, '_tracers', tgid), 'def_grp _tracers')
+      call nc_must(nf90_def_var(tgid, 'q', NF90_INT, vid), 'def_var /_tracers/q')
+      call nc_must(nf90_put_att(tgid, vid, 'type_id', tid_f64), 'put_att type_id')
+      call nc_must(nf90_put_att(tgid, vid, 'dims', dimsvec), 'put_att dims')
+      call nc_must(nf90_put_att(tgid, vid, 'stype', ''), 'put_att stype')
+      call nc_must(nf90_put_att(tgid, vid, 'tracer_index', 1_int32), &
+                   'put_att tracer_index')
+      ! Savepoint group with a FLOAT32 data variable (the inconsistency).
+      call nc_must(nf90_def_grp(ncid, 'savepoints', spsid), 'def_grp savepoints')
+      call nc_must(nf90_def_grp(spsid, 'sp_000000', spid), 'def_grp sp_000000')
+      call nc_must(nf90_put_att(spid, NF90_GLOBAL, '_preserf_savepoint_index', &
+                                idx0), 'put_att _preserf_savepoint_index')
+      call nc_must(nf90_put_att(spid, NF90_GLOBAL, 'name', 'step'), 'put_att name')
+      call nc_must(nf90_def_dim(spid, 'q_dim0', 3, dimid), 'def_dim q_dim0')
+      call nc_must(nf90_def_var(spid, 'q', NF90_FLOAT, [dimid], qvid), &
+                   'def_var sp_000000/q (float32)')
+      call nc_must(nf90_put_var(tgid, vid, 0_int32), 'put_var tracer descriptor')
+      call nc_must(nf90_put_var(spid, qvid, vals), 'put_var sp_000000/q')
+      call nc_must(nf90_close(ncid), 'nf90_close')
+   end subroutine build_tracer_xtype_mismatch_store
+
+   !> Issue #70 k-buffer counterpart of build_xtype_mismatch_store: a
+   !> schema-valid store whose `/_fields/t` registry records type_id
+   !> FLOAT64 and C-order dims [4,2,3] (Fortran shape 3 x 2 x 4) but whose
+   !> savepoints/sp_000000/t variable is NF90_FLOAT. validate_field_shape
+   !> (registry-only) passes, so this isolates the require_variable_layout
+   !> rejection inside kbuff_load_full.
+   subroutine build_kbuff_xtype_mismatch_store(path)
+      use netcdf
+      character(len=*), intent(in) :: path
+      integer :: ncid, fgid, vid, spsid, spid, di, dj, dk, tvid
+      integer(int32) :: schema, tid_f64, idx0, dimsvec(3)
+      real(real32) :: vals(3, 2, 4)
+
+      schema = 1_int32        ! PRESERF_SCHEMA_VERSION
+      tid_f64 = 5_int32       ! TID_FLOAT64
+      idx0 = 0_int32
+      ! Registry dims are C-order (slowest-first): Fortran shape [3,2,4]
+      ! => C-order [4,2,3].
+      dimsvec = [4_int32, 2_int32, 3_int32]
+      vals = 1.0_real32
+
+      call nc_must(nf90_create(path, NF90_NETCDF4, ncid), 'nf90_create')
+      call nc_must(nf90_put_att(ncid, NF90_GLOBAL, '_preserf_schema_version', &
+                                schema), 'put_att _preserf_schema_version')
+      call nc_must(nf90_def_grp(ncid, '_fields', fgid), 'def_grp _fields')
+      call nc_must(nf90_def_var(fgid, 't', NF90_INT, vid), 'def_var /_fields/t')
+      call nc_must(nf90_put_att(fgid, vid, 'type_id', tid_f64), 'put_att type_id')
+      call nc_must(nf90_put_att(fgid, vid, 'dims', dimsvec), 'put_att dims')
+      call nc_must(nf90_def_grp(ncid, 'savepoints', spsid), 'def_grp savepoints')
+      call nc_must(nf90_def_grp(spsid, 'sp_000000', spid), 'def_grp sp_000000')
+      call nc_must(nf90_put_att(spid, NF90_GLOBAL, '_preserf_savepoint_index', &
+                                idx0), 'put_att _preserf_savepoint_index')
+      call nc_must(nf90_put_att(spid, NF90_GLOBAL, 'name', 'step'), 'put_att name')
+      ! netcdf-fortran takes def_var dimids in Fortran order (fastest-first)
+      ! and reverses them for the C library, so the on-disk variable reports
+      ! C-order dims matching the registry `dims` attribute. Match the
+      ! writer's ensure_dims naming: t_dim0 is the slowest (C) axis = k(4).
+      call nc_must(nf90_def_dim(spid, 't_dim0', 4, dk), 'def_dim t_dim0')
+      call nc_must(nf90_def_dim(spid, 't_dim1', 2, dj), 'def_dim t_dim1')
+      call nc_must(nf90_def_dim(spid, 't_dim2', 3, di), 'def_dim t_dim2')
+      call nc_must(nf90_def_var(spid, 't', NF90_FLOAT, [di, dj, dk], tvid), &
+                   'def_var sp_000000/t (float32)')
+      call nc_must(nf90_put_var(spid, tvid, vals), 'put_var sp_000000/t')
+      call nc_must(nf90_close(ncid), 'nf90_close')
+   end subroutine build_kbuff_xtype_mismatch_store
+
+   !> Issue #70 larger-extent counterpart for the k-buffer read path: a
+   !> schema-valid store whose `/_fields/t` registry records type_id
+   !> FLOAT64 and C-order dims [4,2,3] (Fortran shape 3 x 2 x 4) but whose
+   !> savepoints/sp_000000/t variable is FLOAT64 with the *larger* Fortran
+   !> shape [4,2,4] (C-order [4,2,4]). The on-disk dtype matches, so this
+   !> isolates the require_variable_layout extent rejection that stops
+   !> nf90_get_var from silently sub-sampling a larger on-disk variable
+   !> (the second failure mode named in issue #70) inside kbuff_load_full.
+   subroutine build_kbuff_extent_mismatch_store(path)
+      use netcdf
+      character(len=*), intent(in) :: path
+      integer :: ncid, fgid, vid, spsid, spid, di, dj, dk, tvid
+      integer(int32) :: schema, tid_f64, idx0, dimsvec(3)
+      real(real64) :: vals(4, 2, 4)
+
+      schema = 1_int32        ! PRESERF_SCHEMA_VERSION
+      tid_f64 = 5_int32       ! TID_FLOAT64
+      idx0 = 0_int32
+      ! Registry dims are C-order (slowest-first): expected Fortran shape
+      ! [3,2,4] => C-order [4,2,3].
+      dimsvec = [4_int32, 2_int32, 3_int32]
+      vals = 1.0_real64
+
+      call nc_must(nf90_create(path, NF90_NETCDF4, ncid), 'nf90_create')
+      call nc_must(nf90_put_att(ncid, NF90_GLOBAL, '_preserf_schema_version', &
+                                schema), 'put_att _preserf_schema_version')
+      call nc_must(nf90_def_grp(ncid, '_fields', fgid), 'def_grp _fields')
+      call nc_must(nf90_def_var(fgid, 't', NF90_INT, vid), 'def_var /_fields/t')
+      call nc_must(nf90_put_att(fgid, vid, 'type_id', tid_f64), 'put_att type_id')
+      call nc_must(nf90_put_att(fgid, vid, 'dims', dimsvec), 'put_att dims')
+      call nc_must(nf90_def_grp(ncid, 'savepoints', spsid), 'def_grp savepoints')
+      call nc_must(nf90_def_grp(spsid, 'sp_000000', spid), 'def_grp sp_000000')
+      call nc_must(nf90_put_att(spid, NF90_GLOBAL, '_preserf_savepoint_index', &
+                                idx0), 'put_att _preserf_savepoint_index')
+      call nc_must(nf90_put_att(spid, NF90_GLOBAL, 'name', 'step'), 'put_att name')
+      ! Define dims in Fortran order (fastest-first). The fastest axis is 4
+      ! on disk but the registry/expected shape says 3, so the on-disk
+      ! variable is strictly larger and nf90_get_var would otherwise read a
+      ! [3,2,4] corner sub-array without complaint.
+      call nc_must(nf90_def_dim(spid, 't_dim0', 4, dk), 'def_dim t_dim0')
+      call nc_must(nf90_def_dim(spid, 't_dim1', 2, dj), 'def_dim t_dim1')
+      call nc_must(nf90_def_dim(spid, 't_dim2', 4, di), 'def_dim t_dim2')
+      call nc_must(nf90_def_var(spid, 't', NF90_DOUBLE, [di, dj, dk], tvid), &
+                   'def_var sp_000000/t (float64, larger extent)')
+      call nc_must(nf90_put_var(spid, tvid, vals), 'put_var sp_000000/t')
+      call nc_must(nf90_close(ncid), 'nf90_close')
+   end subroutine build_kbuff_extent_mismatch_store
 
    !> Abort the test build if a raw netCDF call in
    !> build_xtype_mismatch_store failed. Unchecked errors there could

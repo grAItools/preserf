@@ -7,7 +7,7 @@ source into explicit serialization calls implemented in helper modules.
 The source code is split into two main parts:
 
 - `src/preserf/`: the preprocessor engine and CLI.
-- `src/preserf-fortran/`: Fortran helper modules that provide the runtime API
+- `src/preserf/fortran/`: Fortran helper modules that provide the runtime API
   targeted by generated code.
 
 ## Stack

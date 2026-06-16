@@ -1,30 +1,52 @@
 """Tests for the preserf CLI."""
 
+from importlib import metadata
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 import preserf
-from preserf.cli import _collect, app
+from preserf.cli import _collect, _is_fortran, app
 
 runner = CliRunner()
 
 _SOURCE = "module m\n!$SER ON\nend module m\n"
 
 
-def test_version_string() -> None:
-    assert preserf.__version__ == "0.1.0"
+def test_version_matches_package_metadata() -> None:
+    # __version__ is the single source of truth (the hatch version source);
+    # the installed package metadata must derive from it, never drift.
+    assert preserf.__version__ == metadata.version("preserf")
 
 
 def test_version_flag() -> None:
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
-    assert "0.1.0" in result.stdout
+    assert preserf.__version__ in result.stdout
 
 
 def test_no_inputs_is_error() -> None:
     result = runner.invoke(app, [])
     assert result.exit_code != 0
+
+
+def test_fortran_dir_flag() -> None:
+    # Prints the bundled runtime path and exits 0 without requiring SOURCE
+    # args, so a build system can capture `$(preserf --fortran-dir)`.
+    result = runner.invoke(app, ["--fortran-dir"])
+    assert result.exit_code == 0
+    out = result.stdout.strip()
+    assert Path(out).is_dir()
+    assert (Path(out) / "m_preserf.F90").is_file()
+
+
+def test_cmake_helper_flag() -> None:
+    result = runner.invoke(app, ["--cmake-helper"])
+    assert result.exit_code == 0
+    out = result.stdout.strip()
+    assert out.endswith("PreserfFortran.cmake")
+    assert Path(out).is_file()
 
 
 def test_processes_file_to_stdout(tmp_path: Path) -> None:
@@ -54,6 +76,31 @@ def test_output_dir(tmp_path: Path) -> None:
     assert (out_dir / "in.f90").is_file()
 
 
+def test_output_and_output_dir_are_mutually_exclusive(tmp_path: Path) -> None:
+    src = tmp_path / "in.f90"
+    src.write_text(_SOURCE)
+    result = runner.invoke(
+        app, [str(src), "-o", str(tmp_path / "o.f90"), "-d", str(tmp_path / "gen")]
+    )
+    assert result.exit_code == 1
+    assert "mutually exclusive" in result.stderr
+
+
+def test_collect_picks_up_f95_and_f08(tmp_path: Path) -> None:
+    src = tmp_path / "src"
+    src.mkdir()
+    for name in ("a.f95", "b.f08", "c.f77", "d.for"):
+        (src / name).write_text(_SOURCE)
+    files = _collect([src], recursive=True)
+    assert {f.name for f in files} == {"a.f95", "b.f08", "c.f77", "d.for"}
+
+
+def test_is_fortran_recognises_new_suffixes() -> None:
+    for suffix in (".f95", ".f08", ".f77", ".for"):
+        assert _is_fortran(Path(f"x{suffix}"))
+    assert not _is_fortran(Path("x.txt"))
+
+
 def test_directive_error_returns_1(tmp_path: Path) -> None:
     src = tmp_path / "bad.f90"
     src.write_text("!$SER BOGUS\n")
@@ -78,6 +125,8 @@ def test_output_with_multiple_inputs_rejected(tmp_path: Path) -> None:
 
 
 def test_output_with_recursive_dir_rejected(tmp_path: Path) -> None:
+    # `-o` together with `-d` (which `-r` requires) is now rejected up front as
+    # mutually exclusive, before reaching the single-input check.
     src = tmp_path / "src"
     src.mkdir()
     (src / "a.f90").write_text(_SOURCE)
@@ -87,7 +136,7 @@ def test_output_with_recursive_dir_rejected(tmp_path: Path) -> None:
         app, [str(src), "-r", "-d", str(out_dir), "-o", str(tmp_path / "o.f90")]
     )
     assert result.exit_code == 1
-    assert "single input" in result.stderr
+    assert "mutually exclusive" in result.stderr
 
 
 def test_recursive_requires_output_dir(tmp_path: Path) -> None:
@@ -144,3 +193,108 @@ def test_collect_deduplicates_via_resolved_identity(tmp_path: Path) -> None:
     aliased = tmp_path / "src" / ".." / "src"
     files = _collect([src, aliased], recursive=True)
     assert len(files) == 1
+
+
+def test_collect_directory_without_recursive_rejected(tmp_path: Path) -> None:
+    # A directory input without --recursive is a usage error surfaced as a
+    # ValueError that the CLI maps to exit code 1 (see test below).
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.f90").write_text(_SOURCE)
+    with pytest.raises(ValueError, match="use --recursive"):
+        _collect([src], recursive=False)
+
+
+def test_cli_directory_without_recursive(tmp_path: Path) -> None:
+    # End-to-end: the ValueError from _collect becomes a clean exit 1 with a
+    # diagnostic, not a traceback.
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.f90").write_text(_SOURCE)
+    result = runner.invoke(app, [str(src)])
+    assert result.exit_code == 1
+    assert "use --recursive" in result.stderr
+
+
+def test_collect_skips_non_fortran_extension(tmp_path: Path) -> None:
+    # Recursing a directory must pick up Fortran sources and skip everything
+    # else (a .txt sibling here), so non-source files aren't preprocessed.
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.f90").write_text(_SOURCE)
+    (src / "notes.txt").write_text("not fortran\n")
+    files = _collect([src], recursive=True)
+    assert [f.name for f in files] == ["a.f90"]
+
+
+# --- CLI flags exercised end-to-end through the typer plumbing -------------
+#
+# Each flag is tested only at the Options level elsewhere; these assert that
+# the flag actually reaches the generated output via the CLI. The source
+# names a field/savepoint distinct from any module name so a `--module foo`
+# match cannot be confused with a same-named identifier in the body.
+_FLAG_SOURCE = (
+    "subroutine s(x)\n"
+    "real, intent(in) :: x\n"
+    "!$SER ON\n"
+    "!$SER ZERO fld\n"
+    "!$SER SAVEPOINT step\n"
+    "!$SER ACCDATA data=x\n"
+    "end subroutine s\n"
+)
+
+
+def _run_source(tmp_path: Path, source: str, *flags: str) -> str:
+    src = tmp_path / "in.f90"
+    src.write_text(source)
+    result = runner.invoke(app, [str(src), *flags])
+    assert result.exit_code == 0, result.stdout
+    return result.stdout
+
+
+def test_cli_module_flag(tmp_path: Path) -> None:
+    # --module / Options.module: the fs_* USE import targets the named module.
+    out = _run_source(tmp_path, _FLAG_SOURCE, "--module", "foo")
+    assert "USE foo, ONLY:" in out
+    assert "USE m_serialize" not in out
+
+
+def test_cli_module_flag_default(tmp_path: Path) -> None:
+    # Default Options.module is m_serialize when --module is omitted.
+    out = _run_source(tmp_path, _FLAG_SOURCE)
+    assert "USE m_serialize, ONLY:" in out
+
+
+def test_cli_no_prefix_flag(tmp_path: Path) -> None:
+    # --no-prefix suppresses the `#define ACC_PREFIX !$acc` header line.
+    assert "#define ACC_PREFIX !$acc" in _run_source(tmp_path, _FLAG_SOURCE)
+    assert "#define ACC_PREFIX" not in _run_source(
+        tmp_path, _FLAG_SOURCE, "--no-prefix"
+    )
+
+
+def test_cli_acc_if_flag(tmp_path: Path) -> None:
+    # --acc-if appends an IF clause to generated OpenACC UPDATE directives.
+    out = _run_source(tmp_path, _FLAG_SOURCE, "--acc-if", "lacc")
+    assert "ACC_PREFIX UPDATE HOST ( x ), IF (lacc)" in out
+
+
+def test_cli_sp_as_var_flag(tmp_path: Path) -> None:
+    # --sp-as-var passes the savepoint name as a bare variable, not a literal.
+    assert "fs_create_savepoint('step'," in _run_source(tmp_path, _FLAG_SOURCE)
+    assert "fs_create_savepoint(step," in _run_source(
+        tmp_path, _FLAG_SOURCE, "--sp-as-var"
+    )
+
+
+def test_cli_ifdef_flag(tmp_path: Path) -> None:
+    # --ifdef changes the C-preprocessor guard symbol from the default.
+    out = _run_source(tmp_path, _FLAG_SOURCE, "--ifdef", "MYGUARD")
+    assert "#ifdef MYGUARD" in out
+    assert "#ifdef SERIALIZE" not in out
+
+
+def test_cli_real_flag(tmp_path: Path) -> None:
+    # --real sets the real kind parameter the ZERO directive emits.
+    out = _run_source(tmp_path, _FLAG_SOURCE, "--real", "wp")
+    assert "fld = 0.0_wp" in out

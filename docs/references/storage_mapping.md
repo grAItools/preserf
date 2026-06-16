@@ -468,12 +468,17 @@ Resulting NetCDF4 / NCZarr store:
     A level outside `0..9` is rejected at `ppser_initialize` time.
 
   When enabled, `ensure_variable` (the field-write path) issues
-  `nf90_def_var_chunking(varid, NF90_CHUNKED, chunksizes)` followed by
-  `nf90_def_var_deflate(varid, shuffle=0, deflate=1, deflate_level=N)`.
+  `nf90_def_var_chunking(grpid, varid, NF90_CHUNKED, chunksizes)` followed by
+  `nf90_def_var_deflate(grpid, varid, shuffle=0, deflate=1, deflate_level=N)`
+  (both take the group/file id as their first argument).
   `chunksizes` is the full variable shape (one chunk per variable), which
-  matches preserf's one-write-per-`(savepoint, field)` model. A rank-0
-  (scalar) field has nothing to chunk, so both calls are skipped. The
-  read path needs no knob: netCDF decompresses transparently.
+  matches preserf's one-write-per-`(savepoint, field)` model. (HDF5 caps a
+  single chunk at 4 GiB, so a field larger than that is not yet handled — it
+  would fail at `nf90_def_var_chunking`; a chunk-shape heuristic that splits
+  very large fields into multiple chunks is a follow-up, alongside the
+  general chunking knob below.) A rank-0 (scalar) field has nothing to
+  chunk, so both calls are skipped. The read path needs no knob: netCDF
+  decompresses transparently.
 
   **Backend scope.** Compression is **NetCDF4-only** in this release.
   NCZarr deflate requires an HDF5 filter plugin that is not always present

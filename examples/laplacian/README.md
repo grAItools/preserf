@@ -5,6 +5,26 @@ Applies a 5-point Laplacian to a smooth field on a periodic grid in a short
 then re-runs the same iteration in numpy to verify the dumped values and plot
 the result.
 
+The example ships in **two build-system variants** that compile the _same_
+program from the _same_ shared source — they differ only in how they consume
+the `preserf_fortran` runtime:
+
+- [**`cmake/`**](cmake/) — the recommended path: consumes the runtime through
+  the shipped `PreserfFortran.cmake` helper (one `preserf_add_fortran_target()`
+  call does expand → compile → link). This is exactly what a `pip install
+  preserf` user gets, and what CI exercises.
+- [**`make/`**](make/) — installs the runtime once with CMake and then drives
+  the preprocess → compile → link steps from a hand-written `Makefile`,
+  demonstrating that the runtime is consumable from a non-CMake build system and
+  spelling out the recipe the helper otherwise hides.
+
+Shared between them, in this directory:
+
+- [`laplacian.f90`](laplacian.f90) — the `!$SER`-annotated source (single
+  source of truth, two build systems).
+- [`verify.py`](verify.py) — loads the store, re-runs the iteration in numpy,
+  checks every step, and plots the result.
+
 ## The problem
 
 On the periodic domain `[0, 2π)²` sampled at 100×100 points (spacing
@@ -66,20 +86,22 @@ end do
    Laplacian, and their difference (which is numerical noise — they agree to
    machine precision).
 
-## Run it
+Both variants produce the same `out/laplacian.nc`, so the same `verify.py`
+checks either one:
 
 ```sh
-pixi run -e examples bash examples/laplacian/run.sh
-pixi run -e examples python examples/laplacian/verify.py examples/laplacian/out/laplacian.nc
+pixi run -e examples python examples/laplacian/verify.py \
+    examples/laplacian/cmake/out/laplacian.nc       # or make/out/laplacian.nc
 ```
 
-`run.sh` writes three things under this folder:
+## Run it
 
-- `build/laplacian.F90` — the expanded source (open it to see the `!$SER`
-  directives turned into explicit serialization calls).
-- `build/laplacian` — the compiled binary. Run it as
-  `build/laplacian <outdir> [nsteps]` to change the iteration count.
-- `out/laplacian.nc` — the store, with one savepoint per step.
+Pick a variant and run its `run.sh` inside the `examples` pixi env:
 
-`verify.py` prints the per-step verification and writes `out/laplacian.png`
-with the three-panel comparison.
+```sh
+pixi run -e examples bash examples/laplacian/cmake/run.sh   # CMake helper
+pixi run -e examples bash examples/laplacian/make/run.sh    # install + plain make
+```
+
+See [`cmake/README.md`](cmake/README.md) and [`make/README.md`](make/README.md)
+for what each writes and how it works.

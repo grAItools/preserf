@@ -5,11 +5,13 @@ project(preserf_fortran_tests
 
 enable_testing()
 
-# Pull in the helper library. We pass an explicit binary subdirectory so
-# the library's build artefacts land in a predictable location under the
-# tests' build tree (e.g. build/preserf-fortran/preserf_fortran/...).
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../src/preserf-fortran
-                 preserf_fortran)
+# Build the runtime library through the SAME shipped CMake helper that the
+# e2e test and external consumers use, so the helper's library-build path is
+# exercised in CI. The call is idempotent: the e2e subtree calls it again via
+# preserf_add_fortran_target(), but the unit subtree below also needs the
+# `preserf_fortran` target when e2e is skipped, so define it here up front.
+include(${CMAKE_CURRENT_SOURCE_DIR}/../src/preserf/fortran/cmake/PreserfFortran.cmake)
+preserf_fortran_library()
 
 # Recurse into the per-module test subtrees. Each subdir is responsible
 # for `add_executable()` + `add_test()` + any CTest fixtures it needs.

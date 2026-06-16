@@ -1,6 +1,7 @@
 """Command-line interface for the preserf preprocessor."""
 
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
 
@@ -11,10 +12,15 @@ from rich.panel import Panel
 
 from preserf import __version__
 from preserf.errors import DirectiveError
+from preserf.fortran_dist import get_cmake_helper, get_fortran_dir
 from preserf.preprocessor import Options, Preprocessor
 
-# Extensions treated as Fortran source when expanding a directory.
-_FORTRAN_SUFFIXES = frozenset({".f90", ".f", ".f03", ".inc", ".incf"})
+# Extensions treated as Fortran source when expanding a directory. Covers the
+# free-form (.f90/.f95/.f03/.f08) and fixed-form (.f/.f77/.for) standards plus
+# the include-file conventions used in the wild (.inc/.incf).
+_FORTRAN_SUFFIXES = frozenset(
+    {".f90", ".f95", ".f03", ".f08", ".f", ".f77", ".for", ".inc", ".incf"}
+)
 
 # Diagnostics and progress go to stderr so they never corrupt the
 # preprocessed source written to stdout.
@@ -36,6 +42,22 @@ def _version_callback(value: bool) -> None:
     if value:
         Console().print(f"preserf {__version__}")
         raise typer.Exit()
+
+
+def _make_path_callback(getter: Callable[[], Path]) -> Callable[[bool], None]:
+    # A bare ``print`` (not the rich Console) keeps the path on one line with
+    # no width-based soft-wrapping, so ``$(preserf --fortran-dir)`` captures a
+    # clean, single-token path.
+    def _callback(value: bool) -> None:
+        if value:
+            print(getter())
+            raise typer.Exit()
+
+    return _callback
+
+
+_fortran_dir_callback = _make_path_callback(get_fortran_dir)
+_cmake_helper_callback = _make_path_callback(get_cmake_helper)
 
 
 def _is_fortran(path: Path) -> bool:
@@ -204,6 +226,24 @@ def main(
             help="Show the version and exit.",
         ),
     ] = False,
+    fortran_dir: Annotated[
+        bool,
+        typer.Option(
+            "--fortran-dir",
+            callback=_fortran_dir_callback,
+            is_eager=True,
+            help="Print the bundled Fortran runtime directory and exit.",
+        ),
+    ] = False,
+    cmake_helper: Annotated[
+        bool,
+        typer.Option(
+            "--cmake-helper",
+            callback=_cmake_helper_callback,
+            is_eager=True,
+            help="Print the bundled CMake helper module path and exit.",
+        ),
+    ] = False,
 ) -> None:
     """Expand !$SER serialization directives in Fortran source."""
     options = Options(
@@ -215,6 +255,9 @@ def main(
         sp_as_var=sp_as_var,
         modules=tuple(m.strip() for m in modules.split(",") if m.strip()),
     )
+
+    if output is not None and output_dir is not None:
+        raise _fail("--output and --output-dir are mutually exclusive")
 
     if recursive and output_dir is None:
         raise _fail("--recursive requires --output-dir")

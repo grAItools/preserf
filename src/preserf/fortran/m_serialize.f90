@@ -3,7 +3,7 @@
 !> pp_ser by default emits `USE m_serialize, ONLY: fs_write_field, ...`
 !> (configurable via `--module`). This module preserves the historical
 !> module identifier for the API surface documented in
-!> `src/preserf-fortran/README.md`: `fs_register_field`,
+!> `src/preserf/fortran/README.md`: `fs_register_field`,
 !> `fs_create_savepoint`, `fs_add_savepoint_metainfo`,
 !> `fs_add_serializer_metainfo`, `fs_write_field`, `fs_read_field`,
 !> `fs_enable_serialization`, `fs_disable_serialization`,

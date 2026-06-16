@@ -1,0 +1,34 @@
+@PACKAGE_INIT@
+
+# Package config for the installed `preserf_fortran` runtime library.
+#
+# A downstream project consumes the installed library with:
+#
+#     find_package(preserf_fortran REQUIRED)
+#     target_link_libraries(my_app PRIVATE preserf::preserf_fortran)
+#
+# Linking against the namespaced target pulls in the installed `.mod`
+# directory (added as an INSTALL_INTERFACE include path) and the transitive
+# `netcdf-fortran` link flags.
+#
+# `preserf_fortran` links against `netcdf-fortran`, discovered at build time
+# via pkg-config and exported into the targets file below as the IMPORTED
+# target `PkgConfig::NETCDF_FORTRAN`. That imported target is NOT installed
+# (it describes the build host's netcdf-fortran), so it must be recreated here
+# before the targets file is included, or the link reference would dangle.
+#
+# Guard the re-creation: a config file may be evaluated more than once in a
+# single configure (e.g. find_package(preserf_fortran) called from two
+# subdirectories, or alongside a consumer that discovers netcdf-fortran
+# itself), and a second pkg_check_modules() would abort trying to redefine the
+# existing PkgConfig::NETCDF_FORTRAN imported target. Skip it when it already
+# exists so the config stays idempotent.
+include(CMakeFindDependencyMacro)
+find_dependency(PkgConfig)
+if(NOT TARGET PkgConfig::NETCDF_FORTRAN)
+    pkg_check_modules(NETCDF_FORTRAN REQUIRED IMPORTED_TARGET netcdf-fortran)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/preserf_fortranTargets.cmake")
+
+check_required_components(preserf_fortran)
