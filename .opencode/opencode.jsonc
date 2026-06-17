@@ -30,28 +30,27 @@
     }
   },
 
-  // Event hooks (experimental) — parity with the .claude/settings.json hooks.
-  //  - file_edited: auto-format the edited file after each write/edit, the
-  //    same way Claude Code's PostToolUse hook does. OpenCode appends the
-  //    edited file's path to the command, so the trailing "--" yields
-  //    `pixi run fmt-<lang>-src -- <path>`.
-  //  - session_completed: run the verification gate when the session ends.
-  //    NOTE: unlike Claude Code's Stop hook, session_completed does NOT block
-  //    the session or feed failures back into the agent loop — it is a
-  //    best-effort run. Treat `/verify` (run during the session) and CI as the
-  //    enforcing gate. See docs/harness-usage.md.
-  "experimental": {
-    "hook": {
-      "file_edited": {
-        "*.py": [{ "command": ["pixi", "run", "fmt-py-src", "--"] }],
-        "*.f90": [{ "command": ["pixi", "run", "fmt-f-src", "--"] }],
-        "*.F90": [{ "command": ["pixi", "run", "fmt-f-src", "--"] }],
-        "*.f": [{ "command": ["pixi", "run", "fmt-f-src", "--"] }],
-        "*.F": [{ "command": ["pixi", "run", "fmt-f-src", "--"] }]
-      },
-      "session_completed": [
-        { "command": ["pixi", "run", "verify"] }
-      ]
+  // Auto-format edited files — OpenCode's native `formatter`, which runs after
+  // every write/edit (the analogue of Claude Code's PostToolUse format hook).
+  // We pin both languages to the repo's pixi tasks so editor-time formatting is
+  // byte-for-byte what `pixi run verify` (fmt-check) enforces, and disable the
+  // built-in `ruff` to avoid double-formatting Python. "$FILE" is replaced with
+  // the path of the edited file; matching is by `extensions`. See
+  // docs/harness-usage.md.
+  //
+  // Note: OpenCode has no config-level session-end hook, so there is no
+  // automatic verification gate here — run `/verify` during the session and
+  // rely on CI. Destructive-bash blocking is the `permission.bash` deny list
+  // above (command-prefix globs; see the doc for the caveat vs Claude Code).
+  "formatter": {
+    "ruff": { "disabled": true },
+    "preserf-python": {
+      "command": ["pixi", "run", "fmt-py-src", "--", "$FILE"],
+      "extensions": [".py"]
+    },
+    "preserf-fortran": {
+      "command": ["pixi", "run", "fmt-f-src", "--", "$FILE"],
+      "extensions": [".f90", ".F90", ".f", ".F"]
     }
   }
 }
