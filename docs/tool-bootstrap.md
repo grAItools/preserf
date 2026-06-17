@@ -18,6 +18,17 @@ Supported platforms: `linux-64`, `linux-aarch64`, `osx-arm64`.
 
 [`pixi`](https://pixi.sh) — conda-ecosystem project manager.
 
+The canonical, automated bootstrap is
+[`.agents/hooks/ensure-pixi.sh`](../.agents/hooks/ensure-pixi.sh): it installs
+`pixi` if it is missing, and is exactly what the Claude Code `SessionStart` hook
+and the web-environment setup script run. From the repo root:
+
+```sh
+sh .agents/hooks/ensure-pixi.sh
+```
+
+What that does under the hood (and how to install by hand):
+
 ```sh
 # macOS / Linux:
 curl -fsSL https://pixi.sh/install.sh | sh

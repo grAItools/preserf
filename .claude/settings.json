@@ -20,6 +20,16 @@
     ]
   },
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PROJECT_DIR:-.}/.agents/hooks/ensure-pixi.sh\""
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit|MultiEdit",
@@ -47,7 +57,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); [ \"$(printf '%s' \"$INPUT\" | jq -r '.stop_hook_active // false')\" = 'true' ] && exit 0; command -v pixi >/dev/null 2>&1 || exit 0; pixi run verify || exit 2"
+            "command": "INPUT=$(cat); [ \"$(printf '%s' \"$INPUT\" | jq -r '.stop_hook_active // false')\" = 'true' ] && exit 0; sh \"${CLAUDE_PROJECT_DIR:-.}/.agents/hooks/ensure-pixi.sh\" >&2 || true; export PATH=\"$HOME/.pixi/bin:$PATH\"; command -v pixi >/dev/null 2>&1 || { echo 'verify skipped: pixi unavailable (see docs/tool-bootstrap.md)' >&2; exit 0; }; pixi run verify || exit 2"
           }
         ]
       }

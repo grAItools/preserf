@@ -43,7 +43,9 @@ this file.
 
 ## Do
 
-- If `pixi` is not available, install it before starting any development work.
+- `pixi` is bootstrapped automatically at session start by
+  [`.agents/hooks/ensure-pixi.sh`](.agents/hooks/ensure-pixi.sh); if you land in a
+  bare shell without it, run that script (details in `docs/tool-bootstrap.md`).
 - Run `pixi run verify` before claiming a task is done.
 - For a net-new feature, follow the four-phase loop:
   `/spec` (Product Owner) → `/plan` (Architect) → `/build` (Developer)
