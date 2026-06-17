@@ -28,5 +28,30 @@
       "git reset --hard origin*": "deny",
       "rm -rf*": "deny"
     }
+  },
+
+  // Event hooks (experimental) — parity with the .claude/settings.json hooks.
+  //  - file_edited: auto-format the edited file after each write/edit, the
+  //    same way Claude Code's PostToolUse hook does. OpenCode appends the
+  //    edited file's path to the command, so the trailing "--" yields
+  //    `pixi run fmt-<lang>-src -- <path>`.
+  //  - session_completed: run the verification gate when the session ends.
+  //    NOTE: unlike Claude Code's Stop hook, session_completed does NOT block
+  //    the session or feed failures back into the agent loop — it is a
+  //    best-effort run. Treat `/verify` (run during the session) and CI as the
+  //    enforcing gate. See docs/opencode-usage.md.
+  "experimental": {
+    "hook": {
+      "file_edited": {
+        "*.py": [{ "command": ["pixi", "run", "fmt-py-src", "--"] }],
+        "*.f90": [{ "command": ["pixi", "run", "fmt-f-src", "--"] }],
+        "*.F90": [{ "command": ["pixi", "run", "fmt-f-src", "--"] }],
+        "*.f": [{ "command": ["pixi", "run", "fmt-f-src", "--"] }],
+        "*.F": [{ "command": ["pixi", "run", "fmt-f-src", "--"] }]
+      },
+      "session_completed": [
+        { "command": ["pixi", "run", "verify"] }
+      ]
+    }
   }
 }
