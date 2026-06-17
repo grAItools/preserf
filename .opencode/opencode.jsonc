@@ -15,15 +15,23 @@
   // read-only planning sessions.
   "default_agent": "build",
 
-  // Permission policy — mirrors .claude/settings.json deny list.
+  // Permission policy. The deny-list mirrors the canonical destructive-command
+  // matcher at .agents/hooks/block-destructive.sh (OpenCode cannot call a
+  // script, so these globs are kept in sync with it by hand). The allow-list
+  // matches .claude/settings.json: pixi is the build tool, plus read-only helpers.
   "permission": {
     "bash": {
-      "make *": "allow",
+      "pixi *": "allow",
       "git status": "allow",
       "git diff*": "allow",
       "git log*": "allow",
       "git show*": "allow",
       "rg *": "allow",
+      "ls *": "allow",
+      "cat *": "allow",
+      "head *": "allow",
+      "tail *": "allow",
+      "find *": "allow",
       "git push --force*": "deny",
       "git reset --hard origin*": "deny",
       "rm -rf*": "deny"

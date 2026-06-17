@@ -37,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'rm -rf|push --force|reset --hard|DROP TABLE' && exit 2 || exit 0"
+            "command": "echo \"$CLAUDE_TOOL_INPUT\" | sh \"${CLAUDE_PROJECT_DIR:-.}/.agents/hooks/block-destructive.sh\""
           }
         ]
       }
@@ -47,7 +47,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); [ \"$(printf \u0027%s\u0027 \"$INPUT\" | jq -r \u0027.stop_hook_active // false\u0027)\" = \u0027true\u0027 ] \u0026\u0026 exit 0; pixi run verify || exit 2"
+            "command": "INPUT=$(cat); [ \"$(printf '%s' \"$INPUT\" | jq -r '.stop_hook_active // false')\" = 'true' ] && exit 0; command -v pixi >/dev/null 2>&1 || exit 0; pixi run verify || exit 2"
           }
         ]
       }

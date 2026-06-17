@@ -39,6 +39,7 @@ this file.
 - Reference docs (specs / schemas too detailed for `docs/`): [`docs/references/`](docs/references/)
 - Per-feature specs: [`specs/<YYYY-MM>-<slug>/`](specs/)
 - Per-PR release history: [`CHANGELOG.md`](CHANGELOG.md)
+- Supported agents & how to add one: [`.agents/README.md`](.agents/README.md)
 
 ## Do
 
