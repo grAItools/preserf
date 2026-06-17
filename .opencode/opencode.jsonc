@@ -39,7 +39,7 @@
   //    NOTE: unlike Claude Code's Stop hook, session_completed does NOT block
   //    the session or feed failures back into the agent loop — it is a
   //    best-effort run. Treat `/verify` (run during the session) and CI as the
-  //    enforcing gate. See docs/opencode-usage.md.
+  //    enforcing gate. See docs/harness-usage.md.
   "experimental": {
     "hook": {
       "file_edited": {

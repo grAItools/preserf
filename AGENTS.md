@@ -33,7 +33,7 @@ this file.
 ## Where things live (capabilities, not paths)
 
 - Architecture overview: [`docs/architecture.md`](docs/architecture.md)
-- Driving the harness in OpenCode: [`docs/opencode-usage.md`](docs/opencode-usage.md)
+- Driving the harness (Claude Code & OpenCode): [`docs/harness-usage.md`](docs/harness-usage.md)
 - Style guide: [`docs/style.md`](docs/style.md)
 - Testing strategy: [`docs/testing.md`](docs/testing.md)
 - ADRs (decisions of record): [`docs/adr/`](docs/adr/) — Nygard format
