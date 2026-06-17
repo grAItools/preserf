@@ -12,15 +12,15 @@ instructions. Wire every agent to it by reference — never duplicate content.**
 
 ## Supported agents
 
-| Agent | How it reads the instructions | Wiring in this repo |
-| --- | --- | --- |
-| Claude Code | `CLAUDE.md` (first line `@AGENTS.md`) + `.claude/` | `CLAUDE.md`, `.claude/settings.json`, `.claude/{agents,commands,skills}` symlinks |
-| OpenCode | `.opencode/opencode.jsonc` `instructions` | `.opencode/opencode.jsonc`, `.opencode/{…}` symlinks |
-| GitHub Copilot | native `AGENTS.md` (2026); legacy stub | `.github/copilot-instructions.md` → `AGENTS.md` |
-| OpenAI Codex | native root `AGENTS.md` (32 KiB doc cap) | none needed |
-| Google Gemini CLI | `.gemini/settings.json` `context.fileName` | `.gemini/settings.json` → `AGENTS.md` |
-| Jules, Cursor, Windsurf, Roo Code, Zed, JetBrains Junie, Aider, Amp | native root `AGENTS.md` | none needed |
-| Cline, Continue | a `*-rules/` dir of plain `.md` | not wired; see recipe below |
+| Agent                                                               | How it reads the instructions                      | Wiring in this repo                                                               |
+| ------------------------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Claude Code                                                         | `CLAUDE.md` (first line `@AGENTS.md`) + `.claude/` | `CLAUDE.md`, `.claude/settings.json`, `.claude/{agents,commands,skills}` symlinks |
+| OpenCode                                                            | `.opencode/opencode.jsonc` `instructions`          | `.opencode/opencode.jsonc`, `.opencode/{…}` symlinks                              |
+| GitHub Copilot                                                      | native `AGENTS.md` (2026); legacy stub             | `.github/copilot-instructions.md` → `AGENTS.md`                                   |
+| OpenAI Codex                                                        | native root `AGENTS.md` (32 KiB doc cap)           | none needed                                                                       |
+| Google Gemini CLI                                                   | `.gemini/settings.json` `context.fileName`         | `.gemini/settings.json` → `AGENTS.md`                                             |
+| Jules, Cursor, Windsurf, Roo Code, Zed, JetBrains Junie, Aider, Amp | native root `AGENTS.md`                            | none needed                                                                       |
+| Cline, Continue                                                     | a `*-rules/` dir of plain `.md`                    | not wired; see recipe below                                                       |
 
 ## Adding an agent
 
