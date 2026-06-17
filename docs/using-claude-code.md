@@ -32,7 +32,7 @@ idea ──/spec──▶ spec.md ──/plan──▶ plan.md + tasks.md ──
 ```
 
 Plus a read-only `explorer` agent any phase can call for codebase Q&A, and three
-deterministic hooks that run *outside* the model's reasoning (format, block,
+deterministic hooks that run _outside_ the model's reasoning (format, block,
 verify).
 
 ## The three ways capabilities get triggered
@@ -45,7 +45,7 @@ verify).
 
 ### Automatic by description match (the model decides)
 
-Each subagent and skill has a `description` written as a *trigger*. When your
+Each subagent and skill has a `description` written as a _trigger_. When your
 prompt matches that language, the capability is invoked without you naming it:
 
 - `verify` skill fires on "verify", "is this ready", "ready to commit", "check this", or after any non-trivial edit.
@@ -65,15 +65,15 @@ Permissions allowlist `pixi:*`, read-only git (`status/diff/log/show`), and
 
 ## Decision guide — which capability for which task
 
-| If you want to… | Trigger | Backed by |
-| --- | --- | --- |
-| Start a brand-new feature/bug/change | `/spec <slug>` | product-owner |
-| Turn an approved spec into a phased plan | `/plan` | architect |
-| Implement an approved plan | `/build` | developer |
-| Review a finished phase / get a GO verdict | `/verify` | reviewer |
-| Just run the gate and triage failures | "verify" / verify skill | — |
-| Understand existing code before changing it | "use explorer to …" | explorer |
-| One-off trivial fix (typo, one-liner) | plain prompt, then verify | — (skip the loop) |
+| If you want to…                             | Trigger                   | Backed by         |
+| ------------------------------------------- | ------------------------- | ----------------- |
+| Start a brand-new feature/bug/change        | `/spec <slug>`            | product-owner     |
+| Turn an approved spec into a phased plan    | `/plan`                   | architect         |
+| Implement an approved plan                  | `/build`                  | developer         |
+| Review a finished phase / get a GO verdict  | `/verify`                 | reviewer          |
+| Just run the gate and triage failures       | "verify" / verify skill   | —                 |
+| Understand existing code before changing it | "use explorer to …"       | explorer          |
+| One-off trivial fix (typo, one-liner)       | plain prompt, then verify | — (skip the loop) |
 
 **Rule of thumb:** net-new feature → run the full loop; small isolated fix →
 edit directly, then say "verify"; pure question about the code → explorer.
@@ -88,7 +88,7 @@ phase produces fixed artifacts in `specs/<YYYY-MM>-<slug>/`.
 
 - **Trigger words:** "new feature", "spec out", "I want to add…", or just `/spec append-mode`.
 - **What you get:** `spec.md` with Problem / Goal / Users & stakeholders / Success criteria / Non-goals / Open questions. WHAT and WHY only — no file paths or libraries.
-- **Prompt tips:** Give the user-facing intent and at least one observable success condition. Don't prescribe implementation — the PO strips it. Expect it to ask *one* clarifying question if ambiguous, then stop for your review.
+- **Prompt tips:** Give the user-facing intent and at least one observable success condition. Don't prescribe implementation — the PO strips it. Expect it to ask _one_ clarifying question if ambiguous, then stop for your review.
 - **Example:** `/spec zarr-backend` → "Users need `!$SER` output to optionally land in a Zarr store instead of NetCDF4; success = an existing scenario round-trips through Zarr unchanged."
 
 ### Phase 2 — Plan (architect)
@@ -113,7 +113,7 @@ phase produces fixed artifacts in `specs/<YYYY-MM>-<slug>/`.
 
 These are distinct:
 
-- **verify skill** = "run `pixi run verify`, triage failures, propose smallest fix." Use mid-work: "verify", "is this ready". It does *not* do the spec/plan review.
+- **verify skill** = "run `pixi run verify`, triage failures, propose smallest fix." Use mid-work: "verify", "is this ready". It does _not_ do the spec/plan review.
 - **/verify command** = full reviewer pass against spec + plan + diff with a GO verdict. Use at a phase boundary.
 
 ## Conventions the agents already know (don't re-specify)
