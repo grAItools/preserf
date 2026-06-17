@@ -5,7 +5,6 @@ description: |
   to turn a raw idea into a crisp, testable feature spec under
   specs/<YYYY-MM>-<slug>/spec.md. Invoked by the /spec slash command.
   Stops before any planning or implementation begins.
-tools: Read, Grep, Glob, Write
 permission:
   read: allow
   write: allow

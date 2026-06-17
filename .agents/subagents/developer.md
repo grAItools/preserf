@@ -5,7 +5,6 @@ description: |
   implementation work phase-by-phase: write or edit the code, keep
   tasks.md in sync, run the verification gate, and stop at each phase
   boundary or at any blocker. Invoked by the /build slash command.
-tools: Read, Write, Edit, Grep, Glob, Bash
 permission:
   read: allow
   write: allow
