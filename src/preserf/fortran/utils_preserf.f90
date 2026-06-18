@@ -778,7 +778,7 @@ contains
       ! Rejected before any store is opened (NCZarr compressor support is a
       ! follow-up — storage_mapping.md §9).
       if (ppser_deflate_level > 0 .and. eff_backend == 'nczarr-v2') then
-         write (*, '(a)') &
+         write (error_unit, '(a)') &
             'preserf: compression is not supported with the '// &
             "'nczarr-v2' backend in this release (netcdf4 only)"
          error stop 1
