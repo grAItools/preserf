@@ -7,12 +7,17 @@ on:
     types: [created]
 
 jobs:
-  opencode:
+  glm:
+    # Default model: runs on a bare /oc or /opencode (or an explicit +glm)
+    # as long as no other model is selected.
     if: |
-      contains(github.event.comment.body, ' /oc') ||
-      startsWith(github.event.comment.body, '/oc') ||
-      contains(github.event.comment.body, ' /opencode') ||
-      startsWith(github.event.comment.body, '/opencode')
+      ( startsWith(github.event.comment.body, '/oc') ||
+        contains(github.event.comment.body, ' /oc') ||
+        startsWith(github.event.comment.body, '/opencode') ||
+        contains(github.event.comment.body, ' /opencode') ) &&
+      !contains(github.event.comment.body, '+deepseek') &&
+      !contains(github.event.comment.body, '+kimi') &&
+      !contains(github.event.comment.body, '+qwen')
     runs-on: ubuntu-latest
     environment: opencode
     permissions:
@@ -32,3 +37,84 @@ jobs:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
         with:
           model: opencode-go/glm-5.2
+
+  deepseek:
+    if: |
+      ( startsWith(github.event.comment.body, '/oc') ||
+        contains(github.event.comment.body, ' /oc') ||
+        startsWith(github.event.comment.body, '/opencode') ||
+        contains(github.event.comment.body, ' /opencode') ) &&
+      contains(github.event.comment.body, '+deepseek')
+    runs-on: ubuntu-latest
+    environment: opencode
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Run opencode
+        uses: anomalyco/opencode/github@latest
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        with:
+          model: opencode-go/deepseek-v4-pro
+
+  kimi:
+    if: |
+      ( startsWith(github.event.comment.body, '/oc') ||
+        contains(github.event.comment.body, ' /oc') ||
+        startsWith(github.event.comment.body, '/opencode') ||
+        contains(github.event.comment.body, ' /opencode') ) &&
+      contains(github.event.comment.body, '+kimi')
+    runs-on: ubuntu-latest
+    environment: opencode
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Run opencode
+        uses: anomalyco/opencode/github@latest
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        with:
+          model: opencode-go/kimi-k2.6
+
+  qwen:
+    if: |
+      ( startsWith(github.event.comment.body, '/oc') ||
+        contains(github.event.comment.body, ' /oc') ||
+        startsWith(github.event.comment.body, '/opencode') ||
+        contains(github.event.comment.body, ' /opencode') ) &&
+      contains(github.event.comment.body, '+qwen')
+    runs-on: ubuntu-latest
+    environment: opencode
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Run opencode
+        uses: anomalyco/opencode/github@latest
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        with:
+          model: opencode-go/qwen3.6-plus
