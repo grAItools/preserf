@@ -1,4 +1,4 @@
-name: opencode
+name: opencode-deepseek
 
 on:
   issue_comment:
