@@ -6,29 +6,89 @@ on:
   pull_request_review_comment:
     types: [created]
 
+env:
+  # ── Declarative model table ──────────────────────────────────────────────
+  # Single source of truth: short-name (the +token users type) → full model id.
+  # `default: true` marks the model that runs on a bare /oc with no +token.
+  MODELS: |
+    - name: glm
+      model: opencode-go/glm-5.2
+      default: true
+    - name: kimi
+      model: opencode-go/kimi-k2.6
+    - name: deepseek
+      model: opencode-go/deepseek-v4-pro
+    - name: qwen
+      model: opencode-go/qwen3.6-plus
+
 jobs:
-  glm:
-    # Default model: runs on an explicit +glm, or on a bare /oc or /opencode
-    # when no other model is selected.
+  select:
+    # Trigger gate (unchanged from the original): /oc or /opencode, at the
+    # start of the comment or preceded by a space.
     if: |
-      ( startsWith(github.event.comment.body, '/oc') ||
-        contains(github.event.comment.body, ' /oc') ||
-        startsWith(github.event.comment.body, '/opencode') ||
-        contains(github.event.comment.body, ' /opencode') ) &&
-      (
-        contains(github.event.comment.body, '+glm') ||
-        ( !contains(github.event.comment.body, '+deepseek') &&
-          !contains(github.event.comment.body, '+kimi') &&
-          !contains(github.event.comment.body, '+qwen') )
-      )
+      startsWith(github.event.comment.body, '/oc') ||
+      contains(github.event.comment.body, ' /oc') ||
+      startsWith(github.event.comment.body, '/opencode') ||
+      contains(github.event.comment.body, ' /opencode')
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+      names:  ${{ steps.pick.outputs.names }}
+    steps:
+      - name: Pick models from the table
+        id: pick
+        env:
+          BODY: ${{ github.event.comment.body }}
+        run: |
+          models_json=$(printf '%s' "$MODELS" | yq -o=json -I=0)
+
+          # Select every table entry whose +<name> token appears in the body
+          # (\b so +glm doesn't match +glment, mirroring the strip step below).
+          selected=$(jq -cn --argjson m "$models_json" --arg body "$BODY" \
+            '[ $m[] | . as $e | select($body | test("\\+" + $e.name + "\\b")) ]')
+
+          # No explicit +token → fall back to the table's default(s).
+          if [ "$selected" = "[]" ]; then
+            selected=$(jq -cn --argjson m "$models_json" \
+              '[ $m[] | select(.default == true) ]')
+          fi
+
+          matrix=$(jq -cn --argjson s "$selected" \
+            '{include: [ $s[] | {name, model} ]}')
+          names=$(printf '%s' "$models_json" | jq -r '[ .[].name ] | join("|")')
+
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "names=$names"   >> "$GITHUB_OUTPUT"
+
+  opencode:
+    needs: select
+    runs-on: ubuntu-latest
+    name: opencode (${{ matrix.name }})
     environment: opencode
     permissions:
       id-token: write
       contents: read
       pull-requests: read
       issues: read
+    strategy:
+      fail-fast: false   # +glm +kimi must not cancel each other
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
     steps:
+      - name: Strip model-selection tokens from the prompt
+        id: clean
+        env:
+          BODY:  ${{ github.event.comment.body }}
+          NAMES: ${{ needs.select.outputs.names }}   # e.g. glm|kimi|deepseek|qwen
+        run: |
+          cleaned=$(printf '%s' "$BODY" \
+            | sed -E "s/[[:space:]]*\+(${NAMES})\b//g" \
+            | sed -E 's/[[:space:]]+$//')
+          {
+            echo "prompt<<__OC_PROMPT_EOF__"
+            printf '%s\n' "$cleaned"
+            echo "__OC_PROMPT_EOF__"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
@@ -39,85 +99,5 @@ jobs:
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
         with:
-          model: opencode-go/glm-5.2
-
-  kimi:
-    if: |
-      ( startsWith(github.event.comment.body, '/oc') ||
-        contains(github.event.comment.body, ' /oc') ||
-        startsWith(github.event.comment.body, '/opencode') ||
-        contains(github.event.comment.body, ' /opencode') ) &&
-      contains(github.event.comment.body, '+kimi')
-    runs-on: ubuntu-latest
-    environment: opencode
-    permissions:
-      id-token: write
-      contents: read
-      pull-requests: read
-      issues: read
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Run opencode
-        uses: anomalyco/opencode/github@latest
-        env:
-          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-        with:
-          model: opencode-go/kimi-k2.6
-
-  deepseek:
-    if: |
-      ( startsWith(github.event.comment.body, '/oc') ||
-        contains(github.event.comment.body, ' /oc') ||
-        startsWith(github.event.comment.body, '/opencode') ||
-        contains(github.event.comment.body, ' /opencode') ) &&
-      contains(github.event.comment.body, '+deepseek')
-    runs-on: ubuntu-latest
-    environment: opencode
-    permissions:
-      id-token: write
-      contents: read
-      pull-requests: read
-      issues: read
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Run opencode
-        uses: anomalyco/opencode/github@latest
-        env:
-          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-        with:
-          model: opencode-go/deepseek-v4-pro
-
-  qwen:
-    if: |
-      ( startsWith(github.event.comment.body, '/oc') ||
-        contains(github.event.comment.body, ' /oc') ||
-        startsWith(github.event.comment.body, '/opencode') ||
-        contains(github.event.comment.body, ' /opencode') ) &&
-      contains(github.event.comment.body, '+qwen')
-    runs-on: ubuntu-latest
-    environment: opencode
-    permissions:
-      id-token: write
-      contents: read
-      pull-requests: read
-      issues: read
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Run opencode
-        uses: anomalyco/opencode/github@latest
-        env:
-          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-        with:
-          model: opencode-go/qwen3.6-plus
+          model:  ${{ matrix.model }}
+          prompt: ${{ steps.clean.outputs.prompt }}
