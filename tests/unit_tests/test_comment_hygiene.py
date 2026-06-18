@@ -34,7 +34,7 @@ _SELF = Path(__file__).resolve()
 
 # Directories whose committed source is held to the comment policy.
 _SCAN_DIRS = ("src/preserf", "tests", "examples")
-_FORTRAN_SUFFIXES = frozenset({".f90", ".F90", ".f", ".F"})
+_FORTRAN_SUFFIXES = frozenset({".f90", ".F90", ".f", ".F", ".inc", ".INC"})
 
 # High-precision patterns. Each names review/release-process scoping that
 # describes the development process rather than the code. Kept deliberately

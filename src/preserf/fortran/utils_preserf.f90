@@ -1028,7 +1028,7 @@ contains
          ! rather than silently corrupting _preserf_savepoint_count
          ! (which would be rewritten to 0 on close).
          write (error_unit, '(a)') &
-            'preserf: append mode (a) is not yet supported in v0.1; '// &
+            'preserf: append mode (a) is not yet supported; '// &
             'use w (create) or r (read)'
          error stop 1
 

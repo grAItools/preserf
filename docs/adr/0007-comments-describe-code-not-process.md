@@ -1,4 +1,4 @@
-# 6. Code comments describe the code, not the review process
+# 7. Code comments describe the code, not the review process
 
 ## Status
 

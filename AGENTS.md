@@ -38,7 +38,6 @@ this file.
 - ADRs (decisions of record): [`docs/adr/`](docs/adr/) — Nygard format
 - Reference docs (specs / schemas too detailed for `docs/`): [`docs/references/`](docs/references/)
 - Per-feature specs: [`specs/<YYYY-MM>-<slug>/`](specs/)
-- Vendored upstream source kept for reference: [`vendor/`](vendor/)
 - Per-PR release history: [`CHANGELOG.md`](CHANGELOG.md)
 
 ## Do
