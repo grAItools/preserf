@@ -8,16 +8,19 @@ on:
 
 jobs:
   glm:
-    # Default model: runs on a bare /oc or /opencode (or an explicit +glm)
-    # as long as no other model is selected.
+    # Default model: runs on an explicit +glm, or on a bare /oc or /opencode
+    # when no other model is selected.
     if: |
       ( startsWith(github.event.comment.body, '/oc') ||
         contains(github.event.comment.body, ' /oc') ||
         startsWith(github.event.comment.body, '/opencode') ||
         contains(github.event.comment.body, ' /opencode') ) &&
-      !contains(github.event.comment.body, '+deepseek') &&
-      !contains(github.event.comment.body, '+kimi') &&
-      !contains(github.event.comment.body, '+qwen')
+      (
+        contains(github.event.comment.body, '+glm') ||
+        ( !contains(github.event.comment.body, '+deepseek') &&
+          !contains(github.event.comment.body, '+kimi') &&
+          !contains(github.event.comment.body, '+qwen') )
+      )
     runs-on: ubuntu-latest
     environment: opencode
     permissions:
