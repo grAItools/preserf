@@ -223,6 +223,7 @@ CLAUDE.local.md
 .claude/.last_*
 .claude/checkpoints/
 .claude/shell-snapshots/
+.claude/worktrees/
 .opencode/local/
 .codex/auth.json
 .cursor/settings.local.json
