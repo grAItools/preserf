@@ -1,4 +1,4 @@
-name: opencode
+name: opencode-glm
 
 on:
   issue_comment:
