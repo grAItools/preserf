@@ -20,8 +20,8 @@ env:
       model: opencode-go/deepseek-v4-pro
     - name: go:qwen
       model: opencode-go/qwen3.6-plus
-    - name: or:owl
-      model: openrouter/owl-alpha
+    - name: or:gpt
+      model: openrouter/openai/gpt-oss-20b:free
     - name: sai:glm4
       model: swiss-ai/zai-org/GLM-4.7-Flash
 
