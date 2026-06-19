@@ -32,7 +32,7 @@ jobs:
             # the osx-arm64 platform label.
             runs-on: macos-14
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v6.0.3
 
       - name: Set up pixi
         # Keep pixi-version in lockstep with the pin in .devcontainer/Dockerfile
@@ -97,7 +97,7 @@ jobs:
       # netcdf-fortran.pc is what preserf's pkg_check_modules discovers.
       NFDIR: ${{ github.workspace }}/.nf-intel
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v6.0.3
 
       - name: Derive netcdf-fortran version from pixi.lock
         # Single source of truth: build the SAME netcdf-fortran version the
@@ -129,7 +129,7 @@ jobs:
           version: "2025.0"
 
       - name: Set up Python (for the pure-Python preserf CLI)
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -145,7 +145,7 @@ jobs:
       # from source on a cache miss (version/compiler/OS-keyed).
       - name: Cache netcdf-fortran (ifx) build
         id: cache-nf
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ env.NFDIR }}
           key: netcdf-fortran-${{ env.NETCDF_FORTRAN_VERSION }}-ifx-${{ runner.os }}
