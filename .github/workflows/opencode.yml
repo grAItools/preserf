@@ -20,6 +20,8 @@ env:
       model: opencode-go/deepseek-v4-pro
     - name: qwen
       model: opencode-go/qwen3.6-plus
+    - name: owl
+      model: openrouter/owl-alpha
 
 jobs:
   select:
@@ -33,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.pick.outputs.matrix }}
-      names:  ${{ steps.pick.outputs.names }}
+      names: ${{ steps.pick.outputs.names }}
     steps:
       - name: Pick models from the table
         id: pick
@@ -71,14 +73,14 @@ jobs:
       pull-requests: read
       issues: read
     strategy:
-      fail-fast: false   # +glm +kimi must not cancel each other
+      fail-fast: false # +glm +kimi must not cancel each other
       matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
     steps:
       - name: Strip model-selection tokens from the prompt
         id: clean
         env:
-          BODY:  ${{ github.event.comment.body }}
-          NAMES: ${{ needs.select.outputs.names }}   # e.g. glm|kimi|deepseek|qwen
+          BODY: ${{ github.event.comment.body }}
+          NAMES: ${{ needs.select.outputs.names }} # e.g. glm|kimi|deepseek|qwen
         run: |
           cleaned=$(printf '%s' "$BODY" \
             | sed -E "s/[[:space:]]*\+(${NAMES})\b//g" \
@@ -99,5 +101,5 @@ jobs:
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
         with:
-          model:  ${{ matrix.model }}
+          model: ${{ matrix.model }}
           prompt: ${{ steps.clean.outputs.prompt }}
