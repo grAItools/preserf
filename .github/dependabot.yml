@@ -1,36 +1,24 @@
-# Keep CI and the devcontainer in lockstep on third-party pins.
-#
-# - `github-actions` bumps `prefix-dev/setup-pixi@vX.Y.Z` (and any other
-#   actions) in .github/workflows/.
-# - `docker` bumps `ghcr.io/prefix-dev/pixi:X.Y.Z` in .devcontainer/Dockerfile.
-#
-# Dependabot does NOT understand the `pixi-version:` literal in ci.yml,
-# so when a Dockerfile bump PR lands, the matching `pixi-version` line in
-# ci.yml must be updated by hand. The cross-reference comments in both
-# files call this out.
-#
-# Config shape follows the official guidance from
-# https://pixi.prefix.dev/latest/integration/ci/github_actions/
-version: 2
 updates:
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: monthly
-    groups:
-      dependencies:
-        patterns:
-          - "*"
-    cooldown:
-      default-days: 7
-
-  - package-ecosystem: docker
-    directory: /.devcontainer
-    schedule:
-      interval: monthly
-    groups:
-      dependencies:
-        patterns:
-          - "*"
-    cooldown:
-      default-days: 7
+- cooldown:
+    default-days: 7
+  directory: /
+  groups:
+    dependencies:
+      patterns:
+      - "*"
+  ignore:
+  - dependency-name: "github/gh-aw-actions" # Managed by gh aw compile. Version-locked to the gh-aw compiler; do not bump.
+  package-ecosystem: github-actions
+  schedule:
+    interval: monthly
+- cooldown:
+    default-days: 7
+  directory: /.devcontainer
+  groups:
+    dependencies:
+      patterns:
+      - "*"
+  package-ecosystem: docker
+  schedule:
+    interval: monthly
+version: 2
