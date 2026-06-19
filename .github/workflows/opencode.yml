@@ -11,17 +11,19 @@ env:
   # Single source of truth: short-name (the +token users type) → full model id.
   # `default: true` marks the model that runs on a bare /oc with no +token.
   MODELS: |
-    - name: glm
+    - name: go:glm
       model: opencode-go/glm-5.2
       default: true
-    - name: kimi
+    - name: go:kimi
       model: opencode-go/kimi-k2.6
-    - name: deepseek
+    - name: go:deepseek
       model: opencode-go/deepseek-v4-pro
-    - name: qwen
+    - name: go:qwen
       model: opencode-go/qwen3.6-plus
-    - name: owl
+    - name: or:owl
       model: openrouter/owl-alpha
+    - name: sai:glm4
+      model: swiss-ai/zai-org/GLM-4.7-Flash
 
 jobs:
   select:
@@ -80,7 +82,7 @@ jobs:
         id: clean
         env:
           BODY: ${{ github.event.comment.body }}
-          NAMES: ${{ needs.select.outputs.names }} # e.g. glm|kimi|deepseek|qwen
+          NAMES: ${{ needs.select.outputs.names }} # e.g. go:glm|go:kimi|sai:glm4
         run: |
           cleaned=$(printf '%s' "$BODY" \
             | sed -E "s/[[:space:]]*\+(${NAMES})\b//g" \
@@ -100,6 +102,9 @@ jobs:
         uses: anomalyco/opencode/github@latest
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          # Custom providers declared in opencode.json read their own key
+          # from the environment (e.g. swiss-ai → {env:SWISSAI_API_KEY}).
+          SWISSAI_API_KEY: ${{ secrets.SWISSAI_API_KEY }}
         with:
           model: ${{ matrix.model }}
           prompt: ${{ steps.clean.outputs.prompt }}
