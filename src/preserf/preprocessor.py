@@ -95,6 +95,12 @@ _REG_SHORTCUTS = {
 _COMPUTED_OPS = ("*", "+", "-", "/")
 _RE_MERGE = re.compile(r"\bmerge\b", re.IGNORECASE)
 
+# Public `integer, parameter` exported by utils_ppser (re-exported from
+# utils_preserf). Unlike `_ALWAYS_PPSER`, this is imported via the generated
+# `USE utils_ppser, ONLY:` list *only* when `!$SER INIT ... compression=on`
+# expands to this symbol; it is deliberately not always imported.
+_DEFAULT_DEFLATE_LEVEL_PARAM = "PPSER_DEFAULT_DEFLATE_LEVEL"
+
 # Utility-module symbols always imported alongside any serialization call.
 _ALWAYS_PPSER = (
     "ppser_savepoint",
@@ -529,8 +535,11 @@ class Preprocessor:
             return
         # Sorted for reproducible output: the reference pp_ser iterated a
         # set here, so its USE block ordering was non-deterministic.
-        calls_pp = sorted(c for c in self._calls if c.startswith("ppser"))
-        calls_fs = sorted(c for c in self._calls if not c.startswith("ppser"))
+        # `PPSER_DEFAULT_DEFLATE_LEVEL` lives in utils_ppser too (case-folded
+        # match so the uppercase parameter routes into the ppser ONLY list
+        # rather than the user module's).
+        calls_pp = sorted(c for c in self._calls if c.lower().startswith("ppser"))
+        calls_fs = sorted(c for c in self._calls if not c.lower().startswith("ppser"))
         if not calls_pp and not calls_fs:
             return
 
@@ -661,9 +670,29 @@ class Preprocessor:
         lower = [a.lower() for a in args]
         if_pos = lower.index("if") if "if" in lower else len(args)
 
+        # The opt-in `compression=` keyword (issue #46) feeds the integer
+        # `compression` dummy of ppser_initialize. Accept the same on/off
+        # shorthand `!$SER OPTION` uses: `on` -> the helper's default
+        # deflate level (a Fortran parameter so the level lives in one
+        # place), `off` -> 0. An explicit integer 1..9 passes through
+        # verbatim; ppser_initialize range-checks it at runtime.
+        init_args = list(args[1:if_pos])
+        for i, arg in enumerate(init_args):
+            key, sep, value = arg.partition("=")
+            if sep and key.strip().lower() == "compression":
+                v = value.strip().lower()
+                if v == "on":
+                    init_args[i] = f"compression={_DEFAULT_DEFLATE_LEVEL_PARAM}"
+                    # The named parameter must be imported alongside the
+                    # ppser_* symbols, otherwise the emitted USE block leaves
+                    # it undefined and the generated source fails to compile.
+                    self._calls.add(_DEFAULT_DEFLATE_LEVEL_PARAM)
+                elif v == "off":
+                    init_args[i] = "compression=0"
+
         self._calls.add(_METHODS["init"])
         pad = " " * 11
-        joined = (", &\n" + pad).join(args[1:if_pos])
+        joined = (", &\n" + pad).join(init_args)
         out += tab + f"call {_METHODS['init']}( &\n{pad}{joined})\n"
         if if_statement:
             out += "ENDIF\n"

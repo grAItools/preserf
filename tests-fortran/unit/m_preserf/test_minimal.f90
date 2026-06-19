@@ -363,6 +363,99 @@ program test_minimal
             ! Unreachable: the URI-safe-char guard must abort first.
             error stop &
                'preserf-test_minimal: nczarr directory with unsafe char accepted'
+         else if (scenario == 'compression') then
+            ! issue #46: opt-in compression. With compression=on the helper
+            ! writes the per-savepoint field-data variable chunked + zlib-
+            ! deflated (NetCDF4 backend). Write a large, highly compressible
+            ! real64 field, finalize, then re-open read-only and read it back
+            ! to prove the compressed variable round-trips losslessly through
+            ! the Fortran helper. The Python wire-compat test additionally
+            ! asserts the on-disk variable carries a deflate filter and that
+            ! the compressed file is smaller than the uncompressed default.
+            block
+               integer, parameter :: nc = 4096
+               real(real64) :: cz(nc), cz_back(nc)
+               integer :: ci
+               do ci = 1, nc
+                  ! A slowly varying ramp: very compressible, so deflate
+                  ! visibly shrinks the store vs the contiguous default.
+                  cz(ci) = real(ci/64, real64)
+               end do
+               call ppser_initialize(out_dir, 'fcomp', 'w', compression=1)
+               call fs_register_field(ppser_serializer, 'big', 'double', &
+                                      ppser_reallength, nc, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'big', cz)
+               call ppser_finalize()
+               ! Re-open read-only (compression is a write-time property; the
+               ! reader needs no knob — netCDF decompresses transparently).
+               call ppser_initialize(out_dir, 'fcomp', 'r')
+               call fs_register_field(ppser_serializer, 'big', 'double', &
+                                      ppser_reallength, nc, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'big', &
+                                  cz_back)
+               do ci = 1, nc
+                  if (cz_back(ci) /= real(ci/64, real64)) error stop &
+                     'compression: data round-trip mismatch'
+               end do
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: compression OK'
+               stop
+            end block
+         else if (scenario == 'compression-default-off') then
+            ! issue #46: the default (no compression keyword) must leave the
+            ! field-data variable uncompressed and contiguous, preserving the
+            ! v0.1 byte-parity layout. Write the same large field with no
+            ! knob; the Python wire-compat test asserts no deflate filter is
+            ! present and the file is the (larger) uncompressed size.
+            block
+               integer, parameter :: nc = 4096
+               real(real64) :: cz(nc)
+               integer :: ci
+               do ci = 1, nc
+                  cz(ci) = real(ci/64, real64)
+               end do
+               call ppser_initialize(out_dir, 'fnocomp', 'w')
+               call fs_register_field(ppser_serializer, 'big', 'double', &
+                                      ppser_reallength, nc, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'big', cz)
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: compression-default-off OK'
+               stop
+            end block
+         else if (scenario == 'compression-bad-level') then
+            ! issue #46: a compression level outside 0..9 is a user mistake
+            ! and must abort at the ppser_initialize boundary rather than
+            ! reach nf90_def_var_deflate with a bad level.
+            call ppser_initialize(out_dir, 'fcbad', 'w', compression=42)
+            ! Unreachable: the level-range guard must abort first.
+            error stop &
+               'preserf-test_minimal: out-of-range compression level accepted'
+         else if (scenario == 'compression-nczarr') then
+            ! issue #46: compression is NetCDF4-only in v1. Enabling it on
+            ! the nczarr-v2 backend must abort up front (NCZarr deflate needs
+            ! an HDF5 filter plugin that may be absent) rather than write a
+            ! store that cannot be read back.
+            call ppser_initialize(out_dir, 'fcz', 'w', &
+                                  backend='nczarr-v2', compression=1)
+            ! Unreachable: the backend guard must abort first.
+            error stop &
+               'preserf-test_minimal: nczarr + compression was accepted'
+         else if (scenario == 'compression-nczarr-env') then
+            ! issue #46: the compression+nczarr guard checks the *resolved*
+            ! backend, so selecting nczarr-v2 via PRESERF_BACKEND (no
+            ! backend= argument) must abort just like an explicit
+            ! backend='nczarr-v2'. Guards against an env-var-selected backend
+            ! slipping past and writing an unreadable store.
+            call ppser_initialize(out_dir, 'fcze', 'w', compression=1)
+            ! Unreachable: the backend guard must abort first.
+            error stop &
+               'preserf-test_minimal: nczarr (env) + compression was accepted'
          else if (scenario == 'read-roundtrip') then
             ! Slice A-1 Phase 1 + Phase 3: write a store, finalize, then
             ! re-open read-only and replay the same REGISTER / SAVEPOINT /

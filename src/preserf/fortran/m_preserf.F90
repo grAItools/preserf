@@ -41,7 +41,7 @@ module m_preserf
                             PPSER_TRACER_NAME_LEN, PPSER_TRACER_STYPE_LEN, &
                             t_kbuff_entry, ppser_kbuffers, &
                             ppser_kbuff_count, PPSER_MAX_KBUFF, &
-                            ppser_verbosity
+                            ppser_verbosity, ppser_deflate_level
    implicit none
    private
 
@@ -3305,10 +3305,60 @@ contains
       if (ncerr == NF90_ENOTVAR) then
          ncerr = nf90_def_var(grpid, trim(fieldname), nc_type, dimids, varid)
          call preserf_check_nf_with_msg(ncerr, 'def_var '//trim(fieldname))
+         ! Opt-in compression (issue #46, storage_mapping.md §9). Default
+         ! OFF (ppser_deflate_level == 0) leaves the variable contiguous
+         ! and uncompressed, preserving the v0.1 byte-parity layout. When
+         ! enabled, switch to chunked storage (NetCDF4/HDF5 deflate
+         ! requires chunking) and attach the zlib filter at the chosen
+         ! level. NCZarr + compression is rejected up front in
+         ! ppser_initialize, so reaching here with a non-zero level always
+         ! means the NetCDF4 backend.
+         if (ppser_deflate_level > 0) then
+            call set_field_compression(grpid, varid, fieldname, dimids)
+         end if
       else
          call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
       end if
    end subroutine ensure_variable
+
+   !> Apply chunked storage + zlib deflate to a freshly defined field
+   !> variable (issue #46). Called only when `ppser_deflate_level > 0`.
+   !> The chunk shape is the whole variable (one chunk per variable): a
+   !> single deflate pass over the full field, which keeps the read path
+   !> simple and matches preserf's "one write per (savepoint, field)"
+   !> model. `chunksizes` is supplied in Fortran order to match `dimids`
+   !> (netcdf-fortran reverses both consistently before the C call).
+   !> A rank-0 (scalar) field has no chunkable dimension, so chunking and
+   !> deflate are both skipped — there is nothing to compress.
+   subroutine set_field_compression(grpid, varid, fieldname, dimids)
+      integer, intent(in) :: grpid
+      integer, intent(in) :: varid
+      character(len=*), intent(in) :: fieldname
+      integer, intent(in) :: dimids(:)
+      integer :: ncerr, i, r
+      integer, allocatable :: chunksizes(:)
+
+      r = size(dimids)
+      if (r == 0) return
+
+      allocate (chunksizes(r))
+      do i = 1, r
+         ncerr = nf90_inquire_dimension(grpid, dimids(i), len=chunksizes(i))
+         call preserf_check_nf_with_msg(ncerr, &
+                                        'inquire_dimension '//trim(fieldname))
+      end do
+
+      ncerr = nf90_def_var_chunking(grpid, varid, NF90_CHUNKED, chunksizes)
+      call preserf_check_nf_with_msg(ncerr, &
+                                     'def_var_chunking '//trim(fieldname))
+      ! shuffle=0: the shuffle filter is a separate (orthogonal) knob; the
+      ! v1 compression knob exposes only the deflate level. deflate=1 turns
+      ! the zlib filter on at ppser_deflate_level.
+      ncerr = nf90_def_var_deflate(grpid, varid, shuffle=0, deflate=1, &
+                                   deflate_level=ppser_deflate_level)
+      call preserf_check_nf_with_msg(ncerr, &
+                                     'def_var_deflate '//trim(fieldname))
+   end subroutine set_field_compression
 
    !> Abort with a clear message if the serializer hasn't been opened.
    subroutine require_open(s, where)

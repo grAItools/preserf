@@ -373,11 +373,14 @@ group:
   (each field owns its own dimensions) — this matches Serialbox's per-field
   metadata model where dims are field-private.
 - **Chunking** (NCZarr / NetCDF4): **implementation-defined** unless the
-  writer explicitly opts in. The reference implementation does not set
-  `chunksizes`, so NetCDF4/HDF5 typically produces contiguous storage and
-  NCZarr falls back to its own default chunk shape. A future option (§9)
-  will expose an explicit chunking knob; until then, no chunking guarantee
-  is part of the schema.
+  writer explicitly opts in. By default the helper does not set
+  `chunksizes`, so NetCDF4/HDF5 produces contiguous storage and
+  NCZarr falls back to its own default chunk shape — this is the
+  byte-parity default. When the opt-in **compression** knob (§9) is
+  enabled, the helper switches the variable to chunked storage (a single
+  whole-variable chunk) because NetCDF4/HDF5 deflate requires chunking,
+  and applies the deflate filter; see §9. No general-purpose chunking
+  knob (independent of compression) is part of the schema yet.
 
 The k-buffer mode (`!$SER DATA_KBUFF`) writes the same variable shape but
 fills it in vertical slices keyed by the `k` / `k_size` arguments; the
@@ -451,10 +454,54 @@ Resulting NetCDF4 / NCZarr store:
   xarray)? Default today is per-field private dimensions to match the
   Serialbox metadata model exactly. Revisit when the helper module is in
   place and we can benchmark both.
-- **Chunking and compression.** Both are currently implementation-defined
-  (no `chunksizes` set, no compression filter). Both are tunable via
-  netCDF-Fortran APIs and should be exposed through `!$SER OPTION` keys;
-  defer naming to a follow-up ADR.
+- **Compression (opt-in).** Field-data variables (§6) can be written
+  compressed via an **opt-in** knob, defaulting **OFF** so the byte-parity
+  layout (contiguous, uncompressed) remains the default. The knob is the
+  integer `compression` keyword on `ppser_initialize`, surfaced on the
+  directive side as `!$SER INIT compression=` (analogous to `backend=`):
+
+  - `compression=off` (or omitted) → `0`: no chunking, no compression
+    filter — the v0.1 layout, bit-exact byte parity preserved.
+  - `compression=on` → the helper's default zlib deflate level
+    (`PPSER_DEFAULT_DEFLATE_LEVEL`, currently `4`).
+  - `compression=<N>` with `N` in `1..9` → that explicit zlib level.
+    A level outside `0..9` is rejected at `ppser_initialize` time.
+
+  When enabled, `ensure_variable` (the field-write path) issues
+  `nf90_def_var_chunking(grpid, varid, NF90_CHUNKED, chunksizes)` followed by
+  `nf90_def_var_deflate(grpid, varid, shuffle=0, deflate=1, deflate_level=N)`
+  (both take the group/file id as their first argument).
+  `chunksizes` is the full variable shape (one chunk per variable), which
+  matches preserf's one-write-per-`(savepoint, field)` model. (HDF5 caps a
+  single chunk at 4 GiB, so a field larger than that is not yet handled — it
+  would fail at `nf90_def_var_chunking`; a chunk-shape heuristic that splits
+  very large fields into multiple chunks is a follow-up, alongside the
+  general chunking knob below.) A rank-0 (scalar) field has nothing to
+  chunk, so both calls are skipped. The read path needs no knob: netCDF
+  decompresses transparently.
+
+  **Backend scope.** Compression is **NetCDF4-only** in this release.
+  NCZarr deflate requires an HDF5 filter plugin that is not always present
+  in a netcdf-c build, so `compression>0` combined with `backend=nczarr-v2`
+  is **rejected** at `ppser_initialize` (clear abort rather than an
+  unreadable store). Attaching a Zarr compressor filter on the NCZarr
+  backend is a tracked follow-up (issue #111).
+
+  **Runtime override (`PRESERF_COMPRESSION`).** Like `backend`, the level can
+  be set without editing/recompiling source via the `PRESERF_COMPRESSION`
+  environment variable, resolved by `ppser_resolve_compression` with the same
+  precedence as `PRESERF_BACKEND`: the explicit `compression=` keyword wins,
+  else `PRESERF_COMPRESSION`, else OFF. It accepts `on`
+  (→ `PPSER_DEFAULT_DEFLATE_LEVEL`), `off`, or an integer `0..9`; a blank
+  value is treated as unset, and an unrecognised or out-of-range value aborts
+  at `ppser_initialize` (as a typo'd `PRESERF_BACKEND` does). Because the
+  keyword wins, a source that hard-codes `compression=` is unaffected by the
+  env var — to drive it purely at runtime, leave `compression` off the
+  directive/call.
+
+  The `shuffle` filter and a general-purpose (compression-independent)
+  chunking knob remain unexposed; both are natural follow-ups. Surfacing
+  compression as a `!$SER OPTION` key can be revisited if needed.
 - **Per-rank stores under MPI.** `ppser_initialize`'s `mpi_rank` argument
   currently maps to a `_rank<n>` suffix on the store name. Parallel HDF5 /
   parallel NCZarr is a future option.

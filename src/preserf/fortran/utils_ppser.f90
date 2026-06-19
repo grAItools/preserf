@@ -12,6 +12,9 @@
 !> `rprecision`, `rperturb`, `realtype`, `archive`, and `unique_id`.
 !> `mpi_rank` / `rprecision` / `rperturb` / `realtype` change behaviour;
 !> `singlefile` / `archive` / `unique_id` are recorded in root attributes.
+!> It also accepts the preserf-specific `backend` (`netcdf4` /
+!> `nczarr-v2`) and the opt-in `compression` (integer zlib deflate level,
+!> default 0 = off) keywords — see `docs/references/storage_mapping.md` §9.
 module utils_ppser
    use utils_preserf
    implicit none

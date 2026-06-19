@@ -27,6 +27,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Opt-in field-write compression (issue #46): a new `compression` keyword
+  on `ppser_initialize`, surfaced as `!$SER INIT compression=` (analogous
+  to `backend=`). Defaults **OFF**, so the existing contiguous,
+  uncompressed byte-parity layout is unchanged. `compression=on` applies
+  the helper's default zlib deflate level (`PPSER_DEFAULT_DEFLATE_LEVEL`,
+  `4`); `compression=<N>` (1–9) selects an explicit level; `off`/`0`
+  disables. When enabled, the field-write path switches the per-savepoint
+  field variable to chunked storage (one whole-variable chunk) and applies
+  `nf90_def_var_deflate` — chunking is required for NetCDF4/HDF5 deflate.
+  NetCDF4-only in this release: `compression>0` with `backend=nczarr-v2`
+  is rejected at init (NCZarr deflate needs an HDF5 filter plugin that may
+  be absent; a Zarr compressor filter is a tracked follow-up). The read
+  path is unchanged — netCDF decompresses transparently. See
+  `docs/references/storage_mapping.md` §6/§9. New `compression`,
+  `compression-default-off`, `compression-bad-level`, and
+  `compression-nczarr` Fortran scenarios plus `test_fortran_wire_compat.py`
+  tests assert lossless round-trip, the on-disk deflate filter, that the
+  compressed store shrinks, that the default stays uncompressed, and that
+  the out-of-range / nczarr cases abort. The level is also settable at
+  runtime via the `PRESERF_COMPRESSION` environment variable
+  (`on`/`off`/`0`–`9`), resolved with the same precedence as
+  `PRESERF_BACKEND` (explicit `compression=` keyword wins, else the env var,
+  else OFF), so compression can be toggled without recompiling; covered by
+  `compression_env_bad` / `compression_env_nczarr` ctests and
+  `test_fortran_compression_via_env` /
+  `test_fortran_compression_argument_overrides_env`.
 - Differential test pinning preserf's `!$SER` expansion against the upstream
   Serialbox `pp_ser` preprocessor it ports. `tests/unit_tests/`
   `test_pp_ser_differential.py` runs both preserf and the upstream `pp_ser` over

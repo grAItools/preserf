@@ -179,6 +179,94 @@ preserf_scenario_test(NAME backend_env_blank SCENARIO backend-env-blank
 preserf_scenario_test(NAME backend_arg_padded SCENARIO backend-arg-padded
     PASS "preserf-fortran: backend-arg-padded OK")
 
+# issue #46 positive: opt-in compression chunks + deflates the field
+# variable (NetCDF4) and round-trips it losslessly through the Fortran
+# helper. The Python wire-compat test additionally asserts the on-disk
+# deflate filter and the file-size reduction.
+add_test(
+    NAME preserf_fortran_compression
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" compression
+)
+set_tests_properties(preserf_fortran_compression PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "preserf-fortran: compression OK"
+    TIMEOUT 60
+)
+
+# issue #46 negative: a compression level outside 0..9 aborts at the
+# ppser_initialize boundary before any store is opened.
+add_test(
+    NAME preserf_fortran_compression_bad_level
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" compression-bad-level
+)
+set_tests_properties(preserf_fortran_compression_bad_level PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "compression level"
+    TIMEOUT 60
+)
+
+# issue #46 negative: compression is NetCDF4-only in v1, so combining it
+# with the nczarr-v2 backend aborts up front rather than writing a store
+# that cannot be read back (NCZarr deflate filter plugin may be absent).
+add_test(
+    NAME preserf_fortran_compression_nczarr
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" compression-nczarr
+)
+set_tests_properties(preserf_fortran_compression_nczarr PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    PASS_REGULAR_EXPRESSION "compression is not supported with the 'nczarr-v2' backend"
+    TIMEOUT 60
+)
+
+# issue #46 negative: the same rejection must fire when nczarr-v2 is selected
+# via the PRESERF_BACKEND env var (no backend= argument), since the guard
+# checks the resolved backend — not only an explicit argument.
+add_test(
+    NAME preserf_fortran_compression_nczarr_env
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" compression-nczarr-env
+)
+set_tests_properties(preserf_fortran_compression_nczarr_env PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    ENVIRONMENT "PRESERF_BACKEND=nczarr-v2"
+    PASS_REGULAR_EXPRESSION "compression is not supported with the 'nczarr-v2' backend"
+    TIMEOUT 60
+)
+
+# issue #46 negative: an unrecognised PRESERF_COMPRESSION value aborts at the
+# ppser_initialize boundary (mirrors the unknown-PRESERF_BACKEND guard). Run
+# the no-keyword `compression-default-off` scenario so the env var is the only
+# source of the level.
+add_test(
+    NAME preserf_fortran_compression_env_bad
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" compression-default-off
+)
+set_tests_properties(preserf_fortran_compression_env_bad PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    ENVIRONMENT "PRESERF_COMPRESSION=banana"
+    PASS_REGULAR_EXPRESSION "unknown PRESERF_COMPRESSION value"
+    TIMEOUT 60
+)
+
+# issue #46 negative: compression enabled via PRESERF_COMPRESSION must hit the
+# same nczarr-v2 rejection as the keyword, since the guard checks the resolved
+# level + resolved backend (here both come from env vars, no arguments).
+add_test(
+    NAME preserf_fortran_compression_env_nczarr
+    COMMAND $<TARGET_FILE:preserf_fortran_test_minimal>
+            "${CMAKE_CURRENT_BINARY_DIR}/test-output" compression-default-off
+)
+set_tests_properties(preserf_fortran_compression_env_nczarr PROPERTIES
+    FIXTURES_REQUIRED preserf_fortran_output_dir
+    ENVIRONMENT "PRESERF_COMPRESSION=on;PRESERF_BACKEND=nczarr-v2"
+    PASS_REGULAR_EXPRESSION "compression is not supported with the 'nczarr-v2' backend"
+    TIMEOUT 60
+)
+
 # -----------------------------------------------------------------------------
 # Slice A-1: read-mode create-or-resolve-and-validate.
 #
