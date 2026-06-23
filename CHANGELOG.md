@@ -27,6 +27,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- ADR
+  [0007](docs/adr/0007-nczarr-compression-deferred-pending-codec-plugins.md)
+  records the investigation behind deferring NCZarr-v2 field-write compression
+  ([#111](https://github.com/grAItools/preserf/issues/111)): the prerequisite
+  opt-in compression knob (PR #53) is not yet on `main`, and the pinned
+  conda-forge netcdf-c 4.10.0 ships no NCZarr codec plugins, so every
+  `nf90_def_var_filter` codec returns `-136 "undefined filter encountered"` on
+  an NCZarr store. `storage_mapping.md` §9 now cross-references the ADR. Docs
+  only — no behaviour change.
 - Differential test pinning preserf's `!$SER` expansion against the upstream
   Serialbox `pp_ser` preprocessor it ports. `tests/unit_tests/`
   `test_pp_ser_differential.py` runs both preserf and the upstream `pp_ser` over
