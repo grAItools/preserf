@@ -454,7 +454,12 @@ Resulting NetCDF4 / NCZarr store:
 - **Chunking and compression.** Both are currently implementation-defined
   (no `chunksizes` set, no compression filter). Both are tunable via
   netCDF-Fortran APIs and should be exposed through `!$SER OPTION` keys;
-  defer naming to a follow-up ADR.
+  defer naming to a follow-up ADR. Compression specifically on the
+  `nczarr-v2` backend is blocked on netcdf-c's NCZarr codec plugins, which
+  are absent from the pinned conda-forge build (every `nf90_def_var_filter`
+  codec returns `-136 "undefined filter encountered"` on an NCZarr store) —
+  see [ADR 0007](../adr/0007-nczarr-compression-deferred-pending-codec-plugins.md)
+  for the investigation and forward path.
 - **Per-rank stores under MPI.** `ppser_initialize`'s `mpi_rank` argument
   currently maps to a `_rank<n>` suffix on the store name. Parallel HDF5 /
   parallel NCZarr is a future option.
