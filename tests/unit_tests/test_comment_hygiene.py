@@ -26,15 +26,18 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
 # tests/unit_tests/<this file> -> repository root is two parents up.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SELF = Path(__file__).resolve()
 
 # Directories whose committed source is held to the comment policy.
-_SCAN_DIRS = ("src/preserf", "tests", "examples")
+_SCAN_DIRS = ("src/preserf", "tests", "tests-fortran", "examples")
 _FORTRAN_SUFFIXES = frozenset({".f90", ".F90", ".f", ".F", ".inc", ".INC"})
+# Fortran template fixtures (compiled at build time) carry a `.f90.in` /
+# `.F90.in` double extension, so `Path.suffix` is `.in`; match them by name.
+_FORTRAN_TEMPLATE_SUFFIXES = (".f90.in", ".F90.in")
 
 # High-precision patterns. Each names review/release-process scoping that
 # describes the development process rather than the code. Kept deliberately
@@ -133,6 +136,22 @@ def fortran_prose(source: str) -> Iterator[tuple[int, str]]:
             yield lineno, comment
 
 
+def prose_extractor(path: Path) -> Callable[[str], Iterator[tuple[int, str]]] | None:
+    """Return the prose extractor for *path*, or ``None`` for a non-source file.
+
+    Fortran template fixtures (``*.f90.in``) keep their Fortran comment syntax,
+    so they route to ``fortran_prose`` despite the ``.in`` suffix.
+    """
+    if path.suffix == ".py":
+        return python_prose
+    is_fortran = path.suffix in _FORTRAN_SUFFIXES or path.name.endswith(
+        _FORTRAN_TEMPLATE_SUFFIXES
+    )
+    if is_fortran:
+        return fortran_prose
+    return None  # skip non-source files (bytecode, golden fixtures, …)
+
+
 def _iter_prose_files() -> Iterator[tuple[Path, int, str]]:
     for directory in _SCAN_DIRS:
         base = _REPO_ROOT / directory
@@ -141,12 +160,9 @@ def _iter_prose_files() -> Iterator[tuple[Path, int, str]]:
         for path in sorted(base.rglob("*")):
             if not path.is_file() or path.resolve() == _SELF:
                 continue
-            if path.suffix == ".py":
-                extract = python_prose
-            elif path.suffix in _FORTRAN_SUFFIXES:
-                extract = fortran_prose
-            else:
-                continue  # skip non-source files (bytecode, golden fixtures, …)
+            extract = prose_extractor(path)
+            if extract is None:
+                continue
             for lineno, text in extract(path.read_text(encoding="utf-8")):
                 yield path, lineno, text
 
@@ -199,3 +215,14 @@ def test_string_literals_are_not_scanned() -> None:
 def test_fortran_bang_inside_string_is_not_a_comment() -> None:
     assert _fortran_comment("write(*, *) 'no comment! here'") == ""
     assert _fortran_comment("x = 1  ! real comment").strip() == "! real comment"
+
+
+def test_prose_extractor_routes_by_kind() -> None:
+    assert prose_extractor(Path("a.py")) is python_prose
+    assert prose_extractor(Path("m.f90")) is fortran_prose
+    assert prose_extractor(Path("m.F90")) is fortran_prose
+    # Fortran template fixtures keep Fortran comment syntax despite `.in`.
+    assert prose_extractor(Path("fixture.f90.in")) is fortran_prose
+    # Non-Fortran templates (e.g. CMake config) are not source we scan.
+    assert prose_extractor(Path("pkgConfig.cmake.in")) is None
+    assert prose_extractor(Path("data.nc")) is None

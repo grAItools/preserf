@@ -33,7 +33,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `pixi run verify` on review/release-process prose (`Slice X` / `Phase N`
   labels, `v0.x` scope notes, "out of scope for this PR"), commented-out code,
   and `TODO`/`FIXME` markers — inspecting comments and docstrings only, never
-  string literals. Documented in `docs/style.md` ("Comments"), an auto-loaded
+  string literals. The guard scans `src/preserf`, `tests`, `tests-fortran`, and
+  `examples`, covering Python, Fortran sources, and `.f90.in` build-time
+  templates. Documented in `docs/style.md` ("Comments"), an auto-loaded
   `.claude/rules/comments.md`, the `reviewer`/`developer` subagents, and
   ADR 0007.
 - Differential test pinning preserf's `!$SER` expansion against the upstream

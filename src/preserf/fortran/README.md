@@ -5,7 +5,7 @@ against, following the group-per-savepoint layout documented in
 [`../../docs/references/storage_mapping.md`][mapping]. The helper writes
 **NetCDF4 stores** (`.nc` files, the default) or **NCZarr V2 stores**
 (`.zarr` directory stores), selected by the `backend` keyword on
-`ppser_initialize` (Slice E); the same schema serves both (ADR 0002).
+`ppser_initialize`; the same schema serves both (ADR 0002).
 The `nczarr-v2` backend resolves a relative `directory` (e.g. `./ser_data`)
 to absolute against the CWD before building its `file://` URL, so it accepts
 the same relative directories as the NetCDF4 backend. Zarr V3 stays
