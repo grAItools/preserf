@@ -22,8 +22,10 @@ The GitHub App must be registered by an org/repo admin — it cannot be created
 from CI.
 
 1. **Org settings → Developer settings → GitHub Apps → New GitHub App.** Name
-   it `Repo Agent` (this fixes the handle `repo-agent[bot]`). Under
-   **Webhook**, uncheck **Active** (Actions drives it, not webhooks).
+   it `Repo Agent` (this fixes the handle `repo-agent[bot]`). **Homepage URL**
+   is required but unused by this flow — set it to the repository URL
+   (`https://github.com/grAItools/preserf`). Under **Webhook**, uncheck
+   **Active** (Actions drives it, not webhooks).
 2. **Permissions → Repository:** Contents = Read & write, Issues = Read &
    write, Pull requests = Read & write.
 3. **Create**, then **Generate a private key** (downloads a `.pem`).
