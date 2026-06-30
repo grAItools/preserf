@@ -4,7 +4,7 @@
 ! and writes the full field of shape (slice_shape..., k_size) via the field
 ! write path, so the on-disk variable is byte-identical to a !$SER DATA
 ! write (storage_mapping.md §6). In read / read-perturb mode it loads the
-! full stored field once and copies level `k` back into `data`. v1.0 covers
+! full stored field once and copies level `k` back into `data`. Covers
 ! real(real64) slices of rank 1-3 (full fields rank 2-4). Instantiated per
 ! slice rank from m_preserf.F90 via PRESERF_SUB (full subroutine name) and
 ! PRESERF_DIMS (the slice's dimension spec).

@@ -219,13 +219,13 @@ def write_dump(dump: SerialboxDump, directory: Path, *, backend: str) -> str:
         root.setncattr("_preserf_serialbox_prefix", str(dump.prefix))
         root.setncattr("_preserf_savepoint_count", np.int32(len(dump.savepoints)))
         root.setncattr("_preserf_writer", f"preserf {preserf.__version__}")
-        # Metadata-only `!$SER INIT` keywords (Slice D Phase 3); kept
+        # Metadata-only `!$SER INIT` keywords, kept
         # symmetric with read_dump so a dump round-trips these values.
         # singlefile follows the Boolean NF90_BYTE 0/1 convention.
         root.setncattr("_preserf_singlefile", np.int8(1 if dump.singlefile else 0))
         root.setncattr("_preserf_archive", str(dump.archive))
         root.setncattr("_preserf_unique_id", np.int32(int(dump.unique_id)))
-        # `!$SER OPTION verbosity=` value (Slice C / ADR 0003 §4b); written
+        # `!$SER OPTION verbosity=` value (ADR 0003 §4b); written
         # only when set, kept symmetric with read_dump.
         if dump.option_verbosity is not None:
             root.setncattr(
@@ -237,7 +237,7 @@ def write_dump(dump: SerialboxDump, directory: Path, *, backend: str) -> str:
         for fname, info in dump.field_map.items():
             _write_field_registry(fields_grp, fname, info)
 
-        # Tracer descriptors mirror /_fields (Slice C / ADR 0003 §4a). The
+        # Tracer descriptors mirror /_fields (ADR 0003 §4a). The
         # `/_tracers` group is created lazily — only when a tracer is
         # registered — matching the Fortran helper (fs_RegisterAllTracers),
         # so a field-only store carries no empty tracer group; read_dump
@@ -325,7 +325,7 @@ def _write_savepoint(
             field_id_pairs.extend([fname, str(fid)])
         grp.setncattr("_preserf_field_ids", field_id_pairs)
 
-    # Tracer snapshots for this savepoint (Slice C / ADR 0003 §4a): each
+    # Tracer snapshots for this savepoint (ADR 0003 §4a): each
     # lands as an ordinary savepoint variable named by the tracer, with the
     # optional integer timelevel as an attribute. Tracers are NOT listed in
     # `_preserf_field_ids` (that table is field-only).
@@ -392,7 +392,7 @@ def read_dump(url: str) -> SerialboxDump:
         dump.global_meta_info = _read_metainfo_attrs(root)
 
         # Metadata-only `!$SER INIT` keywords round-tripped via the
-        # `_preserf_*` housekeeping namespace (Slice D Phase 3). Read as
+        # `_preserf_*` housekeeping namespace. Read as
         # optional so stores written before these attrs existed keep the
         # SerialboxDump defaults.
         root_attrs = set(root.ncattrs())
@@ -402,7 +402,7 @@ def read_dump(url: str) -> SerialboxDump:
             dump.archive = str(root.getncattr("_preserf_archive"))
         if "_preserf_unique_id" in root_attrs:
             dump.unique_id = int(root.getncattr("_preserf_unique_id"))
-        # `!$SER OPTION verbosity=` value (Slice C / ADR 0003 §4b),
+        # `!$SER OPTION verbosity=` value (ADR 0003 §4b),
         # present only when the option was set.
         if "_preserf_option_verbosity" in root_attrs:
             dump.option_verbosity = int(root.getncattr("_preserf_option_verbosity"))
@@ -430,7 +430,7 @@ def read_dump(url: str) -> SerialboxDump:
             )
             dump.field_map[fname] = info
 
-        # Tracer descriptors (Slice C / ADR 0003, storage_mapping.md §4a).
+        # Tracer descriptors (ADR 0003, storage_mapping.md §4a).
         # `/_tracers` is optional: preserf writers create it lazily, only
         # when a tracer is registered, so a field-only store (and any store
         # written before ADR 0003) simply omits it. Its absence is tolerated.

@@ -234,8 +234,8 @@ class SerialboxDump:
     field_data: dict[str, dict[int, np.ndarray]] = field(default_factory=dict)
 
     # Metadata-only `!$SER INIT` keywords pp_ser passes through, recorded
-    # by the Fortran helper in the `_preserf_*` root attribute namespace
-    # (Slice D Phase 3). `archive` here is the INIT `archive=` keyword and
+    # by the Fortran helper in the `_preserf_*` root attribute namespace.
+    # `archive` here is the INIT `archive=` keyword and
     # is distinct from `archive_name` above, which comes from the Serialbox
     # ArchiveMetaData JSON path. Defaults match the Fortran PPSER_DEFAULT_*
     # constants so older stores lacking the attrs decode to the same values.
@@ -243,12 +243,12 @@ class SerialboxDump:
     archive: str = "Binary"
     unique_id: int = 0
 
-    # `!$SER OPTION verbosity=` value (Slice C / ADR 0003 §4), recorded by
+    # `!$SER OPTION verbosity=` value (ADR 0003 §4), recorded by
     # the Fortran helper as the reserved `_preserf_option_verbosity` root
     # attribute. None when the option was never set.
     option_verbosity: int | None = None
 
-    # ---- Tracers (Slice C / ADR 0003, storage_mapping.md §4a) ----
+    # ---- Tracers (ADR 0003, storage_mapping.md §4a) ----
     # Tracer descriptors mirror /_fields entries (type_id + dims via
     # FieldMetainfo); tracer_stype / tracer_index carry the two extra
     # /_tracers attributes. Per-savepoint tracer snapshots are keyed by

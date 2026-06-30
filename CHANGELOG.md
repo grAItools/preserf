@@ -27,6 +27,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Comment-hygiene policy and enforcement: comments and docstrings must describe
+  the code, not the review/release process. A new guard test
+  (`tests/unit_tests/test_comment_hygiene.py`) plus ruff `ERA`/`FIX` rules fail
+  `pixi run verify` on review/release-process prose (`Slice X` / `Phase N`
+  labels, `v0.x` scope notes, "out of scope for this PR"), commented-out code,
+  and `TODO`/`FIXME` markers — inspecting comments and docstrings only, never
+  string literals. Documented in `docs/style.md` ("Comments"), an auto-loaded
+  `.claude/rules/comments.md`, the `reviewer`/`developer` subagents, and
+  ADR 0007.
 - Differential test pinning preserf's `!$SER` expansion against the upstream
   Serialbox `pp_ser` preprocessor it ports. `tests/unit_tests/`
   `test_pp_ser_differential.py` runs both preserf and the upstream `pp_ser` over
@@ -309,6 +318,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Stripped review/release-process prose from code comments and docstrings
+  across the Fortran helper (`src/preserf/fortran/`) and the test suite:
+  internal `Slice X` / `Phase N` slice labels and `v0.x` / `v1.0` release-scope
+  notes are removed, keeping the durable references they sat beside (e.g.
+  `(Slice C / ADR 0003 §4a)` -> `(ADR 0003 §4a)`) and restating version-bound
+  behaviour as current fact. No runtime or wire-format change.
 - The installed Fortran-runtime CMake package-version file
   (`preserf_fortranConfigVersion.cmake`) now declares
   `COMPATIBILITY SameMinorVersion` instead of `SameMajorVersion`. The helper
