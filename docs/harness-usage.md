@@ -70,8 +70,9 @@ your prompt matches that language, the capability fires without you naming it:
 ### 3. Deterministic (the harness runs it, not the model)
 
 Each tool runs format / block / verify behaviour outside the model's reasoning,
-so you never need to ask for formatting — both tools auto-format edited files.
-The mechanism and coverage differ per tool — see
+so you rarely need to ask for formatting — both tools auto-format edited
+Python/Fortran files (dprint-managed files like md/json/toml still need
+`pixi run fmt`). The mechanism and coverage differ per tool — see
 [Claude Code specifics](#claude-code-specifics) and
 [OpenCode specifics](#opencode-specifics).
 The one gap to know: Claude Code also runs the full gate on Stop, whereas
@@ -219,9 +220,9 @@ These are distinct:
 
 These are enforced by docs + hooks; restating them in prompts is noise:
 
-- **Formatting** — automatic on edit (ruff / fprettify) via the Claude Code
-  format hook and the OpenCode `formatter`; `pixi run fmt` formats the whole
-  tree on demand.
+- **Formatting** — Python/Fortran auto-format on edit (ruff / fprettify) via
+  the Claude Code format hook and the OpenCode `formatter`; dprint-managed files
+  (md/json/toml/yaml) and a whole-tree pass need `pixi run fmt`.
 - **Verification gate** — `pixi run verify` is the canonical lint + test gate
   (see `scripts/verify.sh`). Keep the fast loop (`pixi run test-py`) under ~60s;
   slow suites belong in CI.
@@ -258,6 +259,7 @@ Three habits that make the harness work for you:
    agent and output format are auto-selected.
 2. Respect the stop boundaries — review each artifact before triggering the next
    phase.
-3. Trust the deterministic behaviour — both tools auto-format on edit, so don't
-   ask for formatting. The gate runs automatically on Stop in Claude Code; under
-   OpenCode run `/verify` yourself before wrapping up (CI is the backstop).
+3. Trust the deterministic behaviour — both tools auto-format edited
+   Python/Fortran (run `pixi run fmt` for dprint-managed files). The gate runs
+   automatically on Stop in Claude Code; under OpenCode run `/verify` yourself
+   before wrapping up (CI is the backstop).
