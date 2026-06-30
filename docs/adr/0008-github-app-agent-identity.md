@@ -11,7 +11,7 @@ The repo already runs agentic workflows (`opencode.yml`, the gh-aw
 trigger gating, checkout, auth, and engine wiring. We want a Copilot-style
 flow where mentioning a handle (`@preserf-agent`) in an issue or PR comment
 dispatches an agent that can do work and commit/push/open PRs — and we want
-adding a *new* such agent to cost only a prompt and a trigger, not a copy of
+adding a _new_ such agent to cost only a prompt and a trigger, not a copy of
 all that infrastructure.
 
 Two questions drive the decision:
@@ -21,14 +21,14 @@ Two questions drive the decision:
    workflow and not mentionable. A dedicated identity gives the agent a
    coherent, attributable presence.
 2. **How is the shared setup packaged?** GitHub Actions offers composite
-   actions (reusable *steps*) and reusable workflows (reusable *jobs*,
+   actions (reusable _steps_) and reusable workflows (reusable _jobs_,
    `on: workflow_call`); triggers (`on:`) can live in neither and must stay in
    each caller.
 
 A GitHub App is a new authentication dependency (per AGENTS.md, that warrants
 an ADR). The alternative — a machine-user account with a PAT — is assignable
 to issues but consumes a seat, carries a long-lived broad-blast-radius token,
-and must be re-shared per repo. Issue *assignment* is not a requirement here;
+and must be re-shared per repo. Issue _assignment_ is not a requirement here;
 mention-triggering is.
 
 ## Decision
@@ -49,7 +49,7 @@ Credentials live as `vars.PRESERF_AGENT_APP_ID` and
   `OPENCODE_API_KEY`).
 - `.github/workflows/agent.yml` (`workflow_call`) wraps the mention plumbing —
   loop guard (`sender.type != 'Bot'`), word-boundary mention parse, and an
-  `author_association` gate that runs *before* any PR-head checkout — and calls
+  `author_association` gate that runs _before_ any PR-head checkout — and calls
   the composite action with the composed prompt.
 
 A new agent is then a ~15-line caller (`agent-mention.yml` is the template):

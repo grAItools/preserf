@@ -10,11 +10,11 @@ See [ADR 0008](adr/0008-github-app-agent-identity.md) for the why.
 
 ## Pieces
 
-| File | Role |
-|---|---|
-| `.github/actions/agent-runtime/action.yml` | Composite action: mint App token → resolve bot git identity → checkout as bot → run opencode with the prompt. |
-| `.github/workflows/agent.yml` | Reusable workflow (`workflow_call`): mention parse, loop guard, `author_association` gate; calls the composite action. |
-| `.github/workflows/agent-mention.yml` | Example caller / copy-me template. |
+| File                                       | Role                                                                                                                   |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `.github/actions/agent-runtime/action.yml` | Composite action: mint App token → resolve bot git identity → checkout as bot → run opencode with the prompt.          |
+| `.github/workflows/agent.yml`              | Reusable workflow (`workflow_call`): mention parse, loop guard, `author_association` gate; calls the composite action. |
+| `.github/workflows/agent-mention.yml`      | Example caller / copy-me template.                                                                                     |
 
 ## One-time setup (manual)
 
