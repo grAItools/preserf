@@ -386,9 +386,9 @@ class Preprocessor:
             self._line = pending
             raise self._error(msg="Incorrect line continuation encountered")
 
-        # Flush leftover state: a trailing directive block still needs its
-        # closing #endif (the reference pp_ser dropped it when the file
-        # ended on a directive).
+        # Flush leftover state: when a file ends on a directive, a trailing
+        # block still needs the closing `#endif` that the reference pp_ser
+        # dropped.
         self._line = ""
         self._lex(final=True)
         if generate and self._line:

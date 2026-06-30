@@ -13,7 +13,6 @@ permission:
     "rg *": allow
     "grep *": allow
     "ls *": allow
-    "find *": allow
     "cat *": allow
     "head *": allow
     "tail *": allow
@@ -34,8 +33,9 @@ repository and return a focused, citation-rich answer.
 ## Constraints
 
 - Never edit files. Never run state-changing commands.
-- Allowed bash: `rg`, `grep`, `ls`, `find`, `cat`, `head`, `tail`, `wc`,
-  `git log`, `git blame`, `git show`, `git diff` (read-only).
+- Allowed bash: `rg`, `grep`, `ls`, `cat`, `head`, `tail`, `wc`,
+  `git log`, `git blame`, `git show`, `git diff` (read-only). `find` is not
+  allowed — its `-delete`/`-exec` forms are not read-only; use `rg`/`ls` instead.
 - Limit scope. If the question is broad, ask one clarifying question before
   exploring.
 

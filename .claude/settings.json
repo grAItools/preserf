@@ -10,16 +10,25 @@
       "Bash(ls:*)",
       "Bash(cat:*)",
       "Bash(head:*)",
-      "Bash(tail:*)",
-      "Bash(find:*)"
+      "Bash(tail:*)"
     ],
     "deny": [
       "Bash(git push --force:*)",
-      "Bash(git reset --hard origin:*)",
+      "Bash(git reset --hard:*)",
       "Bash(rm -rf:*)"
     ]
   },
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PROJECT_DIR:-.}/.agents/hooks/ensure-toolchain.sh\" || true"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit|MultiEdit",
@@ -37,7 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'rm -rf|push --force|reset --hard|DROP TABLE' && exit 2 || exit 0"
+            "command": "S=\"${CLAUDE_PROJECT_DIR:-.}/.agents/hooks/block-destructive.sh\"; [ -r \"$S\" ] || exit 2; echo \"$CLAUDE_TOOL_INPUT\" | sh \"$S\""
           }
         ]
       }
@@ -47,7 +56,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); [ \"$(printf \u0027%s\u0027 \"$INPUT\" | jq -r \u0027.stop_hook_active // false\u0027)\" = \u0027true\u0027 ] \u0026\u0026 exit 0; pixi run verify || exit 2"
+            "command": "INPUT=$(cat); [ \"$(printf \u0027%s\u0027 \"$INPUT\" | jq -r \u0027.stop_hook_active // false\u0027)\" = \u0027true\u0027 ] \u0026\u0026 exit 0; export PATH=\"$HOME/.pixi/bin:$PATH\"; command -v pixi \u003e/dev/null 2\u003e\u00261 || { echo \u0027verify skipped: pixi unavailable (run .agents/hooks/ensure-toolchain.sh; see docs/tool-bootstrap.md)\u0027 \u003e\u00262; exit 0; }; pixi run verify || exit 2"
           }
         ]
       }
