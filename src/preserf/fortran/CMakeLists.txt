@@ -213,7 +213,7 @@ endif()
 # Tests
 # -----------------------------------------------------------------------------
 #
-# Tests live under ../../tests-fortran/ and are driven from there (the
-# tests-fortran/ tree is the entry point passed to `cmake -S`; it pulls
+# Tests live under ../../../tests/fortran/ and are driven from there (the
+# tests/fortran/ tree is the entry point passed to `cmake -S`; it pulls
 # this library in via add_subdirectory). This file builds only the
 # library, regardless of whether it is the top-level project or vendored.

@@ -1,7 +1,7 @@
 """End-to-end pipeline test: preprocessor -> helper -> store (Slice D Phase 4).
 
 The ``preserf_fortran_test_e2e`` binary is built from
-``tests-fortran/e2e/e2e_fixture.f90.in``: at CMake build time the fixture is
+``tests/fortran/e2e/e2e_fixture.f90.in``: at CMake build time the fixture is
 run through the ``preserf`` CLI, the generated Fortran is compiled against the
 helper library, and the binary writes a store. This test runs that binary and
 validates the store via ``tests/_support/storage.py`` — the only test that

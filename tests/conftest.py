@@ -17,7 +17,7 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # The Fortran test executables are built via ``pixi run build-fortran``,
-# which invokes ``cmake -S tests-fortran -B build/preserf-fortran``. Each
+# which invokes ``cmake -S tests/fortran -B build/preserf-fortran``. Each
 # test subdir registers its executable under its own path in the build
 # tree (see the per-subdir CMakeLists.txt files), e.g. the minimal binary
 # lands at ``build/preserf-fortran/unit/m_preserf/...`` and the end-to-end

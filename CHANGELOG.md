@@ -309,6 +309,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The native Fortran ctest tree moved from the repo-root `tests-fortran/`
+  directory into `tests/fortran/`, so all tests now live under a single
+  top-level `tests/` home while staying cleanly separated from the Python
+  (pytest) suite by language subfolder. The CMake entry point is now
+  `cmake -S tests/fortran` (build output unchanged at `build/preserf-fortran`,
+  so `pixi run build-fortran` / `test-fortran` / `verify` are unaffected).
+
 - The installed Fortran-runtime CMake package-version file
   (`preserf_fortranConfigVersion.cmake`) now declares
   `COMPATIBILITY SameMinorVersion` instead of `SameMajorVersion`. The helper

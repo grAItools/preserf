@@ -65,7 +65,7 @@ into three layers:
     `@pytest.mark.consumer` tests that compile a real project against the
     bundled runtime; deselected from `verify` but run by `test-consumer`
     and in CI.
-- `tests-fortran/unit/m_preserf/` — native Fortran via CMake/ctest.
+- `tests/fortran/unit/m_preserf/` — native Fortran via CMake/ctest.
   `test_minimal.f90` covers ~50 ctest scenarios: lifecycle, savepoint
   creation, the full type-coverage matrix (logical / i32 / i64 / f32 /
   f64, 0D–4D), scalar and array metainfo, tracer I/O, k-buffer writes,
@@ -123,7 +123,7 @@ CI even though neither is part of `verify`.
   `tests/integration_tests/`; gate on the same Fortran-binary fixture so
   local dev still skips cleanly.
 - Anything that exercises the Fortran helper in isolation →
-  `tests-fortran/unit/m_preserf/`; wire into ctest via that
+  `tests/fortran/unit/m_preserf/`; wire into ctest via that
   directory's `CMakeLists.txt`.
 
 Coverage is a smoke detector, not a goal — don't write tests just to
