@@ -78,6 +78,8 @@ select = [
   "SIM", # flake8-simplify
   "TC", # flake8-type-checking
   "RUF", # ruff-specific rules
+  "ERA", # eradicate — no commented-out code
+  "FIX", # flake8-fixme — no leftover TODO/FIXME/XXX/HACK markers
 ]
 
 [tool.mypy]

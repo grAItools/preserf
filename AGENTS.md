@@ -33,16 +33,21 @@ this file.
 ## Where things live (capabilities, not paths)
 
 - Architecture overview: [`docs/architecture.md`](docs/architecture.md)
+- Driving the harness (Claude Code & OpenCode): [`docs/harness-usage.md`](docs/harness-usage.md)
 - Style guide: [`docs/style.md`](docs/style.md)
 - Testing strategy: [`docs/testing.md`](docs/testing.md)
 - ADRs (decisions of record): [`docs/adr/`](docs/adr/) — Nygard format
 - Reference docs (specs / schemas too detailed for `docs/`): [`docs/references/`](docs/references/)
 - Per-feature specs: [`specs/<YYYY-MM>-<slug>/`](specs/)
 - Per-PR release history: [`CHANGELOG.md`](CHANGELOG.md)
+- Supported agents & how to add one: [`.agents/README.md`](.agents/README.md)
 
 ## Do
 
-- If `pixi` is not available, install it before starting any development work.
+- `pixi` is bootstrapped automatically at session start by
+  [`.agents/hooks/ensure-toolchain.sh`](.agents/hooks/ensure-toolchain.sh); if you
+  land in a bare shell without it, run that script (details in
+  [`docs/tool-bootstrap.md`](docs/tool-bootstrap.md)).
 - Run `pixi run verify` before claiming a task is done.
 - For a net-new feature, follow the four-phase loop:
   `/spec` (Product Owner) → `/plan` (Architect) → `/build` (Developer)
@@ -66,11 +71,17 @@ this file.
 ## Conventions
 
 - Code style: see `docs/style.md`. One worked example > a page of prose.
+- Comments describe the code, not the process: explain _why_, keep them
+  accurate, no review/release-process prose. See
+  [`docs/style.md`](docs/style.md#comments).
 - Tests are the spec. If you change behaviour, change a test first.
 - Commit messages: **Conventional Commits 1.0.0** — apply the format to the **PR title** (squash-merge).
   See [`docs/style.md`](docs/style.md#commit-messages) for the format,
   type list, breaking-change syntax, examples, and full merge-strategy
   guidance.
+- Changelog: if the project keeps a `CHANGELOG.md`, log user-facing changes
+  under `[Unreleased]` as one concise bullet each, leading with the
+  file/behaviour. See [`docs/style.md`](docs/style.md#changelog).
 - Branch names: `<initials>/<slug>` for personal branches; bare slug for
   shared feature branches.
 

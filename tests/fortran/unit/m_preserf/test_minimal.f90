@@ -105,11 +105,11 @@ program test_minimal
                'preserf-test_minimal: bad directory_ref was accepted'
          else if (scenario == 'init-keywords') then
             ! Exercise the behaviour-changing keywords widened onto
-            ! ppser_initialize in Slice D: realtype / rprecision (real
-            ! tolerance value, not byte length — see issue #38), rperturb
+            ! ppser_initialize: realtype / rprecision (real tolerance
+            ! value, not byte length — see issue #38), rperturb
             ! (read-perturb scale), and mpi_rank (per-rank store suffix).
             ! Metadata-only keywords (singlefile / archive / unique_id)
-            ! are Slice D Phase 3.
+            ! are recorded verbatim as `_preserf_*` root attributes.
             block
                use netcdf
                ! Mirrors the (private) TID_FLOAT32 in m_preserf; the
@@ -159,7 +159,7 @@ program test_minimal
                   'init-keywords: realtype=FLOAT did not derive ppser_reallength=4'
                call ppser_finalize()
 
-               ! --- rperturb threads to ppser_zrperturb (Slice A-2) ---
+               ! --- rperturb threads to ppser_zrperturb ---
                call ppser_initialize(out_dir, 'fkw', 'w', rperturb=1.5_real64)
                if (ppser_zrperturb /= 1.5_real64) error stop &
                   'init-keywords: rperturb did not update ppser_zrperturb'
@@ -204,7 +204,7 @@ program test_minimal
 
                ! --- metadata-only keywords: signature compatibility ---
                ! singlefile / archive / unique_id are recorded as
-               ! `_preserf_*` root attributes (Slice D Phase 3); the
+               ! `_preserf_*` root attributes; the
                ! cross-language round-trip of their values is asserted in
                ! tests/integration_tests/test_preprocessor_e2e.py. Pass all
                ! three (with the behaviour-changing ones too) so a
@@ -279,7 +279,7 @@ program test_minimal
             write (*, '(a)') 'preserf-fortran: realtype-valid OK'
             stop
          else if (scenario == 'backend-nczarr') then
-            ! Slice E: ppser_initialize(..., backend='nczarr-v2') makes
+            ! ppser_initialize(..., backend='nczarr-v2') makes
             ! the helper emit an NCZarr V2 `.zarr` directory store (via a
             ! file://...#mode=nczarr,zarr2 URL) instead of a `.nc` file,
             ! using the same group-per-savepoint schema. Write one real64
@@ -323,7 +323,7 @@ program test_minimal
                stop
             end block
          else if (scenario == 'backend-bad') then
-            ! Slice E: an unrecognised backend must abort at the
+            ! An unrecognised backend must abort at the
             ! ppser_initialize boundary, before any store is opened, with
             ! a clear message rather than a deep netCDF URL error.
             call ppser_initialize(out_dir, 'fbad', 'w', backend='zarr3')
@@ -354,7 +354,7 @@ program test_minimal
             write (*, '(a)') 'preserf-fortran: resolve-relpath OK'
             stop
          else if (scenario == 'backend-nczarr-badchar') then
-            ! Slice E: the nczarr-v2 URL is built by raw concatenation, so
+            ! The nczarr-v2 URL is built by raw concatenation, so
             ! a directory (or prefix) carrying a URI-significant character
             ! — here a space — must abort rather than emit a malformed
             ! file:// URL that would target the wrong on-disk store.
@@ -364,7 +364,7 @@ program test_minimal
             error stop &
                'preserf-test_minimal: nczarr directory with unsafe char accepted'
          else if (scenario == 'read-roundtrip') then
-            ! Slice A-1 Phase 1 + Phase 3: write a store, finalize, then
+            ! Write a store, finalize, then
             ! re-open read-only and replay the same REGISTER / SAVEPOINT /
             ! METAINFO directives pp_ser emits outside the DATA-mode
             ! SELECT CASE. None of them may attempt an nf90_def_* on the
@@ -649,7 +649,7 @@ program test_minimal
                stop
             end block
          else if (scenario == 'perturb-roundtrip') then
-            ! Slice A-2: the 5-arg fs_read_field applies symmetric
+            ! The 5-arg fs_read_field applies symmetric
             ! multiplicative noise data*(1 + scale*(2*r-1)) for every
             ! rank (1D / 2D / 3D). A non-zero scale must keep each element
             ! within [orig*(1-scale), orig*(1+scale)] and shift the field
@@ -948,7 +948,7 @@ program test_minimal
                stop
             end block
          else if (scenario == 'read-ref') then
-            ! Slice A-1 Phase 2: with an explicit directory_ref / prefix_ref
+            ! With an explicit directory_ref / prefix_ref
             ! the savepoint is resolved against the PRIMARY serializer (as
             ! pp_ser's SAVEPOINT directive does) but the read targets the
             ! REFERENCE serializer. The data must come from the reference
@@ -1105,7 +1105,7 @@ program test_minimal
             end block
             call abort_unexpected('kbuff-read-bad-extent')
          else if (scenario == 'type-matrix') then
-            ! Slice B: smoke-test the new dtype x rank overloads end to
+            ! Smoke-test the dtype x rank overloads end to
             ! end. One 1-D write+read round-trip per dtype (logical /
             ! int32 / int64 / real32 / real64), a 0-D (scalar) round-trip,
             ! a 4-D round-trip, and a real32 read-perturb. The full
@@ -1259,7 +1259,7 @@ program test_minimal
                stop
             end block
          else if (scenario == 'wire-matrix') then
-            ! Slice B Phase 3: write one field of every (dtype, rank)
+            ! Write one field of every (dtype, rank)
             ! combination plus a 1D-array metainfo of each scalar type,
             ! so the Python cross-language test can assert the on-disk
             ! netCDF type for the whole matrix against storage_mapping §1.
@@ -1374,7 +1374,7 @@ program test_minimal
                stop
             end block
          else if (scenario == 'tracers') then
-            ! Slice C Phase 1: tracers. Register three real64 tracers of
+            ! Tracers: register three real64 tracers of
             ! rank 1/2/3 in the built-in registry, write their /_tracers
             ! descriptors via fs_RegisterAllTracers, then exercise all four
             ! TRACER write entry points across distinct savepoints:
@@ -1433,7 +1433,7 @@ program test_minimal
                stop
             end block
          else if (scenario == 'tracers-roundtrip') then
-            ! Slice C read-mode round-trip: write a tracer store, finalize,
+            ! Tracer read-mode round-trip: write a tracer store, finalize,
             ! re-open read-only, re-register the same tracers (bound to
             ! freshly zeroed TARGET arrays), validate the descriptors via
             ! fs_RegisterAllTracers, then read every tracer back with
@@ -1536,7 +1536,7 @@ program test_minimal
                stop
             end block
          else if (scenario == 'kbuff') then
-            ! Slice C Phase 2: DATA_KBUFF. Write two fields one vertical
+            ! DATA_KBUFF: write two fields one vertical
             ! level at a time through fs_write_kbuff — a 3-D field t(i,j,k)
             ! from 2-D (i,j) slices and a 2-D field c(i,k) from 1-D (i)
             ! slices. The helper buffers each slice and flushes the full
@@ -1665,7 +1665,7 @@ program test_minimal
                stop
             end block
          else if (scenario == 'option') then
-            ! Slice C Phase 3: OPTION. fs_Option(verbosity=N) sets the
+            ! OPTION: fs_Option(verbosity=N) sets the
             ! module verbosity knob and records the reserved
             ! _preserf_option_verbosity root attribute on the writable
             ! store. The Python wire-compat test reads the value back.

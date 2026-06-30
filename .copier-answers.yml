@@ -1,8 +1,9 @@
 # Changes here will be overwritten by Copier; NEVER EDIT MANUALLY.
-_commit: v0.2.0-3-g42e06b6
+_commit: v0.5.0
 _src_path: gh:grAItools/harness-copier-template
 commit_convention: conventional
-copilot: true
+copilot_code_review: true
+copilot_code_review_skill: true
 cursor: false
 fmt_command: pixi run fmt
 generate_scripts: false

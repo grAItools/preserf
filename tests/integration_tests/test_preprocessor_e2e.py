@@ -1,4 +1,4 @@
-"""End-to-end pipeline test: preprocessor -> helper -> store (Slice D Phase 4).
+"""End-to-end pipeline test: preprocessor -> helper -> store.
 
 The ``preserf_fortran_test_e2e`` binary is built from
 ``tests/fortran/e2e/e2e_fixture.f90.in``: at CMake build time the fixture is
@@ -30,7 +30,7 @@ def test_preprocessor_pipeline_writes_readable_store(
     tmp_path: Path, fortran_e2e_binary: Path
 ) -> None:
     """A `!$SER`-annotated source preprocessed, compiled, and run produces a
-    store the Python reader decodes, including the Slice D init keywords."""
+    store the Python reader decodes, including the ``!$SER INIT`` keywords."""
     out_dir = tmp_path / "e2e_out"
     out_dir.mkdir()
 

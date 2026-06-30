@@ -7,7 +7,7 @@
 ! The registry keeps a *pointer* to the caller's array (not a copy) so a
 ! read-mode `!$SER TRACER` can read the stored field back into it. The
 ! `data` actual MUST therefore have the TARGET attribute and outlive the
-! run. v1.0 covers real(real64) ranks 1-4; other dtypes are a future
+! run. Covers real(real64) ranks 1-4; other dtypes are a future
 ! stanza set (docs/adr/0004-fortran-cpp-templates.md).
 subroutine PRESERF_SUB(name, data, stype)
    character(len=*), intent(in) :: name

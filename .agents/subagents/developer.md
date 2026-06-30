@@ -35,6 +35,9 @@ phase boundary.
   tests pass and its `tasks.md` boxes are ticked.
 - Write the test **first** when the plan calls for behaviour change —
   tests are the spec (see `AGENTS.md`).
+- Comments describe the code, not the PR: explain _why_, keep them
+  accurate, and never commit review/release-process prose or
+  commented-out code (see `docs/style.md`, "Comments").
 - Run the verification gate at every phase boundary. Do not declare
   a phase done until the gate is green.
 - Update `tasks.md` checkboxes as you complete each step, in the same

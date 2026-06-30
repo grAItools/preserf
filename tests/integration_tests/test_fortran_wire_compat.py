@@ -300,7 +300,7 @@ def test_fortran_writes_nczarr_v2_python_reads(
 ) -> None:
     """The Fortran helper can emit an NCZarr V2 store the Python reader decodes.
 
-    Slice E: with ``backend='nczarr-v2'`` the helper writes a ``.zarr``
+    With ``backend='nczarr-v2'`` the helper writes a ``.zarr``
     directory store (via a ``file://...#mode=nczarr,zarr2`` URL onto
     netcdf-c's NCZarr backend) using the same group-per-savepoint schema
     as NetCDF4. This proves a Fortran-written NCZarr V2 store decodes
@@ -401,7 +401,7 @@ def test_fortran_autoregistered_fields_python_reads(
 def test_fortran_writes_tracers_python_reads(
     tmp_path: Path, fortran_binary: Path
 ) -> None:
-    """Slice C Phase 1: Fortran tracer writes round-trip through Python.
+    """Fortran tracer writes round-trip through Python.
 
     The ``tracers`` scenario registers three real64 tracers (rank 1/2/3),
     writes their ``/_tracers`` descriptors via ``fs_RegisterAllTracers``,
@@ -532,7 +532,7 @@ def test_fortran_tracer_timelevel_last_write_wins(
 def test_fortran_writes_kbuff_python_reads(
     tmp_path: Path, fortran_binary: Path
 ) -> None:
-    """Slice C Phase 2: DATA_KBUFF assembled fields round-trip through Python.
+    """DATA_KBUFF assembled fields round-trip through Python.
 
     The ``kbuff`` scenario writes two fields one vertical level at a time
     via ``fs_write_kbuff`` — a 3-D ``t(i,j,k)`` from 2-D slices and a 2-D
@@ -582,7 +582,7 @@ def test_fortran_writes_kbuff_python_reads(
 def test_fortran_writes_option_python_reads(
     tmp_path: Path, fortran_binary: Path
 ) -> None:
-    """Slice C Phase 3: an OPTION value round-trips through Python.
+    """An OPTION value round-trips through Python.
 
     The ``option`` scenario calls ``fs_Option(verbosity=2)`` on a writable
     store; the helper records it as the reserved root attribute
@@ -718,7 +718,7 @@ def test_fortran_unknown_realtype_aborts(tmp_path: Path, fortran_binary: Path) -
 
 
 # ---------------------------------------------------------------------------
-# Slice B: full (rank x dtype) type-coverage matrix.
+# Full (rank x dtype) type-coverage matrix.
 #
 # The `wire-matrix` scenario writes one field of every dtype x rank
 # combination (named "<tag><rank>") plus a 1D-array metainfo of each

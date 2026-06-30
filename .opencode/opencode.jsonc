@@ -15,7 +15,16 @@
   // read-only planning sessions.
   "default_agent": "build",
 
-  // Permission policy — mirrors .claude/settings.json deny list.
+  // Permission policy. The deny-list mirrors the canonical matcher at
+  // .agents/hooks/block-destructive.sh by hand (OpenCode can't call a script).
+  // OpenCode compiles each glob to an anchored regex (`*` -> `.*`), so a leading
+  // and trailing `*` is required to match a substring — hence the `*…*` forms
+  // below, which catch the pattern anywhere (e.g. `cd x && rm -rf y`), matching
+  // the script. The trade-off (shared with the script) is that a benign command
+  // merely *mentioning* a pattern is also caught. The allow-list matches
+  // .claude/settings.json: the build tool, read-only git, plus read-only
+  // inspection helpers (note: `find` is intentionally not allowed —
+  // `find -delete`/`-exec rm` would bypass the deny-list).
   "permission": {
     "bash": {
       "make *": "allow",
@@ -24,9 +33,14 @@
       "git log*": "allow",
       "git show*": "allow",
       "rg *": "allow",
-      "git push --force*": "deny",
-      "git reset --hard origin*": "deny",
-      "rm -rf*": "deny"
+      "ls *": "allow",
+      "cat *": "allow",
+      "head *": "allow",
+      "tail *": "allow",
+      "*rm -rf*": "deny",
+      "*push --force*": "deny",
+      "*reset --hard*": "deny",
+      "*DROP TABLE*": "deny"
     }
   }
 }
