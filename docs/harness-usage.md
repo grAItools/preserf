@@ -69,8 +69,8 @@ your prompt matches that language, the capability fires without you naming it:
 
 ### 3. Deterministic (the harness runs it, not the model)
 
-Each tool runs format / block / verify behaviour outside the model's reasoning.
-
+Each tool runs format / block / verify behaviour outside the model's reasoning,
+so you never need to ask for formatting — both tools auto-format edited files.
 The mechanism and coverage differ per tool — see
 [Claude Code specifics](#claude-code-specifics) and
 [OpenCode specifics](#opencode-specifics).
@@ -88,6 +88,8 @@ Claude Code only). You cannot prompt around the hooks:
   to your shell profile (so it is on PATH for _new_ shells); a hook can't change
   the agent's already-running shells, so the `Stop` hook also exports it onto
   PATH for the verify gate.
+- **PostToolUse (`Write|Edit|MultiEdit`)** auto-formats `*.py` (ruff) and
+  `*.f90/.F90/.f/.F` (fprettify) after every write, via the repo's pixi tasks.
 - **PreToolUse (`Bash`)** hard-blocks `rm -rf`, `push --force`, `reset --hard`,
   `DROP TABLE` (exit 2) via [`.agents/hooks/block-destructive.sh`](../.agents/hooks/block-destructive.sh).
 - **Stop** runs `pixi run verify` before the agent is allowed to stop;
@@ -112,6 +114,12 @@ OpenCode reads `.opencode/opencode.jsonc`, which sets:
   `@mention`, not by Tab.
 - **`permission.bash`** — allow/deny policy whose deny-list mirrors
   [`.agents/hooks/block-destructive.sh`](../.agents/hooks/block-destructive.sh).
+- **`formatter`** — auto-format on edit. OpenCode runs the matching formatter
+  after every write/edit (the analogue of Claude Code's PostToolUse hook). It
+  pins **both** Python and Fortran to the repo's pixi tasks (`fmt-py-src` /
+  `fmt-f-src` via the `$FILE` placeholder) so editor-time formatting is exactly
+  what `pixi run verify` enforces, and disables the built-in `ruff` to avoid
+  double-formatting.
 
 **Where OpenCode differs from Claude Code (so you rely on the right gate):**
 
@@ -124,14 +132,14 @@ OpenCode reads `.opencode/opencode.jsonc`, which sets:
   It's glob-not-regex and can't run a custom script, so for richer logic a
   `.opencode/plugin` with a `tool.execute.before` hook is the optional hardening.
 
-| Capability             | Claude Code                | OpenCode                                       |
-| ---------------------- | -------------------------- | ---------------------------------------------- |
-| Instructions           | `CLAUDE.md` (`@AGENTS.md`) | `instructions` → `AGENTS.md` + docs            |
-| Subagent invocation    | "use the X subagent"       | `@mention` / auto-delegation (Task tool)       |
-| Auto-format            | manual (`pixi run fmt`)    | manual (`pixi run fmt`)                        |
-| Verify gate            | `Stop` hook (blocking)     | `/verify` + CI only (no session-end hook)      |
-| Block destructive bash | `PreToolUse` hook (script) | `permission.bash` deny (`*…*` substring globs) |
-| Path-scoped rules      | `.claude/rules/`           | _(no equivalent)_                              |
+| Capability             | Claude Code                | OpenCode                                        |
+| ---------------------- | -------------------------- | ----------------------------------------------- |
+| Instructions           | `CLAUDE.md` (`@AGENTS.md`) | `instructions` → `AGENTS.md` + docs             |
+| Subagent invocation    | "use the X subagent"       | `@mention` / auto-delegation (Task tool)        |
+| Auto-format            | `PostToolUse` hook         | native `formatter` (built-in Ruff + pixi tasks) |
+| Verify gate            | `Stop` hook (blocking)     | `/verify` + CI only (no session-end hook)       |
+| Block destructive bash | `PreToolUse` hook (script) | `permission.bash` deny (`*…*` substring globs)  |
+| Path-scoped rules      | `.claude/rules/`           | _(no equivalent)_                               |
 
 ## Decision guide — which capability for which task
 
@@ -211,7 +219,9 @@ These are distinct:
 
 These are enforced by docs + hooks; restating them in prompts is noise:
 
-- **Formatting** — run `pixi run fmt` to format the tree.
+- **Formatting** — automatic on edit (ruff / fprettify) via the Claude Code
+  format hook and the OpenCode `formatter`; `pixi run fmt` formats the whole
+  tree on demand.
 - **Verification gate** — `pixi run verify` is the canonical lint + test gate
   (see `scripts/verify.sh`). Keep the fast loop (`pixi run test-py`) under ~60s;
   slow suites belong in CI.
@@ -248,5 +258,6 @@ Three habits that make the harness work for you:
    agent and output format are auto-selected.
 2. Respect the stop boundaries — review each artifact before triggering the next
    phase.
-3. Trust the deterministic behaviour. The gate runs automatically on Stop in Claude Code;
-   under OpenCode run `/verify` yourself before wrapping up (CI is the backstop).
+3. Trust the deterministic behaviour — both tools auto-format on edit, so don't
+   ask for formatting. The gate runs automatically on Stop in Claude Code; under
+   OpenCode run `/verify` yourself before wrapping up (CI is the backstop).
