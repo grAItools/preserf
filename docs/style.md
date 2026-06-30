@@ -103,6 +103,27 @@ PRs are **squash-merged**, so only the squash commit lands in history.
 Put the Conventional Commits header in the **PR title**; individual
 branch commits during work can be freeform working notes.
 
+## Changelog
+
+When the project keeps a `CHANGELOG.md`, follow
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
+[SemVer](https://semver.org/spec/v2.0.0.html):
+
+- Log every user-facing change under `## [Unreleased]`, in the right group
+  (`Added` / `Changed` / `Fixed` / `Removed` / `Deprecated` / `Security`).
+- Write **one concise bullet** per change, and **lead with the file, command,
+  or behaviour** that changed — not the motivation.
+- Mark breaking changes (`### Removed (breaking)`, or a `!` per the commit
+  convention) and add an `### Upgrade notes` block when an upgrade needs manual
+  action.
+- Link the ADR when the change has one (see [`docs/adr/`](adr/)).
+- On release, rename `[Unreleased]` to the version + date and add the compare
+  link.
+
+> **Don't** bury the change under a paragraph of rationale.
+> **Do** lead with it: "`find` dropped from the allow-list (its `-delete` form
+> bypassed the deny-list)." — the change first, the why in a clause.
+
 ## Anti-pattern (with the fix)
 
 A real preserf example, from

@@ -1,6 +1,9 @@
 ---
 paths:
   - "**/*.py"
+  - "**/*.f90"
+  - "**/*.F90"
+  - "examples/**"
 ---
 
 # Comment hygiene
