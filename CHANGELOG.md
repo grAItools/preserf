@@ -27,6 +27,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `.opencode/opencode.jsonc` now configures OpenCode's native `formatter` to
+  auto-format edited files on write — Python via `fmt-py-src` (ruff) and
+  Fortran via `fmt-f-src` (fprettify), pinned to the repo's pixi tasks through
+  the `$FILE` placeholder, with the built-in `ruff` formatter disabled to avoid
+  double-formatting. This brings OpenCode to parity with Claude Code's
+  `PostToolUse` format hook; `docs/harness-usage.md` is updated to match.
 - Comment-hygiene policy and enforcement: comments and docstrings must describe
   the code, not the review/release process. A new guard test
   (`tests/unit_tests/test_comment_hygiene.py`) plus ruff `ERA`/`FIX` rules fail

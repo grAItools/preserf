@@ -42,5 +42,28 @@
       "*reset --hard*": "deny",
       "*DROP TABLE*": "deny"
     }
+  },
+
+  // Auto-format edited files — OpenCode's native `formatter`, which runs after
+  // every write/edit (the analogue of Claude Code's PostToolUse format hook).
+  // Pin both languages to the repo's pixi tasks so editor-time formatting is
+  // byte-for-byte what `pixi run verify` (fmt-check) enforces, and disable the
+  // built-in `ruff` to avoid double-formatting Python. "$FILE" is replaced with
+  // the path of the edited file; matching is by `extensions`. See
+  // docs/harness-usage.md.
+  //
+  // OpenCode has no config-level session-end hook, so there is no automatic
+  // verification gate here — run `/verify` during the session and rely on CI.
+  // Destructive-bash blocking stays the `permission.bash` deny list above.
+  "formatter": {
+    "ruff": { "disabled": true },
+    "preserf-python": {
+      "command": ["pixi", "run", "fmt-py-src", "--", "$FILE"],
+      "extensions": [".py"]
+    },
+    "preserf-fortran": {
+      "command": ["pixi", "run", "fmt-f-src", "--", "$FILE"],
+      "extensions": [".f90", ".F90", ".f", ".F"]
+    }
   }
 }
