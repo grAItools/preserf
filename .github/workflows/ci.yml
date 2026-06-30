@@ -204,7 +204,7 @@ jobs:
           # expanded by the shell instead of taken literally.)
           export LD_LIBRARY_PATH="${NFDIR}/lib:${LD_LIBRARY_PATH:-}"
           # Force ifx so CMake does not pick a stray gfortran off PATH.
-          cmake -S tests-fortran -B build/intel \
+          cmake -S tests/fortran -B build/intel \
             -DCMAKE_Fortran_COMPILER="${FC}"
           cmake --build build/intel
           ctest --test-dir build/intel --output-on-failure

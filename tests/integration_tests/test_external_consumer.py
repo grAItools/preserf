@@ -34,8 +34,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 # Reuse the in-tree e2e fixture as the consumer's sample `!$SER` program
 # rather than maintaining a second hand-written copy that could drift from it.
 # The fixture prints "preserf-fortran: e2e OK" and writes a store with prefix
-# "e2e" (see tests-fortran/e2e/e2e_fixture.f90.in).
-_FIXTURE = _REPO_ROOT / "tests-fortran" / "e2e" / "e2e_fixture.f90.in"
+# "e2e" (see tests/fortran/e2e/e2e_fixture.f90.in).
+_FIXTURE = _REPO_ROOT / "tests" / "fortran" / "e2e" / "e2e_fixture.f90.in"
 _FIXTURE_MARKER = "preserf-fortran: e2e OK"
 _FIXTURE_PREFIX = "e2e"
 

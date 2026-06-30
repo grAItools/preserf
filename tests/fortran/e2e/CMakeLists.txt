@@ -9,7 +9,7 @@
 # is located (non-REQUIRED) by the parent CMakeLists, which only adds this
 # subdir when the `preserf` CLI is on PATH; the helper reuses that result.
 
-include(${CMAKE_CURRENT_SOURCE_DIR}/../../src/preserf/fortran/cmake/PreserfFortran.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../../src/preserf/fortran/cmake/PreserfFortran.cmake)
 
 # Regenerate whenever the fixture OR the preprocessor implementation
 # changes — otherwise an incremental build would compile a stale .F90 and
@@ -17,7 +17,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/../../src/preserf/fortran/cmake/PreserfFortr
 # defeating its purpose. CONFIGURE_DEPENDS re-globs so a newly added
 # preprocessor module is picked up without a manual reconfigure.
 file(GLOB _preserf_cli_sources CONFIGURE_DEPENDS
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../src/preserf/*.py)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../src/preserf/*.py)
 
 # `e2e_fixture.f90.in` -> NAME_WE `e2e_fixture` -> generated `e2e_fixture.F90`
 # (uppercase so the compiler runs the C preprocessor for the `#ifdef

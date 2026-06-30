@@ -320,6 +320,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The native Fortran ctest tree moved from the repo-root `tests-fortran/`
+  directory into `tests/fortran/`, so all tests now live under a single
+  top-level `tests/` home while staying cleanly separated from the Python
+  (pytest) suite by language subfolder. The CMake entry point is now
+  `cmake -S tests/fortran` (build output unchanged at `build/preserf-fortran`,
+  so `pixi run build-fortran` / `test-fortran` / `verify` are unaffected).
 - Stripped review/release-process prose from code comments and docstrings
   across the Fortran helper (`src/preserf/fortran/`) and the test suite:
   internal `Slice X` / `Phase N` slice labels and `v0.x` / `v1.0` release-scope

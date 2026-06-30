@@ -33,7 +33,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SELF = Path(__file__).resolve()
 
 # Directories whose committed source is held to the comment policy.
-_SCAN_DIRS = ("src/preserf", "tests", "tests-fortran", "examples")
+_SCAN_DIRS = ("src/preserf", "tests", "examples")
 _FORTRAN_SUFFIXES = frozenset({".f90", ".F90", ".f", ".F", ".inc", ".INC"})
 # Fortran template fixtures (compiled at build time) carry a `.f90.in` /
 # `.F90.in` double extension, so `Path.suffix` is `.in`; match them by name.

@@ -49,7 +49,7 @@ dev = { features = ["dev"], solve-group = "default" }
 examples = { features = ["examples"], solve-group = "default" }
 
 [tasks]
-build-fortran = { cmd = ["sh", "-c", "cmake -S tests-fortran -B build/preserf-fortran && cmake --build build/preserf-fortran"], default-environment = "dev" }
+build-fortran = { cmd = ["sh", "-c", "cmake -S tests/fortran -B build/preserf-fortran && cmake --build build/preserf-fortran"], default-environment = "dev" }
 clean-fortran = { cmd = ["rm", "-rf", "build/preserf-fortran"], default-environment = "dev" }
 fmt-d = { cmd = ["dprint", "fmt"], default-environment = "dev" }
 fmt-d-check = { cmd = ["dprint", "check"], default-environment = "dev" }

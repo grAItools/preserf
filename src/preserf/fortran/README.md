@@ -115,8 +115,8 @@ Debian/Ubuntu; the `netcdf-fortran.pc` pkg-config file is what the
 CMake build looks for).
 
 ```sh
-# Build the library + its native tests (entry point is the tests-fortran/ tree)
-cmake -S tests-fortran -B build/preserf-fortran
+# Build the library + its native tests (entry point is the tests/fortran/ tree)
+cmake -S tests/fortran -B build/preserf-fortran
 cmake --build build/preserf-fortran
 ctest --test-dir build/preserf-fortran --output-on-failure
 ```

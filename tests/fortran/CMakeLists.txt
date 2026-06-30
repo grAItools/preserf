@@ -10,7 +10,7 @@ enable_testing()
 # exercised in CI. The call is idempotent: the e2e subtree calls it again via
 # preserf_add_fortran_target(), but the unit subtree below also needs the
 # `preserf_fortran` target when e2e is skipped, so define it here up front.
-include(${CMAKE_CURRENT_SOURCE_DIR}/../src/preserf/fortran/cmake/PreserfFortran.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../src/preserf/fortran/cmake/PreserfFortran.cmake)
 preserf_fortran_library()
 
 # Recurse into the per-module test subtrees. Each subdir is responsible
