@@ -1,0 +1,97 @@
+name: Agent runtime
+description: >-
+  Bootstraps a coding-agent run under the preserf GitHub-App identity: mints a
+  short-lived installation token, resolves the bot's git identity, checks out
+  the repo as the bot, configures git, and runs the opencode engine with the
+  supplied prompt. Everything the agent commits, pushes, or opens is attributed
+  to the App's bot user.
+
+inputs:
+  prompt:
+    description: Full prompt handed to the agent (persona + request, already composed).
+    required: true
+  app-id:
+    description: GitHub App ID (from a repo/org variable).
+    required: true
+  private-key:
+    description: GitHub App private key (from a secret).
+    required: true
+  opencode-api-key:
+    description: opencode engine API key (from a secret).
+    required: true
+  model:
+    description: opencode model id.
+    required: false
+    default: opencode-go/glm-5.2
+  swissai-api-key:
+    description: Optional Swiss AI key, for swiss-ai/* models.
+    required: false
+    default: ""
+  checkout-ref:
+    description: >-
+      Ref or SHA to check out. Leave empty to use the default-branch checkout
+      (issue/comment events run on the default branch); set to the PR head SHA
+      for PR-context runs so the agent acts on the PR's code.
+    required: false
+    default: ""
+
+outputs:
+  token:
+    description: The minted installation token (so callers can post as the bot).
+    value: ${{ steps.app.outputs.token }}
+  bot-name:
+    description: Resolved bot git identity, e.g. preserf-agent[bot].
+    value: ${{ steps.bot.outputs.name }}
+
+runs:
+  using: composite
+  steps:
+    - name: Mint App installation token
+      id: app
+      uses: actions/create-github-app-token@v2
+      with:
+        app-id: ${{ inputs.app-id }}
+        private-key: ${{ inputs.private-key }}
+
+    # The committer email must be the bot's <user-id>+<slug>[bot] noreply form
+    # for commits to show the bot's avatar; the numeric id is not handed to us,
+    # so fetch it once from the users API.
+    - name: Resolve bot git identity
+      id: bot
+      shell: bash
+      env:
+        GH_TOKEN: ${{ steps.app.outputs.token }}
+        SLUG: ${{ steps.app.outputs.app-slug }}
+      run: |
+        uid=$(gh api "/users/${SLUG}[bot]" --jq .id)
+        echo "name=${SLUG}[bot]" >> "$GITHUB_OUTPUT"
+        echo "email=${uid}+${SLUG}[bot]@users.noreply.github.com" >> "$GITHUB_OUTPUT"
+
+    - name: Checkout as the bot
+      uses: actions/checkout@v6.0.3
+      with:
+        ref: ${{ inputs.checkout-ref }}
+        token: ${{ steps.app.outputs.token }}
+        # Keep the bot token in the local git config so the agent can push.
+        persist-credentials: true
+
+    - name: Configure git identity
+      shell: bash
+      env:
+        BOT_NAME: ${{ steps.bot.outputs.name }}
+        BOT_EMAIL: ${{ steps.bot.outputs.email }}
+      run: |
+        git config user.name  "$BOT_NAME"
+        git config user.email "$BOT_EMAIL"
+
+    - name: Run opencode
+      uses: anomalyco/opencode/github@latest
+      env:
+        OPENCODE_API_KEY: ${{ inputs.opencode-api-key }}
+        SWISSAI_API_KEY: ${{ inputs.swissai-api-key }}
+        # The agent's git/gh tools act as the bot via this token.
+        GH_TOKEN: ${{ steps.app.outputs.token }}
+        GITHUB_TOKEN: ${{ steps.app.outputs.token }}
+      with:
+        model: ${{ inputs.model }}
+        prompt: ${{ inputs.prompt }}

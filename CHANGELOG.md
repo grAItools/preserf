@@ -27,6 +27,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Reusable `@preserf-agent` mention-triggered agent infrastructure: a
+  composite action (`.github/actions/agent-runtime/`) mints a GitHub-App
+  installation token, resolves the bot's git identity, checks out as the bot,
+  and runs the existing opencode engine; a reusable workflow
+  (`.github/workflows/agent.yml`, `workflow_call`) wraps the mention parse,
+  loop guard, and `author_association` gate around it. Adding a new agent is a
+  ~15-line caller (`.github/workflows/agent-mention.yml` is the template) that
+  supplies only an `on:` trigger and a `base-prompt`. Everything the agent
+  commits/pushes/opens is attributed to `preserf-agent[bot]`. One-time App
+  setup and the security model are documented in `docs/agent-workflows.md`;
+  the identity decision is recorded in
+  [ADR 0008](docs/adr/0008-github-app-agent-identity.md).
 - `.opencode/opencode.jsonc` now configures OpenCode's native `formatter` to
   auto-format edited files on write — Python via `fmt-py-src` (ruff) and
   Fortran via `fmt-f-src` (fprettify), pinned to the repo's pixi tasks through
