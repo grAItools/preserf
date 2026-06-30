@@ -27,7 +27,7 @@
   // `find -delete`/`-exec rm` would bypass the deny-list).
   "permission": {
     "bash": {
-      "make *": "allow",
+      "pixi *": "allow",
       "git status": "allow",
       "git diff*": "allow",
       "git log*": "allow",
