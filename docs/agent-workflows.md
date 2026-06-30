@@ -1,6 +1,6 @@
 # Mention-triggered agent workflows
 
-A Copilot-style handle — `@preserf-agent` — that, when mentioned in an issue or
+A Copilot-style handle — `@repo-agent` — that, when mentioned in an issue or
 PR comment, dispatches a coding agent running under a dedicated GitHub-App
 identity. The shared infrastructure (App token, bot identity, checkout, auth
 gate, opencode engine) lives in two reusable pieces, so adding a new agent
@@ -22,15 +22,15 @@ The GitHub App must be registered by an org/repo admin — it cannot be created
 from CI.
 
 1. **Org settings → Developer settings → GitHub Apps → New GitHub App.** Name
-   it `Preserf Agent` (this fixes the handle `preserf-agent[bot]`). Under
+   it `Repo Agent` (this fixes the handle `repo-agent[bot]`). Under
    **Webhook**, uncheck **Active** (Actions drives it, not webhooks).
 2. **Permissions → Repository:** Contents = Read & write, Issues = Read &
    write, Pull requests = Read & write.
 3. **Create**, then **Generate a private key** (downloads a `.pem`).
 4. **Install** the App on the repo (or the whole org).
 5. Store the credentials on the repo (or org):
-   - **Variable** `PRESERF_AGENT_APP_ID` = the App ID.
-   - **Secret** `PRESERF_AGENT_APP_KEY` = the full `.pem` contents.
+   - **Variable** `REPO_AGENT_APP_ID` = the App ID.
+   - **Secret** `REPO_AGENT_APP_KEY` = the full `.pem` contents.
 
 `OPENCODE_API_KEY` (and optionally `SWISSAI_API_KEY`) are the same engine
 secrets `opencode.yml` already uses.
@@ -59,8 +59,8 @@ jobs:
 
 The user's text after the trigger phrase is appended to `base-prompt` under a
 `## Request` heading and handed to the agent. `secrets: inherit` passes
-`OPENCODE_API_KEY` / `PRESERF_AGENT_APP_KEY` / `SWISSAI_API_KEY` through;
-`PRESERF_AGENT_APP_ID` is read from repo variables.
+`OPENCODE_API_KEY` / `REPO_AGENT_APP_KEY` / `SWISSAI_API_KEY` through;
+`REPO_AGENT_APP_ID` is read from repo variables.
 
 Optional `with:` inputs: `model` (default `opencode-go/glm-5.2`), `runs-on`
 (default `ubuntu-latest`), `allowed-associations` (default
@@ -78,7 +78,7 @@ Optional `with:` inputs: `model` (default `opencode-go/glm-5.2`), `runs-on`
 - **Auth gate.** `author_association` must be in `allowed-associations`, checked
   **before** any PR-head checkout — so an untrusted fork PR's code is never run
   under the privileged App token (the `pull_request_target`-style footgun).
-- **Word-boundary match.** `@preserf-agent` is matched with a `\b` boundary, so
-  `@preserf-agent-staging` does not fire it.
+- **Word-boundary match.** `@repo-agent` is matched with a `\b` boundary, so
+  `@repo-agent-staging` does not fire it.
 - **Scoped, short-lived token.** The installation token expires (~1h) and is
   scoped to the install; it is never written to logs.

@@ -9,7 +9,7 @@ Accepted
 The repo already runs agentic workflows (`opencode.yml`, the gh-aw
 `grumpy-reviewer`, `agentics-maintenance`), but each one re-declares its
 trigger gating, checkout, auth, and engine wiring. We want a Copilot-style
-flow where mentioning a handle (`@preserf-agent`) in an issue or PR comment
+flow where mentioning a handle (`@repo-agent`) in an issue or PR comment
 dispatches an agent that can do work and commit/push/open PRs — and we want
 adding a _new_ such agent to cost only a prompt and a trigger, not a copy of
 all that infrastructure.
@@ -33,12 +33,12 @@ mention-triggering is.
 
 ## Decision
 
-**Register a GitHub App (`preserf-agent[bot]`) and run mention-triggered
+**Register a GitHub App (`repo-agent[bot]`) and run mention-triggered
 agents under its short-lived installation token.** The App is granted
 Contents + Issues + Pull requests = Read & write, so the agent can commit,
 push, open/close issues, and open/merge PRs — all attributed to the bot.
-Credentials live as `vars.PRESERF_AGENT_APP_ID` and
-`secrets.PRESERF_AGENT_APP_KEY`.
+Credentials live as `vars.REPO_AGENT_APP_ID` and
+`secrets.REPO_AGENT_APP_KEY`.
 
 **Package the shared setup as a composite action plus a reusable workflow:**
 
@@ -60,7 +60,7 @@ its own `on:` block plus `uses: ./.github/workflows/agent.yml` with a
 
 - **Positive.** Installation tokens are short-lived (~1h) and scoped per
   install — small blast radius, no seat, no rotation chore. Every agent action
-  is attributed to one coherent `preserf-agent[bot]` identity. New agents cost
+  is attributed to one coherent `repo-agent[bot]` identity. New agents cost
   a prompt + trigger; the App/checkout/auth/engine wiring exists once.
 - **Negative / constraints.**
   - One-time manual setup (register App, set permissions, install, store

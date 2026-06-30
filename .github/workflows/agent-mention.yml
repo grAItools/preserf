@@ -1,6 +1,6 @@
 name: agent-mention
 
-# General-purpose @preserf-agent handler. This is also the copy-me template:
+# General-purpose @repo-agent handler. This is also the copy-me template:
 # to add a new agent, copy this file, rename it, and change `name`,
 # `trigger-phrase`, and `base-prompt`. All the shared setup (App identity,
 # checkout, auth gate, engine) lives in ./.github/workflows/agent.yml.
@@ -20,9 +20,9 @@ jobs:
   agent:
     uses: ./.github/workflows/agent.yml
     with:
-      trigger-phrase: "@preserf-agent"
+      trigger-phrase: "@repo-agent"
       base-prompt: |
-        You are preserf-agent, a coding agent for the preserf repository.
+        You are repo-agent, a coding agent for the preserf repository.
         Read AGENTS.md and follow the project's conventions. When asked to
         change code, make the edits, run `pixi run verify`, then commit and
         push to a branch and open a pull request describing the change. When

@@ -40,7 +40,7 @@ outputs:
     description: The minted installation token (so callers can post as the bot).
     value: ${{ steps.app.outputs.token }}
   bot-name:
-    description: Resolved bot git identity, e.g. preserf-agent[bot].
+    description: Resolved bot git identity, e.g. repo-agent[bot].
     value: ${{ steps.bot.outputs.name }}
 
 runs:

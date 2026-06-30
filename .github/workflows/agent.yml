@@ -18,7 +18,7 @@ on:
         description: Mention handle that fires the agent.
         required: false
         type: string
-        default: "@preserf-agent"
+        default: "@repo-agent"
       model:
         description: opencode model id.
         required: false
@@ -39,7 +39,7 @@ on:
     secrets:
       OPENCODE_API_KEY:
         required: true
-      PRESERF_AGENT_APP_KEY:
+      REPO_AGENT_APP_KEY:
         required: true
       SWISSAI_API_KEY:
         required: false
@@ -85,7 +85,7 @@ jobs:
               context.payload.comment?.body ??
               context.payload.review?.body ??
               context.payload.issue?.body ?? '';
-            // Word-boundary match so "@preserf-agent-staging" does not trigger.
+            // Word-boundary match so "@repo-agent-staging" does not trigger.
             const phrase = process.env.PHRASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const re = new RegExp(`(^|\\s)${phrase}\\b`);
             const mentioned = re.test(body);
@@ -144,8 +144,8 @@ jobs:
         with:
           prompt: ${{ steps.compose.outputs.prompt }}
           model: ${{ inputs.model }}
-          app-id: ${{ vars.PRESERF_AGENT_APP_ID }}
-          private-key: ${{ secrets.PRESERF_AGENT_APP_KEY }}
+          app-id: ${{ vars.REPO_AGENT_APP_ID }}
+          private-key: ${{ secrets.REPO_AGENT_APP_KEY }}
           opencode-api-key: ${{ secrets.OPENCODE_API_KEY }}
           swissai-api-key: ${{ secrets.SWISSAI_API_KEY }}
           checkout-ref: ${{ steps.ref.outputs.sha }}
