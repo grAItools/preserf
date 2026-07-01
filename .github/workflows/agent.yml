@@ -32,15 +32,19 @@ on:
         required: false
         type: string
         default: |
-          - name: glm
-            model: opencode-go/glm-5.2
+          - name: default
+            model: ${{ variables.REPO_AGENT_MODEL_DEFAULT }}
             default: true
-          - name: kimi
-            model: opencode-go/kimi-k2.6
-          - name: deepseek
-            model: opencode-go/deepseek-v4-pro
-          - name: qwen
-            model: opencode-go/qwen3.6-plus
+          - name: small
+            model:  ${{ variables.REPO_AGENT_MODEL_SMALL }}
+          - name: large
+            model:  ${{ variables.REPO_AGENT_MODEL_LARGE }}
+          - name: cscs:glm
+            model: cscs-inference/zai-org/GLM-5.2
+          - name: cscs:kimi
+            model: cscs-inference/moonshotai/Kimi-K2.7-Code
+          - name: sai:glm4
+            model: swiss-ai/zai-org/GLM-4.7-Flash
       runs-on:
         description: Runner label for the agent job.
         required: false
