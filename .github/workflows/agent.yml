@@ -184,7 +184,14 @@ jobs:
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           {
             echo "prompt<<__AGENT_PROMPT_EOF__"
-            printf '%s\n\n## Request\n\n%s\n' "$BASE" "$cleaned"
+            if [ -n "$cleaned" ]; then
+              # User text after the mention becomes the request under a heading.
+              printf '%s\n\n## Request\n\n%s\n' "$BASE" "$cleaned"
+            else
+              # Mention-only trigger (no extra prompt): hand opencode just the
+              # base prompt, with no empty "## Request" section.
+              printf '%s\n' "$BASE"
+            fi
             echo "__AGENT_PROMPT_EOF__"
           } >> "$GITHUB_OUTPUT"
 

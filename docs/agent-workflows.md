@@ -64,10 +64,13 @@ jobs:
     secrets: inherit
 ```
 
-The user's text after the trigger phrase is appended to `base-prompt` under a
-`## Request` heading and handed to the agent. `secrets: inherit` passes
-`OPENCODE_API_KEY` / `REPO_AGENT_APP_KEY` / `SWISSAI_API_KEY` through;
-`REPO_AGENT_APP_ID` is read from repo variables.
+The user's text after the trigger phrase (with any `^model` tokens removed) is
+appended to `base-prompt` under a `## Request` heading and handed to the agent.
+A **mention-only** trigger with no text after it — e.g. a fixed-purpose agent
+invoked with just `@repo-agent` — sends the `base-prompt` alone, with no empty
+`## Request` section, so agents that need no per-invocation prompt get a clean
+input. `secrets: inherit` passes `OPENCODE_API_KEY` / `REPO_AGENT_APP_KEY` /
+`SWISSAI_API_KEY` through; `REPO_AGENT_APP_ID` is read from repo variables.
 
 Optional `with:` inputs: `models` (the selection table, see below), `runs-on`
 (default `ubuntu-latest`), `allowed-associations` (default
