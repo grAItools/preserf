@@ -37,7 +37,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and runs the existing opencode engine; a reusable workflow
   (`.github/workflows/repo-agent.yml`, `workflow_call`) wraps the mention parse,
   loop guard, and `author_association` gate around it. Adding a new agent is a
-  ~15-line caller (`.github/workflows/agent-mention.yml` is the template) that
+  ~15-line caller (`.github/workflows/repo-agent-actions.yml` is the template) that
   supplies only an `on:` trigger and a `base-prompt`. Everything the agent
   commits/pushes/opens is attributed to `repo-agent[bot]`. One-time App
   setup and the security model are documented in `docs/agent-workflows.md`;
@@ -53,6 +53,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `CSCS_INFERENCE_API_KEY` / `SWISSAI_API_KEY` respectively. Runs are grouped
   for concurrency by `(agent, issue/PR)`, so the same agent on one issue/PR is
   serialized while different agents run in parallel.
+- `@repo-reviewer` PR-review agent (`.github/workflows/repo-agent-pr-actions.yml`):
+  a PR-comment-only caller of the reusable workflow that runs a high-effort,
+  standards-grounded code review (reading `AGENTS.md`, `docs/style.md`,
+  `docs/testing.md`, `docs/architecture.md`, the ADRs, and
+  `.github/instructions/security.instructions.md`) and publishes findings as
+  threaded inline review comments on the PR as `repo-agent[bot]`. Defaults to the
+  largest configured model.
 - `.gemini/settings.json` points Gemini CLI's `context.fileName` at `AGENTS.md`
   (and `GEMINI.md`), wiring Gemini CLI to the single-source-of-truth instructions
   by reference — the file the `.agents/README.md` "adding an agent" recipe

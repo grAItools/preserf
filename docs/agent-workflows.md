@@ -10,11 +10,12 @@ See [ADR 0008](adr/0008-github-app-agent-identity.md) for the why.
 
 ## Pieces
 
-| File                                       | Role                                                                                                                   |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| `.github/actions/agent-runtime/action.yml` | Composite action: mint App token → resolve bot git identity → checkout as bot → run opencode with the prompt.          |
-| `.github/workflows/repo-agent.yml`         | Reusable workflow (`workflow_call`): mention parse, loop guard, `author_association` gate; calls the composite action. |
-| `.github/workflows/agent-mention.yml`      | Example caller / copy-me template.                                                                                     |
+| File                                          | Role                                                                                                                          |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `.github/actions/agent-runtime/action.yml`    | Composite action: mint App token → resolve bot git identity → checkout as bot → run opencode with the prompt.                 |
+| `.github/workflows/repo-agent.yml`            | Reusable workflow (`workflow_call`): mention parse, loop guard, `author_association` gate; calls the composite action.        |
+| `.github/workflows/repo-agent-actions.yml`    | Caller for issue/PR agents (the general `@repo-agent`); the copy-me template.                                                 |
+| `.github/workflows/repo-agent-pr-actions.yml` | Caller for PR-only agents — bundles `@repo-reviewer`, a high-effort code reviewer that posts threaded inline review comments. |
 
 ## One-time setup (manual)
 
@@ -44,7 +45,7 @@ from CI.
 
 ## Add a new agent
 
-Copy `agent-mention.yml`, rename it, and change three things:
+Copy `repo-agent-actions.yml`, rename it, and change three things:
 
 ```yaml
 name: docs-agent

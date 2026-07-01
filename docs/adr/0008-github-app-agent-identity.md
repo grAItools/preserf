@@ -55,7 +55,7 @@ Credentials live as `vars.REPO_AGENT_APP_ID` and
   the composed prompt. Model selection lives here, not in callers, so a new
   agent never re-implements it.
 
-A new agent is then a ~15-line caller (`agent-mention.yml` is the template):
+A new agent is then a ~15-line caller (`repo-agent-actions.yml` is the template):
 its own `on:` block plus `uses: ./.github/workflows/repo-agent.yml` with a
 `base-prompt`.
 

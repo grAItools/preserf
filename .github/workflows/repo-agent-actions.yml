@@ -1,4 +1,4 @@
-name: agent-mention
+name: repo-agent-actions
 
 # General-purpose @repo-agent handler. This is also the copy-me template:
 # to add a new agent, copy this file, rename it, and change `name`,
