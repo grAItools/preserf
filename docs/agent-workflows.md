@@ -10,12 +10,13 @@ See [ADR 0008](adr/0008-github-app-agent-identity.md) for the why.
 
 ## Pieces
 
-| File                                          | Role                                                                                                                          |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `.github/actions/agent-runtime/action.yml`    | Composite action: mint App token → resolve bot git identity → checkout as bot → run opencode with the prompt.                 |
-| `.github/workflows/repo-agent.yml`            | Reusable workflow (`workflow_call`): mention parse, loop guard, `author_association` gate; calls the composite action.        |
-| `.github/workflows/repo-agent-actions.yml`    | Caller for issue/PR agents (the general `@repo-agent`); the copy-me template.                                                 |
-| `.github/workflows/repo-agent-pr-actions.yml` | Caller for PR-only agents — bundles `@repo-reviewer`, a high-effort code reviewer that posts threaded inline review comments. |
+| File                                              | Role                                                                                                                          |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `.github/actions/agent-runtime/action.yml`        | Composite action: mint App token → resolve bot git identity → checkout as bot → run opencode with the prompt.                 |
+| `.github/workflows/repo-agent.yml`                | Reusable workflow (`workflow_call`): mention parse, loop guard, `author_association` gate; calls the composite action.        |
+| `.github/workflows/repo-agent-actions.yml`        | Caller for issue/PR agents (the general `@repo-agent`); the copy-me template.                                                 |
+| `.github/workflows/repo-agent-pr-actions.yml`     | Caller for PR-only agents — bundles `@repo-reviewer`, a high-effort code reviewer that posts threaded inline review comments. |
+| `.github/workflows/repo-agent--issue-actions.yml` | Caller for automatic issue agents (no mention) — bundles `@repo-triager`, which triages, labels, and summarizes new issues.   |
 
 ## One-time setup (manual)
 
@@ -75,7 +76,14 @@ input. `secrets: inherit` passes `OPENCODE_API_KEY` / `REPO_AGENT_APP_KEY` /
 
 Optional `with:` inputs: `models` (the selection table, see below), `runs-on`
 (default `ubuntu-latest`), `allowed-associations` (default
-`OWNER,MEMBER,COLLABORATOR`).
+`OWNER,MEMBER,COLLABORATOR`), and `require-mention` (default `true`).
+
+Set `require-mention: false` for an **automatic** agent that fires on the event
+itself rather than a mention — e.g. `repo-agent--issue-actions.yml` triages
+every opened issue. In that mode the mention gate and the `author_association`
+gate are skipped, the command is empty (so the agent gets the `base-prompt`
+alone), and the prompt should read the triggering payload from
+`$GITHUB_EVENT_PATH` and treat its user content as untrusted data.
 
 > The caller must define its own `on:` triggers — a reusable workflow cannot
 > declare them for the caller. The workflow file must also be on the **default

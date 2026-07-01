@@ -60,6 +60,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `.github/instructions/security.instructions.md`) and publishes findings as
   threaded inline review comments on the PR as `repo-agent[bot]`. Defaults to the
   largest configured model.
+- `@repo-triager` automatic issue-triage agent
+  (`.github/workflows/repo-agent--issue-actions.yml`): fires on every opened
+  issue (no mention) via the reusable workflow's new `require-mention: false`
+  mode, then analyzes and categorizes the issue, applies best-matching existing
+  labels, and posts a structured triage summary (affected area, severity,
+  completeness gaps, next steps) as `repo-agent[bot]`. The issue content is
+  treated as untrusted data. `require-mention: false` skips the mention and
+  author gates and runs the agent on the trusted event itself.
 - `.gemini/settings.json` points Gemini CLI's `context.fileName` at `AGENTS.md`
   (and `GEMINI.md`), wiring Gemini CLI to the single-source-of-truth instructions
   by reference — the file the `.agents/README.md` "adding an agent" recipe

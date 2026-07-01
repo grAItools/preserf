@@ -53,10 +53,22 @@ on:
       allowed-associations:
         description: >-
           Comma-separated author_association values permitted to invoke the
-          agent. Gate runs before any PR-head checkout.
+          agent. Gate runs before any PR-head checkout. Ignored when
+          require-mention is false.
         required: false
         type: string
         default: "OWNER,MEMBER,COLLABORATOR"
+      require-mention:
+        description: >-
+          When true (default) the agent runs only if the trigger-phrase is
+          mentioned, and the command is the text after it, gated by
+          author_association. When false the agent runs automatically on every
+          non-bot triggering event with an empty command (base-prompt only) and
+          no author gate — for unattended automations like issue triage that key
+          off the event itself, not a mention.
+        required: false
+        type: boolean
+        default: true
     secrets:
       OPENCODE_API_KEY:
         required: true
@@ -79,11 +91,13 @@ concurrency:
 
 jobs:
   select:
-    # Coarse pre-filter + loop guard: skip the agent's own comments, and only
-    # spin a runner when the trigger phrase appears somewhere in the payload.
+    # Coarse pre-filter + loop guard: skip the agent's own comments. In mention
+    # mode, only spin a runner when the trigger phrase appears in the payload; in
+    # automatic mode (require-mention == false) run on every non-bot event.
     if: >-
       github.event.sender.type != 'Bot' &&
-      ( contains(github.event.comment.body || '', inputs.trigger-phrase)
+      ( inputs.require-mention == false
+        || contains(github.event.comment.body || '', inputs.trigger-phrase)
         || contains(github.event.review.body || '', inputs.trigger-phrase)
         || contains(github.event.issue.body || '', inputs.trigger-phrase) )
     runs-on: ubuntu-latest
@@ -98,8 +112,16 @@ jobs:
         uses: actions/github-script@v7
         env:
           PHRASE: ${{ inputs.trigger-phrase }}
+          REQUIRE_MENTION: ${{ inputs.require-mention }}
         with:
           script: |
+            // Automatic mode: the event itself is the trigger, so there is no
+            // mention to parse and no per-invocation command (base-prompt only).
+            if (process.env.REQUIRE_MENTION !== 'true') {
+              core.setOutput('mentioned', 'true');
+              core.setOutput('command', '');
+              return;
+            }
             const body =
               context.payload.comment?.body ??
               context.payload.review?.body ??
@@ -118,7 +140,9 @@ jobs:
             core.setOutput('command', command);
 
       - name: Authorize caller
-        if: steps.ctx.outputs.mentioned == 'true'
+        # Automatic mode keys off the trusted event (issue/PR opened), not a
+        # mentioning user, so there is no author_association gate.
+        if: steps.ctx.outputs.mentioned == 'true' && inputs.require-mention
         uses: actions/github-script@v7
         env:
           ALLOWED: ${{ inputs.allowed-associations }}
