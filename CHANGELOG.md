@@ -35,7 +35,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   composite action (`.github/actions/agent-runtime/`) mints a GitHub-App
   installation token, resolves the bot's git identity, checks out as the bot,
   and runs the existing opencode engine; a reusable workflow
-  (`.github/workflows/agent.yml`, `workflow_call`) wraps the mention parse,
+  (`.github/workflows/repo-agent.yml`, `workflow_call`) wraps the mention parse,
   loop guard, and `author_association` gate around it. Adding a new agent is a
   ~15-line caller (`.github/workflows/agent-mention.yml` is the template) that
   supplies only an `on:` trigger and a `base-prompt`. Everything the agent
@@ -45,7 +45,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   [ADR 0008](docs/adr/0008-github-app-agent-identity.md). The invoker selects
   which model(s) run with `^<name>` tokens in the mention (e.g. `^small
   ^cscs:glm`), mirroring `opencode.yml`'s selection table; the table lives once
-  in `agent.yml` (a `select` job parses the tokens and fans out one matrix job
+  in `repo-agent.yml` (a `select` job parses the tokens and fans out one matrix job
   per chosen model), so mention workflows never replicate it. The default table
   reads its `default`/`small`/`large` tiers from the `REPO_AGENT_MODEL_*`
   repository variables and pins `cscs-inference/*` and `swiss-ai/*` provider

@@ -13,7 +13,7 @@ See [ADR 0008](adr/0008-github-app-agent-identity.md) for the why.
 | File                                       | Role                                                                                                                   |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
 | `.github/actions/agent-runtime/action.yml` | Composite action: mint App token → resolve bot git identity → checkout as bot → run opencode with the prompt.          |
-| `.github/workflows/agent.yml`              | Reusable workflow (`workflow_call`): mention parse, loop guard, `author_association` gate; calls the composite action. |
+| `.github/workflows/repo-agent.yml`         | Reusable workflow (`workflow_call`): mention parse, loop guard, `author_association` gate; calls the composite action. |
 | `.github/workflows/agent-mention.yml`      | Example caller / copy-me template.                                                                                     |
 
 ## One-time setup (manual)
@@ -55,7 +55,7 @@ permissions:
   contents: read
 jobs:
   agent:
-    uses: ./.github/workflows/agent.yml
+    uses: ./.github/workflows/repo-agent.yml
     with:
       trigger-phrase: "@preserf-docs"
       base-prompt: |
@@ -83,7 +83,7 @@ Optional `with:` inputs: `models` (the selection table, see below), `runs-on`
 ## Selecting the model(s)
 
 The invoker picks which model runs by adding `^<name>` tokens to the mention;
-this is handled once in `agent.yml`, so callers get it for free.
+this is handled once in `repo-agent.yml`, so callers get it for free.
 
 ```text
 @repo-agent ^small refactor this function
@@ -91,7 +91,7 @@ this is handled once in `agent.yml`, so callers get it for free.
 @repo-agent just do it                                 # no token -> the default model
 ```
 
-The menu is the `models` input — a YAML table defined once in `agent.yml`
+The menu is the `models` input — a YAML table defined once in `repo-agent.yml`
 (`name` = the `^token`, `model` = the opencode id, `default: true` = what runs
 with no token). The default table pairs three repo-variable-driven tiers with
 provider-pinned entries:
@@ -132,7 +132,7 @@ nothing and no run starts.
 >   `swiss-ai/*` → `SWISSAI_API_KEY`, `cscs-inference/*` → `CSCS_INFERENCE_API_KEY`.
 >
 > Adding a new provider-backed model means updating **both** `opencode.json`
-> (provider + model) and, for a new key, the secret wiring in `agent.yml` and
+> (provider + model) and, for a new key, the secret wiring in `repo-agent.yml` and
 > `agent-runtime/action.yml`.
 
 > Running several models against the same PR means several agents push in

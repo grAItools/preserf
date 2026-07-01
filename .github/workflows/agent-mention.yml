@@ -3,7 +3,7 @@ name: agent-mention
 # General-purpose @repo-agent handler. This is also the copy-me template:
 # to add a new agent, copy this file, rename it, and change `name`,
 # `trigger-phrase`, and `base-prompt`. All the shared setup (App identity,
-# checkout, auth gate, engine) lives in ./.github/workflows/agent.yml.
+# checkout, auth gate, engine) lives in ./.github/workflows/repo-agent.yml.
 
 on:
   issue_comment:
@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   agent:
-    uses: ./.github/workflows/agent.yml
+    uses: ./.github/workflows/repo-agent.yml
     with:
       trigger-phrase: "@repo-agent"
       base-prompt: |

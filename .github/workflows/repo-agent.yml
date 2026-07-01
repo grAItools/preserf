@@ -1,4 +1,4 @@
-name: agent
+name: repo-agent
 
 # Reusable workflow: wraps the @mention plumbing (loop guard, mention parse,
 # auth gate, model selection) around the agent-runtime composite action.
