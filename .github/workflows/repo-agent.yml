@@ -251,12 +251,14 @@ jobs:
     name: agent (${{ matrix.name }})
     environment: opencode
     permissions:
-      # Writes ride the App token from agent-runtime, not GITHUB_TOKEN; the
-      # opencode engine needs id-token for its own auth (mirrors opencode.yml).
+      # Only what the GITHUB_TOKEN is actually used for here: opencode's OIDC
+      # (id-token) and the "Checkout action definitions" step (contents). All
+      # repo/issue/PR writes ride the App token from agent-runtime, and the PR
+      # head is resolved in the `select` job — so issues/pull-requests are not
+      # needed. A reusable job may not request more than the caller grants
+      # (it is a hard error, not a silent cap), so keep this minimal.
       id-token: write
       contents: read
-      issues: read
-      pull-requests: read
     strategy:
       # One ^model must not cancel the others; each reports independently.
       fail-fast: false
