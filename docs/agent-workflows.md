@@ -164,5 +164,5 @@ than killing an in-flight commit/push.
 > quick succession, the middle pending run is dropped (only the running one and
 > the newest are kept). To keep the intermediate triggers, set
 > `concurrency.queue: max` (up to 100 pending, FIFO — not combinable with
-> `cancel-in-progress`). For ordering several *different* agents in one run,
+> `cancel-in-progress`). For ordering several _different_ agents in one run,
 > chain the caller jobs with `needs:` instead.
