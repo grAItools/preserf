@@ -50,7 +50,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reads its `default`/`small`/`large` tiers from the `REPO_AGENT_MODEL_*`
   repository variables and pins `cscs-inference/*` and `swiss-ai/*` provider
   models; those providers are declared in `opencode.json`, keyed on
-  `CSCS_INFERENCE_API_KEY` / `SWISSAI_API_KEY` respectively.
+  `CSCS_INFERENCE_API_KEY` / `SWISSAI_API_KEY` respectively. Runs are grouped
+  for concurrency by `(agent, issue/PR)`, so the same agent on one issue/PR is
+  serialized while different agents run in parallel.
 - `.gemini/settings.json` points Gemini CLI's `context.fileName` at `AGENTS.md`
   (and `GEMINI.md`), wiring Gemini CLI to the single-source-of-truth instructions
   by reference — the file the `.agents/README.md` "adding an agent" recipe

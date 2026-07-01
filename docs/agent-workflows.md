@@ -149,3 +149,18 @@ nothing and no run starts.
   `foo@repo-agent` nor a longer handle like `@repo-agent-staging` fires it.
 - **Scoped, short-lived token.** The installation token expires (~1h) and is
   scoped to the install; it is never written to logs.
+
+## Concurrency
+
+Runs are grouped by `(agent, issue/PR)` — `agent-<trigger-phrase>-<number>`.
+So the **same** agent triggered more than once on one issue/PR is serialized
+(one run at a time, regardless of which comment triggered it), while
+**different** agents on the same issue/PR run in parallel. `cancel-in-progress`
+is off, so a second trigger of the same agent queues behind the first rather
+than killing an in-flight commit/push.
+
+> GitHub keeps at most one running + one pending run per group, so if the same
+> agent is triggered 3+ times on one issue in quick succession, the middle
+> pending run is dropped (only the running one and the newest are kept). For
+> guaranteed sequential execution of many agents, chain caller jobs with
+> `needs:` instead of relying on the concurrency group.
