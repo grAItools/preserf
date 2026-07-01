@@ -13,8 +13,14 @@ on:
   issues:
     types: [opened, edited]
 
+# Reusable-workflow permissions can only be reduced, not elevated, by the
+# callee — so the caller must grant everything repo-agent.yml needs:
+# id-token (opencode OIDC), contents (checkout), pull-requests (the select job
+# resolves the PR head SHA via the API on PR-context runs).
 permissions:
+  id-token: write
   contents: read
+  pull-requests: read
 
 jobs:
   agent:

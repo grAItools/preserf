@@ -11,8 +11,13 @@ on:
   pull_request_review_comment:
     types: [created, edited]
 
+# Reusable-workflow permissions can only be reduced, not elevated, by the
+# callee — grant everything repo-agent.yml needs: id-token (opencode OIDC),
+# contents (checkout), pull-requests (the select job resolves the PR head SHA).
 permissions:
+  id-token: write
   contents: read
+  pull-requests: read
 
 jobs:
   reviewer:

@@ -54,7 +54,9 @@ on:
   issue_comment:
     types: [created, edited]
 permissions:
-  contents: read
+  id-token: write # opencode OIDC (reusable-workflow perms can only be reduced,
+  contents: read #  not elevated — so grant everything repo-agent.yml needs here)
+  pull-requests: read # the select job resolves the PR head SHA via the API
 jobs:
   agent:
     uses: ./.github/workflows/repo-agent.yml
@@ -65,6 +67,14 @@ jobs:
         under docs/ to match the request, run `pixi run verify`, then open a PR.
     secrets: inherit
 ```
+
+Grant the caller `id-token: write` + `contents: read`, plus `pull-requests: read`
+whenever the agent can run in PR context (issue comments on PRs, review
+comments). Reusable-workflow token permissions can only be **reduced**, not
+elevated, by the callee, so a caller that grants only `contents: read` starves
+the reusable workflow: opencode's OIDC (`id-token`) is dropped and the `select`
+job can't resolve the PR head SHA (it falls back to the default branch). An
+issue-only caller can omit `pull-requests: read`.
 
 The user's text after the trigger phrase (with any `^model` tokens removed) is
 appended to `base-prompt` under a `## Request` heading and handed to the agent.
