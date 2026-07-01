@@ -33,12 +33,12 @@ on:
         type: string
         default: |
           - name: default
-            model: ${{ variables.REPO_AGENT_MODEL_DEFAULT }}
+            model: ${{ vars.REPO_AGENT_MODEL_DEFAULT }}
             default: true
           - name: small
-            model:  ${{ variables.REPO_AGENT_MODEL_SMALL }}
+            model: ${{ vars.REPO_AGENT_MODEL_SMALL }}
           - name: large
-            model:  ${{ variables.REPO_AGENT_MODEL_LARGE }}
+            model: ${{ vars.REPO_AGENT_MODEL_LARGE }}
           - name: cscs:glm
             model: cscs-inference/zai-org/GLM-5.2
           - name: cscs:kimi
@@ -148,6 +148,15 @@ jobs:
           # dispatch an empty/invalid matrix.
           if [ "$(jq -r '.include | length' <<<"$matrix")" -eq 0 ]; then
             echo "::error::no models selected: the +token(s) matched no table entry and the models table has no 'default: true'." >&2
+            exit 1
+          fi
+
+          # An entry can carry an empty model id if its backing repo variable
+          # (e.g. REPO_AGENT_MODEL_DEFAULT) is unset — catch it here rather than
+          # dispatch opencode with an empty model.
+          empty=$(jq -r '.include[] | select((.model // "") == "") | .name' <<<"$matrix")
+          if [ -n "$empty" ]; then
+            echo "::error::model id is empty for: ${empty//$'\n'/, } — set the backing REPO_AGENT_MODEL_* repository variable(s)." >&2
             exit 1
           fi
 
