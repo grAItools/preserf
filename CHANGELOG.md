@@ -8,6 +8,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `.opencode/opencode.jsonc` allow-listed `make *` despite this project using
+  `pixi` as its build tool (and the adjacent comment claiming parity with
+  `.claude/settings.json`, which allows `pixi:*`); the allow-list now grants
+  `pixi *` so OpenCode can run build/verify tasks without a permission prompt.
 - The Serialbox reference reader/writer (`tests/_support/serialbox.py`)
   decoded multi-dimensional fields in the wrong element order: Serialbox's
   `BinaryArchive` lays array payloads out in **column-major (Fortran) order**
@@ -47,6 +51,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   repository variables and pins `cscs-inference/*` and `swiss-ai/*` provider
   models; those providers are declared in `opencode.json`, keyed on
   `CSCS_INFERENCE_API_KEY` / `SWISSAI_API_KEY` respectively.
+- `.gemini/settings.json` points Gemini CLI's `context.fileName` at `AGENTS.md`
+  (and `GEMINI.md`), wiring Gemini CLI to the single-source-of-truth instructions
+  by reference — the file the `.agents/README.md` "adding an agent" recipe
+  describes, now actually present.
 - `.opencode/opencode.jsonc` now configures OpenCode's native `formatter` to
   auto-format edited files on write — Python via `fmt-py-src` (ruff) and
   Fortran via `fmt-f-src` (fprettify), pinned to the repo's pixi tasks through
