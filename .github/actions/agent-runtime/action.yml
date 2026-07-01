@@ -104,6 +104,25 @@ runs:
         git config user.name  "$BOT_NAME"
         git config user.email "$BOT_EMAIL"
 
+    # opencode validates every project agent under .opencode/agent(s)/ at
+    # startup and aborts the whole run if one is invalid — and the checked-out
+    # ref (e.g. a PR under review) may carry agent definitions in a format
+    # opencode rejects (an older `tools:` string, `model: inherit`, ...). Our
+    # runs drive opencode's built-in primary agent with an explicit prompt and
+    # never use the project subagents, so drop them before running. `git
+    # update-index --skip-worktree` first, so a write-agent's `git add -A` /
+    # commit cannot record the removal (these are usually a symlink to
+    # .agents/subagents, which is left intact for other tools).
+    - name: Drop project agent definitions for the opencode run
+      shell: bash
+      run: |
+        for p in .opencode/agents .opencode/agent; do
+          if [ -e "$p" ] || [ -L "$p" ]; then
+            git update-index --skip-worktree "$p" 2>/dev/null || true
+            rm -rf "$p"
+          fi
+        done
+
     - name: Run opencode
       uses: anomalyco/opencode/github@latest
       env:

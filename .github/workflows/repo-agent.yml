@@ -251,12 +251,11 @@ jobs:
     name: agent (${{ matrix.name }})
     environment: opencode
     permissions:
-      # Only what the GITHUB_TOKEN is actually used for here: opencode's OIDC
-      # (id-token) and the "Checkout action definitions" step (contents). All
-      # repo/issue/PR writes ride the App token from agent-runtime, and the PR
-      # head is resolved in the `select` job — so issues/pull-requests are not
-      # needed. A reusable job may not request more than the caller grants
-      # (it is a hard error, not a silent cap), so keep this minimal.
+      # opencode's OIDC needs id-token; contents lets the runner fetch the
+      # agent-runtime composite action from this repo. All repo/issue/PR writes
+      # ride the App token from agent-runtime, and the PR head is resolved in the
+      # `select` job, so issues/pull-requests are not needed. A reusable job may
+      # not request more than the caller grants (a hard error, not a silent cap).
       id-token: write
       contents: read
     strategy:
@@ -264,16 +263,13 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
     steps:
-      # A local `uses: ./...` action must exist on disk first; comment/issue
-      # events check out nothing by default. agent-runtime re-checks-out as the
-      # bot (correct ref + push token) once the gate has passed.
-      - name: Checkout action definitions
-        uses: actions/checkout@v6.0.3
-        with:
-          persist-credentials: false
-
+      # Reference the composite action by full repo path @ref, NOT a local `./`
+      # path: a reusable workflow resolves a local action before any checkout
+      # populates the workspace, so `./` fails with "Can't find action.yml …".
+      # GitHub fetches it from the repo instead; agent-runtime then checks out
+      # the target ref as the bot.
       - name: Run agent
-        uses: ./.github/actions/agent-runtime
+        uses: grAItools/preserf/.github/actions/agent-runtime@main
         with:
           prompt: ${{ needs.select.outputs.prompt }}
           model: ${{ matrix.model }}
