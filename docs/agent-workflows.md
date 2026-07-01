@@ -159,8 +159,10 @@ So the **same** agent triggered more than once on one issue/PR is serialized
 is off, so a second trigger of the same agent queues behind the first rather
 than killing an in-flight commit/push.
 
-> GitHub keeps at most one running + one pending run per group, so if the same
-> agent is triggered 3+ times on one issue in quick succession, the middle
-> pending run is dropped (only the running one and the newest are kept). For
-> guaranteed sequential execution of many agents, chain caller jobs with
-> `needs:` instead of relying on the concurrency group.
+> By default (`queue: single`) GitHub keeps at most one running + one pending
+> run per group, so if the same agent is triggered 3+ times on one issue in
+> quick succession, the middle pending run is dropped (only the running one and
+> the newest are kept). To keep the intermediate triggers, set
+> `concurrency.queue: max` (up to 100 pending, FIFO — not combinable with
+> `cancel-in-progress`). For ordering several *different* agents in one run,
+> chain the caller jobs with `needs:` instead.
