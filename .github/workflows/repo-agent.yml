@@ -168,18 +168,29 @@ jobs:
           set -euo pipefail
           models_json=$(printf '%s' "$MODELS" | yq -o=json -I=0)
 
-          # Select every table entry whose ^<name> token appears in the command
-          # (\b so ^glm does not also match ^glment).
-          selected=$(jq -cn --argjson m "$models_json" --arg body "$COMMAND" \
-            '[ $m[] | . as $e | select($body | test("\\^" + $e.name + "\\b")) ]')
+          # Parse ^<name> selection tokens and strip them from the command using
+          # CONSTANT regexes only — model names are compared by exact string
+          # equality, never interpolated into a pattern, so a name containing a
+          # regex metacharacter can't break matching or stripping. A selection
+          # token is a start- or whitespace-led "^" followed by a run of
+          # non-whitespace that exactly equals a table name; a no-token mention
+          # falls back to the table default(s). gsub only rewrites the tokens, so
+          # the rest of the request text (including newlines) is preserved.
+          result=$(jq -cn --argjson m "$models_json" --arg cmd "$COMMAND" '
+            ($m | map(.name)) as $names
+            | ( [ $cmd | scan("(?:^|\\s)\\^(\\S+)") | .[0] | select(. as $n | $names | index($n)) ] | unique ) as $picked
+            | ( if ($picked | length) > 0
+                then [ $m[] | select(.name as $n | $picked | index($n)) ]
+                else [ $m[] | select(.default == true) ] end ) as $selected
+            | {
+                matrix: { include: ($selected | map({name, model})) },
+                cleaned: ( $cmd
+                           | gsub("(?<lead>(?:^|\\s))\\^(?<name>\\S+)";
+                               if (.name as $n | $names | index($n)) then "" else "\(.lead)^\(.name)" end)
+                           | sub("^\\s+"; "") | sub("\\s+$"; "") )
+              }')
 
-          # No explicit ^token -> fall back to the table default(s).
-          if [ "$selected" = "[]" ]; then
-            selected=$(jq -cn --argjson m "$models_json" \
-              '[ $m[] | select(.default == true) ]')
-          fi
-
-          matrix=$(jq -cn --argjson s "$selected" '{include: [ $s[] | {name, model} ]}')
+          matrix=$(jq -c '.matrix' <<<"$result")
 
           # A caller can override `models` with a table that has no default; a
           # tokenless mention then selects nothing. Fail loudly rather than
@@ -198,16 +209,14 @@ jobs:
             exit 1
           fi
 
-          names=$(printf '%s' "$models_json" | jq -r '[ .[].name ] | join("|")')
-
-          # Strip the ^<name> selection tokens from the prompt the agent sees.
-          cleaned=$(printf '%s' "$COMMAND" \
-            | sed -E "s/[[:space:]]*\^(${names})\b//g" \
-            | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+          cleaned=$(jq -r '.cleaned' <<<"$result")
 
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          # Random per-run heredoc delimiter: the request text is untrusted user
+          # input, so a fixed marker could be spoofed to break out of GITHUB_OUTPUT.
+          delim="AGENT_PROMPT_EOF_${RANDOM}${RANDOM}${RANDOM}"
           {
-            echo "prompt<<__AGENT_PROMPT_EOF__"
+            echo "prompt<<${delim}"
             if [ -n "$cleaned" ]; then
               # User text after the mention becomes the request under a heading.
               printf '%s\n\n## Request\n\n%s\n' "$BASE" "$cleaned"
@@ -216,7 +225,7 @@ jobs:
               # base prompt, with no empty "## Request" section.
               printf '%s\n' "$BASE"
             fi
-            echo "__AGENT_PROMPT_EOF__"
+            echo "${delim}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Resolve PR head ref
