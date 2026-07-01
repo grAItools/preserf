@@ -277,7 +277,9 @@ jobs:
       # path: a reusable workflow resolves a local action before any checkout
       # populates the workspace, so `./` fails with "Can't find action.yml …".
       # GitHub fetches it from the repo instead; agent-runtime then checks out
-      # the target ref as the bot.
+      # the target ref as the bot. `@main` must track this repo's default branch
+      # (comment/issue triggers always run the default-branch workflow) — update
+      # this ref if the default branch is ever renamed away from `main`.
       - name: Run agent
         uses: grAItools/preserf/.github/actions/agent-runtime@main
         with:

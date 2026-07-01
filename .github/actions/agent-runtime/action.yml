@@ -126,11 +126,15 @@ runs:
       if: ${{ inputs.drop-project-context == 'true' }}
       shell: bash
       run: |
-        for p in .opencode/agents .opencode/agent .opencode/commands .opencode/command .opencode/skills; do
-          if [ -e "$p" ] || [ -L "$p" ]; then
-            git update-index --skip-worktree "$p" 2>/dev/null || true
-            rm -rf "$p"
-          fi
+        set -euo pipefail
+        for p in .opencode/agents .opencode/agent .opencode/commands .opencode/command .opencode/skills .opencode/skill; do
+          [ -e "$p" ] || [ -L "$p" ] || continue
+          # Mark every tracked entry under $p skip-worktree before removing it,
+          # so a write-agent's later `git add -A` can't stage the removal. Uses
+          # `git ls-files` so this holds whether $p is a symlink, a file, or a
+          # real tracked directory (an arbitrary reviewed ref may ship any).
+          git ls-files -z -- "$p" | xargs -0 -r git update-index --skip-worktree || true
+          rm -rf "$p"
         done
 
     - name: Run opencode
