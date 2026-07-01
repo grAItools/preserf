@@ -70,9 +70,9 @@ jobs:
     # spin a runner when the trigger phrase appears somewhere in the payload.
     if: >-
       github.event.sender.type != 'Bot' &&
-      ( contains(github.event.comment.body, inputs.trigger-phrase)
-        || contains(github.event.review.body, inputs.trigger-phrase)
-        || contains(github.event.issue.body, inputs.trigger-phrase) )
+      ( contains(github.event.comment.body || '', inputs.trigger-phrase)
+        || contains(github.event.review.body || '', inputs.trigger-phrase)
+        || contains(github.event.issue.body || '', inputs.trigger-phrase) )
     runs-on: ubuntu-latest
     outputs:
       mentioned: ${{ steps.ctx.outputs.mentioned }}
@@ -123,6 +123,7 @@ jobs:
           COMMAND: ${{ steps.ctx.outputs.command }}
         shell: bash
         run: |
+          set -euo pipefail
           models_json=$(printf '%s' "$MODELS" | yq -o=json -I=0)
 
           # Select every table entry whose +<name> token appears in the command
@@ -137,6 +138,15 @@ jobs:
           fi
 
           matrix=$(jq -cn --argjson s "$selected" '{include: [ $s[] | {name, model} ]}')
+
+          # A caller can override `models` with a table that has no default; a
+          # tokenless mention then selects nothing. Fail loudly rather than
+          # dispatch an empty/invalid matrix.
+          if [ "$(jq -r '.include | length' <<<"$matrix")" -eq 0 ]; then
+            echo "::error::no models selected: the +token(s) matched no table entry and the models table has no 'default: true'." >&2
+            exit 1
+          fi
+
           names=$(printf '%s' "$models_json" | jq -r '[ .[].name ] | join("|")')
 
           # Strip the +<name> selection tokens from the prompt the agent sees.

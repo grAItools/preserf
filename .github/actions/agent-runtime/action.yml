@@ -63,7 +63,14 @@ runs:
         GH_TOKEN: ${{ steps.app.outputs.token }}
         SLUG: ${{ steps.app.outputs.app-slug }}
       run: |
+        set -euo pipefail
         uid=$(gh api "/users/${SLUG}[bot]" --jq .id)
+        # A failed/empty API response must not silently configure a bad
+        # committer email; the id is always a positive integer.
+        if [[ ! "$uid" =~ ^[0-9]+$ ]]; then
+          echo "::error::could not resolve numeric user id for ${SLUG}[bot] (got '${uid}')" >&2
+          exit 1
+        fi
         echo "name=${SLUG}[bot]" >> "$GITHUB_OUTPUT"
         echo "email=${uid}+${SLUG}[bot]@users.noreply.github.com" >> "$GITHUB_OUTPUT"
 
