@@ -144,7 +144,8 @@ nothing and no run starts.
 - **Auth gate.** `author_association` must be in `allowed-associations`, checked
   **before** any PR-head checkout — so an untrusted fork PR's code is never run
   under the privileged App token (the `pull_request_target`-style footgun).
-- **Word-boundary match.** `@repo-agent` is matched with a `\b` boundary, so
-  `@repo-agent-staging` does not fire it.
+- **Boundary match.** The mention must start the line or follow whitespace and
+  must not be followed by a word character or hyphen, so neither an embedded
+  `foo@repo-agent` nor a longer handle like `@repo-agent-staging` fires it.
 - **Scoped, short-lived token.** The installation token expires (~1h) and is
   scoped to the install; it is never written to logs.

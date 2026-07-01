@@ -57,6 +57,15 @@ runs:
         app-id: ${{ inputs.app-id }}
         private-key: ${{ inputs.private-key }}
 
+    # create-github-app-token already registers the token as a secret, but mask
+    # it explicitly too: it is a runtime-minted credential, so a stray `set -x`
+    # in any downstream step must not surface it in logs.
+    - name: Mask installation token
+      shell: bash
+      env:
+        TOKEN: ${{ steps.app.outputs.token }}
+      run: echo "::add-mask::$TOKEN"
+
     # The committer email must be the bot's <user-id>+<slug>[bot] noreply form
     # for commits to show the bot's avatar; the numeric id is not handed to us,
     # so fetch it once from the users API.

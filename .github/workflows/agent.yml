@@ -99,9 +99,14 @@ jobs:
               context.payload.issue?.body ?? '';
             // Word-boundary match so "@repo-agent-staging" does not trigger.
             const phrase = process.env.PHRASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const re = new RegExp(`(^|\\s)${phrase}\\b`);
-            const mentioned = re.test(body);
-            const command = mentioned ? body.split(new RegExp(`${phrase}\\b`))[1].trim() : '';
+            // Detect and extract with the SAME anchored match: the mention must
+            // start the line or follow whitespace, and must not be followed by a
+            // word char or hyphen (so "@repo-agent-staging" does not fire). The
+            // command is everything after that first valid mention, so an earlier
+            // "foo@repo-agent" substring can't hijack the request text.
+            const m = body.match(new RegExp(`(?:^|\\s)${phrase}(?![\\w-])`));
+            const mentioned = !!m;
+            const command = mentioned ? body.slice(m.index + m[0].length).trim() : '';
             core.setOutput('mentioned', String(mentioned));
             core.setOutput('command', command);
 
