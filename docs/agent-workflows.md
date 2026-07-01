@@ -33,9 +33,14 @@ from CI.
 5. Store the credentials on the repo (or org):
    - **Variable** `REPO_AGENT_APP_ID` = the App ID.
    - **Secret** `REPO_AGENT_APP_KEY` = the full `.pem` contents.
-
-`OPENCODE_API_KEY` (and optionally `SWISSAI_API_KEY`) are the same engine
-secrets `opencode.yml` already uses.
+6. Set the model configuration the default table reads (see
+   [Selecting the model(s)](#selecting-the-models)):
+   - **Variables** `REPO_AGENT_MODEL_DEFAULT` / `_SMALL` / `_LARGE` = the
+     opencode model ids for those tiers.
+   - **Secrets** for each provider you enable: `OPENCODE_API_KEY`
+     (`opencode-go/*`), `SWISSAI_API_KEY` (`swiss-ai/*`), `CSCS_INFERENCE_API_KEY`
+     (`cscs-inference/*`). `OPENCODE_API_KEY` is the same engine secret
+     `opencode.yml` already uses.
 
 ## Add a new agent
 
@@ -78,33 +83,54 @@ The invoker picks which model runs by adding `+<name>` tokens to the mention;
 this is handled once in `agent.yml`, so callers get it for free.
 
 ```text
-@repo-agent +kimi refactor this function
-@repo-agent +glm +kimi compare approaches   # runs both, one parallel run each
-@repo-agent just do it                        # no token -> the default model
+@repo-agent +small refactor this function
+@repo-agent +cscs:glm +sai:glm4 compare approaches   # runs both, one parallel run each
+@repo-agent just do it                                 # no token -> the default model
 ```
 
-The menu is the `models` input — a YAML table defined once in `agent.yml`,
-mirroring `opencode.yml`'s table (`name` = the `+token`, `model` = the opencode
-id, `default: true` = what runs with no token):
+The menu is the `models` input — a YAML table defined once in `agent.yml`
+(`name` = the `+token`, `model` = the opencode id, `default: true` = what runs
+with no token). The default table pairs three repo-variable-driven tiers with
+provider-pinned entries:
 
 ```yaml
 models: |
-  - name: glm
-    model: opencode-go/glm-5.2
+  - name: default
+    model: ${{ vars.REPO_AGENT_MODEL_DEFAULT }}
     default: true
-  - name: kimi
-    model: opencode-go/kimi-k2.6
-  - name: deepseek
-    model: opencode-go/deepseek-v4-pro
-  - name: qwen
-    model: opencode-go/qwen3.6-plus
+  - name: small
+    model: ${{ vars.REPO_AGENT_MODEL_SMALL }}
+  - name: large
+    model: ${{ vars.REPO_AGENT_MODEL_LARGE }}
+  - name: cscs:glm
+    model: cscs-inference/zai-org/GLM-5.2
+  - name: cscs:kimi
+    model: cscs-inference/moonshotai/Kimi-K2.7-Code
+  - name: sai:glm4
+    model: swiss-ai/zai-org/GLM-4.7-Flash
 ```
 
-Callers only pass `models:` to change the menu (e.g. add a `swiss-ai/*` model,
-which reads `SWISSAI_API_KEY`). The `+<name>` tokens are stripped from the text
-the agent sees, and each selected model runs as an independent parallel job
-(`fail-fast: false`), so one model failing doesn't cancel the others. Keep a
-`default: true` entry, or a tokenless mention selects nothing and no run starts.
+Callers only pass `models:` to change the menu. The `+<name>` tokens are
+stripped from the text the agent sees, and each selected model runs as an
+independent parallel job (`fail-fast: false`), so one model failing doesn't
+cancel the others. Keep a `default: true` entry, or a tokenless mention selects
+nothing and no run starts.
+
+> **Every model in the table must be backed by real configuration**, or the
+> run fails:
+>
+> - The `default` / `small` / `large` tiers read their ids from the repository
+>   variables `REPO_AGENT_MODEL_DEFAULT` / `_SMALL` / `_LARGE` — set these under
+>   **Settings → Secrets and variables → Actions → Variables**. (The workflow
+>   fails fast with a clear message if a selected tier resolves to an empty id.)
+> - Each `model` id's **provider** must be declared in [`opencode.json`](../opencode.json)
+>   with its API-key env var, and that key must be present as a secret and
+>   threaded through `agent-runtime`: `opencode-go/*` → `OPENCODE_API_KEY`,
+>   `swiss-ai/*` → `SWISSAI_API_KEY`, `cscs-inference/*` → `CSCS_INFERENCE_API_KEY`.
+>
+> Adding a new provider-backed model means updating **both** `opencode.json`
+> (provider + model) and, for a new key, the secret wiring in `agent.yml` and
+> `agent-runtime/action.yml`.
 
 > Running several models against the same PR means several agents push in
 > parallel. That's ideal for question-answering or when each opens its own

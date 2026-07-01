@@ -27,6 +27,10 @@ inputs:
     description: Optional Swiss AI key, for swiss-ai/* models.
     required: false
     default: ""
+  cscs-inference-api-key:
+    description: Optional CSCS Inference key, for cscs-inference/* models.
+    required: false
+    default: ""
   checkout-ref:
     description: >-
       Ref or SHA to check out. Leave empty to use the default-branch checkout
@@ -95,7 +99,10 @@ runs:
       uses: anomalyco/opencode/github@latest
       env:
         OPENCODE_API_KEY: ${{ inputs.opencode-api-key }}
+        # Custom providers in opencode.json read their own key from the
+        # environment (swiss-ai -> SWISSAI_API_KEY, cscs-inference -> CSCS_INFERENCE_API_KEY).
         SWISSAI_API_KEY: ${{ inputs.swissai-api-key }}
+        CSCS_INFERENCE_API_KEY: ${{ inputs.cscs-inference-api-key }}
         # The agent's git/gh tools act as the bot via this token.
         GH_TOKEN: ${{ steps.app.outputs.token }}
         GITHUB_TOKEN: ${{ steps.app.outputs.token }}

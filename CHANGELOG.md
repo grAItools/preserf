@@ -39,10 +39,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   setup and the security model are documented in `docs/agent-workflows.md`;
   the identity decision is recorded in
   [ADR 0008](docs/adr/0008-github-app-agent-identity.md). The invoker selects
-  which model(s) run with `+<name>` tokens in the mention (e.g. `+glm +kimi`),
-  mirroring `opencode.yml`'s selection table; the table lives once in
-  `agent.yml` (a `select` job parses the tokens and fans out one matrix job per
-  chosen model), so mention workflows never replicate it.
+  which model(s) run with `+<name>` tokens in the mention (e.g. `+small
+  +cscs:glm`), mirroring `opencode.yml`'s selection table; the table lives once
+  in `agent.yml` (a `select` job parses the tokens and fans out one matrix job
+  per chosen model), so mention workflows never replicate it. The default table
+  reads its `default`/`small`/`large` tiers from the `REPO_AGENT_MODEL_*`
+  repository variables and pins `cscs-inference/*` and `swiss-ai/*` provider
+  models; those providers are declared in `opencode.json`, keyed on
+  `CSCS_INFERENCE_API_KEY` / `SWISSAI_API_KEY` respectively.
 - `.opencode/opencode.jsonc` now configures OpenCode's native `formatter` to
   auto-format edited files on write — Python via `fmt-py-src` (ruff) and
   Fortran via `fmt-f-src` (fprettify), pinned to the repo's pixi tasks through

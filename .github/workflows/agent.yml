@@ -64,6 +64,8 @@ on:
         required: true
       SWISSAI_API_KEY:
         required: false
+      CSCS_INFERENCE_API_KEY:
+        required: false
 
 concurrency:
   group: agent-${{ github.event.issue.number || github.event.pull_request.number }}
@@ -225,4 +227,5 @@ jobs:
           private-key: ${{ secrets.REPO_AGENT_APP_KEY }}
           opencode-api-key: ${{ secrets.OPENCODE_API_KEY }}
           swissai-api-key: ${{ secrets.SWISSAI_API_KEY }}
+          cscs-inference-api-key: ${{ secrets.CSCS_INFERENCE_API_KEY }}
           checkout-ref: ${{ needs.select.outputs.sha }}
