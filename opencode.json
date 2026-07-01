@@ -13,6 +13,22 @@
           "name": "GLM 4.7 Flash (Project)"
         }
       }
+    },
+    "cscs-inference": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "CSCS Inference Service",
+      "options": {
+        "baseURL": "https://api.inference.cscs.ch/v1/",
+        "apiKey": "{env:CSCS_INFERENCE_API_KEY}"
+      },
+      "models": {
+        "zai-org/GLM-5.2": {
+          "name": "GLM 5.2"
+        },
+        "moonshotai/Kimi-K2.7-Code": {
+          "name": "Kimi K2.7"
+        }
+      }
     }
   }
 }

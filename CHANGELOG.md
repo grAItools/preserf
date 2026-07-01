@@ -31,6 +31,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Reusable `@repo-agent` mention-triggered agent infrastructure: a
+  composite action (`.github/actions/agent-runtime/`) mints a GitHub-App
+  installation token, resolves the bot's git identity, checks out as the bot,
+  and runs the existing opencode engine; a reusable workflow
+  (`.github/workflows/agent.yml`, `workflow_call`) wraps the mention parse,
+  loop guard, and `author_association` gate around it. Adding a new agent is a
+  ~15-line caller (`.github/workflows/agent-mention.yml` is the template) that
+  supplies only an `on:` trigger and a `base-prompt`. Everything the agent
+  commits/pushes/opens is attributed to `repo-agent[bot]`. One-time App
+  setup and the security model are documented in `docs/agent-workflows.md`;
+  the identity decision is recorded in
+  [ADR 0008](docs/adr/0008-github-app-agent-identity.md). The invoker selects
+  which model(s) run with `^<name>` tokens in the mention (e.g. `^small
+  ^cscs:glm`), mirroring `opencode.yml`'s selection table; the table lives once
+  in `agent.yml` (a `select` job parses the tokens and fans out one matrix job
+  per chosen model), so mention workflows never replicate it. The default table
+  reads its `default`/`small`/`large` tiers from the `REPO_AGENT_MODEL_*`
+  repository variables and pins `cscs-inference/*` and `swiss-ai/*` provider
+  models; those providers are declared in `opencode.json`, keyed on
+  `CSCS_INFERENCE_API_KEY` / `SWISSAI_API_KEY` respectively.
 - `.gemini/settings.json` points Gemini CLI's `context.fileName` at `AGENTS.md`
   (and `GEMINI.md`), wiring Gemini CLI to the single-source-of-truth instructions
   by reference — the file the `.agents/README.md` "adding an agent" recipe
