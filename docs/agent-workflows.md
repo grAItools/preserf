@@ -10,13 +10,13 @@ See [ADR 0008](adr/0008-github-app-agent-identity.md) for the why.
 
 ## Pieces
 
-| File                                              | Role                                                                                                                          |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `.github/actions/agent-runtime/action.yml`        | Composite action: mint App token → resolve bot git identity → checkout as bot → run opencode with the prompt.                 |
-| `.github/workflows/repo-agent.yml`                | Reusable workflow (`workflow_call`): mention parse, loop guard, `author_association` gate; calls the composite action.        |
-| `.github/workflows/repo-agent-actions.yml`        | Caller for issue/PR agents (the general `@repo-agent`); the copy-me template.                                                 |
-| `.github/workflows/repo-agent-pr-actions.yml`     | Caller for PR-only agents — bundles `@repo-reviewer`, a high-effort code reviewer that posts threaded inline review comments. |
-| `.github/workflows/repo-agent--issue-actions.yml` | Caller for automatic issue agents (no mention) — bundles `@repo-triager`, which triages, labels, and summarizes new issues.   |
+| File                                              | Role                                                                                                                                                                                             |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `.github/actions/agent-runtime/action.yml`        | Composite action: mint App token → resolve bot git identity → checkout as bot → run opencode with the prompt.                                                                                    |
+| `.github/workflows/repo-agent.yml`                | Reusable workflow (`workflow_call`): mention parse, loop guard, `author_association` gate; calls the composite action.                                                                           |
+| `.github/workflows/repo-agent-actions.yml`        | Caller for issue/PR agents (the general `@repo-agent`); the copy-me template.                                                                                                                    |
+| `.github/workflows/repo-agent-pr-actions.yml`     | Caller for PR-only agents — bundles the mirrored high-effort reviewers `@repo-reviewer` (keeps project context) and `@external-reviewer` (drops it), which post threaded inline review comments. |
+| `.github/workflows/repo-agent--issue-actions.yml` | Caller for automatic issue agents (no mention) — bundles `@repo-triager`, which triages, labels, and summarizes new issues.                                                                      |
 
 ## One-time setup (manual)
 
@@ -86,7 +86,8 @@ input. `secrets: inherit` passes `OPENCODE_API_KEY` / `REPO_AGENT_APP_KEY` /
 
 Optional `with:` inputs: `models` (the selection table, see below), `runs-on`
 (default `ubuntu-latest`), `allowed-associations` (default
-`OWNER,MEMBER,COLLABORATOR`), and `require-mention` (default `true`).
+`OWNER,MEMBER,COLLABORATOR`), `require-mention` (default `true`), and
+`drop-project-context` (default `false`).
 
 Set `require-mention: false` for an **automatic** agent that fires on the event
 itself rather than a mention — e.g. `repo-agent--issue-actions.yml` triages
@@ -94,6 +95,14 @@ every opened issue. In that mode the mention gate and the `author_association`
 gate are skipped, the command is empty (so the agent gets the `base-prompt`
 alone), and the prompt should read the triggering payload from
 `$GITHUB_EVENT_PATH` and treat its user content as untrusted data.
+
+Set `drop-project-context: true` when the agent checks out an arbitrary or
+untrusted ref (e.g. a PR under review): `agent-runtime` then removes the
+project's `.opencode/agents|commands|skills` before running opencode, so a
+checked-out ref whose project config is invalid for opencode can't abort the
+run. The default `false` keeps the project context intact. The bundled
+`@external-reviewer` sets this; its mirror `@repo-reviewer` and the general
+`@repo-agent` keep the context.
 
 > The caller must define its own `on:` triggers — a reusable workflow cannot
 > declare them for the caller. The workflow file must also be on the **default

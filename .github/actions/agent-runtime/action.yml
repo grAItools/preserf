@@ -38,6 +38,14 @@ inputs:
       for PR-context runs so the agent acts on the PR's code.
     required: false
     default: ""
+  drop-project-context:
+    description: >-
+      When "true", remove the project's .opencode/agents|commands|skills before
+      running opencode. Set this for agents that check out an arbitrary/untrusted
+      ref (e.g. a PR under review) whose project config might be invalid for
+      opencode and abort the run. Default "false" keeps the project context.
+    required: false
+    default: "false"
 
 outputs:
   token:
@@ -103,6 +111,31 @@ runs:
       run: |
         git config user.name  "$BOT_NAME"
         git config user.email "$BOT_EMAIL"
+
+    # opencode validates the project agents/commands/skills it discovers under
+    # .opencode/ at startup and aborts the whole run if one is invalid — and the
+    # checked-out ref (e.g. a PR under review) may carry definitions in a format
+    # opencode rejects (an older `tools:` string, `model: inherit`, ...). Our
+    # runs drive opencode's built-in primary agent with an explicit prompt and
+    # never use these project extras, so drop them before running (the root
+    # .opencode/opencode.jsonc — providers, permission, formatter — is kept).
+    # `git update-index --skip-worktree` first, so a write-agent's `git add -A` /
+    # commit cannot record the removal; these are symlinks to .agents/*, whose
+    # targets are left intact for other tools.
+    - name: Drop project agents/commands/skills for the opencode run
+      if: ${{ inputs.drop-project-context == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        for p in .opencode/agents .opencode/agent .opencode/commands .opencode/command .opencode/skills .opencode/skill; do
+          [ -e "$p" ] || [ -L "$p" ] || continue
+          # Mark every tracked entry under $p skip-worktree before removing it,
+          # so a write-agent's later `git add -A` can't stage the removal. Uses
+          # `git ls-files` so this holds whether $p is a symlink, a file, or a
+          # real tracked directory (an arbitrary reviewed ref may ship any).
+          git ls-files -z -- "$p" | xargs -0 -r git update-index --skip-worktree || true
+          rm -rf "$p"
+        done
 
     - name: Run opencode
       uses: anomalyco/opencode/github@latest

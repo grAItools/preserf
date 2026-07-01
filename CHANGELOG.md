@@ -59,7 +59,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `docs/testing.md`, `docs/architecture.md`, the ADRs, and
   `.github/instructions/security.instructions.md`) and publishes findings as
   threaded inline review comments on the PR as `repo-agent[bot]`. Defaults to the
-  largest configured model.
+  largest configured model. A mirror `@external-reviewer` runs the same review
+  but drops the reviewed head's `.opencode/` project context
+  (`drop-project-context: true`), for forks / untrusted PR heads whose project
+  config may be invalid for opencode.
 - `@repo-triager` automatic issue-triage agent
   (`.github/workflows/repo-agent--issue-actions.yml`): fires on every opened
   issue (no mention) via the reusable workflow's new `require-mention: false`

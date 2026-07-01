@@ -1,9 +1,15 @@
 name: repo-agent-pr-actions
 
-# PR-only agents (same pattern as repo-agent-actions.yml, but scoped to pull
-# requests). Mention @repo-reviewer in a PR comment to get a high-effort code
-# review published as threaded inline review comments. Shared setup lives in
-# ./.github/workflows/repo-agent.yml.
+# PR-only review agents (same pattern as repo-agent-actions.yml, scoped to pull
+# requests). Two mirrored reviewers that differ only in whether they keep the
+# repo's project context:
+#   @repo-reviewer     — keeps the .opencode/ project context (agents/commands/
+#                        skills). Use on trusted, same-repo PRs.
+#   @external-reviewer — drops the project context, so a fork / untrusted PR
+#                        head whose .opencode/ config is invalid for opencode
+#                        can't abort the run.
+# Both post a high-effort review as threaded inline comments. Shared setup lives
+# in ./.github/workflows/repo-agent.yml.
 
 on:
   issue_comment:
@@ -20,15 +26,27 @@ permissions:
   pull-requests: read
 
 jobs:
-  reviewer:
+  review:
     # PR comments only: pull_request_review_comment is always on a PR, while
     # issue_comment also fires on plain issues — require the PR marker there.
     if: >-
       github.event_name == 'pull_request_review_comment'
       || github.event.issue.pull_request != null
+    name: review (${{ matrix.handle }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - handle: "@repo-reviewer"
+            drop: false
+          - handle: "@external-reviewer"
+            drop: true
     uses: ./.github/workflows/repo-agent.yml
     with:
-      trigger-phrase: "@repo-reviewer"
+      trigger-phrase: ${{ matrix.handle }}
+      # @external-reviewer drops the reviewed head's project context; the plain
+      # @repo-reviewer keeps it.
+      drop-project-context: ${{ matrix.drop }}
       # Default to the largest configured model for a high-effort review;
       # `^small` still downshifts for a quick pass.
       models: |
@@ -40,7 +58,7 @@ jobs:
         - name: small
           model: ${{ vars.REPO_AGENT_MODEL_SMALL }}
       base-prompt: |
-        You are @repo-reviewer, a meticulous senior engineer doing a high-effort
+        You are ${{ matrix.handle }}, a meticulous senior engineer doing a high-effort
         code review of a pull request in the preserf repository.
 
         Ground yourself in the repo's own standards before judging anything —
