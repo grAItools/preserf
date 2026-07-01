@@ -48,9 +48,12 @@ Credentials live as `vars.REPO_AGENT_APP_ID` and
   runs the **existing opencode engine** (no new agent runtime, reusing
   `OPENCODE_API_KEY`).
 - `.github/workflows/agent.yml` (`workflow_call`) wraps the mention plumbing —
-  loop guard (`sender.type != 'Bot'`), word-boundary mention parse, and an
-  `author_association` gate that runs _before_ any PR-head checkout — and calls
-  the composite action with the composed prompt.
+  loop guard (`sender.type != 'Bot'`), word-boundary mention parse, an
+  `author_association` gate that runs _before_ any PR-head checkout, and
+  `+model` selection over a shared table (fanning out one matrix job per
+  selected model, like `opencode.yml`) — and calls the composite action with
+  the composed prompt. Model selection lives here, not in callers, so a new
+  agent never re-implements it.
 
 A new agent is then a ~15-line caller (`agent-mention.yml` is the template):
 its own `on:` block plus `uses: ./.github/workflows/agent.yml` with a

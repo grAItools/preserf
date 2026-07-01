@@ -64,13 +64,51 @@ The user's text after the trigger phrase is appended to `base-prompt` under a
 `OPENCODE_API_KEY` / `REPO_AGENT_APP_KEY` / `SWISSAI_API_KEY` through;
 `REPO_AGENT_APP_ID` is read from repo variables.
 
-Optional `with:` inputs: `model` (default `opencode-go/glm-5.2`), `runs-on`
+Optional `with:` inputs: `models` (the selection table, see below), `runs-on`
 (default `ubuntu-latest`), `allowed-associations` (default
 `OWNER,MEMBER,COLLABORATOR`).
 
 > The caller must define its own `on:` triggers — a reusable workflow cannot
 > declare them for the caller. The workflow file must also be on the **default
 > branch** before comment events will run it.
+
+## Selecting the model(s)
+
+The invoker picks which model runs by adding `+<name>` tokens to the mention;
+this is handled once in `agent.yml`, so callers get it for free.
+
+```text
+@repo-agent +kimi refactor this function
+@repo-agent +glm +kimi compare approaches   # runs both, one parallel run each
+@repo-agent just do it                        # no token -> the default model
+```
+
+The menu is the `models` input — a YAML table defined once in `agent.yml`,
+mirroring `opencode.yml`'s table (`name` = the `+token`, `model` = the opencode
+id, `default: true` = what runs with no token):
+
+```yaml
+models: |
+  - name: glm
+    model: opencode-go/glm-5.2
+    default: true
+  - name: kimi
+    model: opencode-go/kimi-k2.6
+  - name: deepseek
+    model: opencode-go/deepseek-v4-pro
+  - name: qwen
+    model: opencode-go/qwen3.6-plus
+```
+
+Callers only pass `models:` to change the menu (e.g. add a `swiss-ai/*` model,
+which reads `SWISSAI_API_KEY`). The `+<name>` tokens are stripped from the text
+the agent sees, and each selected model runs as an independent parallel job
+(`fail-fast: false`), so one model failing doesn't cancel the others. Keep a
+`default: true` entry, or a tokenless mention selects nothing and no run starts.
+
+> Running several models against the same PR means several agents push in
+> parallel. That's ideal for question-answering or when each opens its own
+> branch/PR; for in-place edits to one branch, prefer a single `+model`.
 
 ## Security model
 

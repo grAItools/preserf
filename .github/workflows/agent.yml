@@ -1,8 +1,10 @@
 name: agent
 
 # Reusable workflow: wraps the @mention plumbing (loop guard, mention parse,
-# auth gate) around the agent-runtime composite action. Callers supply only an
-# `on:` trigger and a `base-prompt`; everything else is shared infrastructure.
+# auth gate, model selection) around the agent-runtime composite action.
+# Callers supply only an `on:` trigger and a `base-prompt`; everything else,
+# including the +model selection table, is shared infrastructure defined here
+# once — callers never replicate it.
 #
 # A reusable workflow cannot declare the caller's `on:` triggers, so each
 # caller owns its own trigger block and calls this with `uses:`.
@@ -19,13 +21,28 @@ on:
         required: false
         type: string
         default: "@repo-agent"
-      model:
-        description: opencode model id.
+      models:
+        description: >-
+          YAML table of selectable models. Each entry: `name` (the +token a
+          user types, e.g. +glm), `model` (opencode id), and optional
+          `default: true`. A mention with one or more +<name> tokens runs those
+          models (one parallel run each); a mention with no token runs the
+          default(s). Defined once here — callers only override to change the
+          menu. The table should always mark at least one `default: true`.
         required: false
         type: string
-        default: opencode-go/glm-5.2
+        default: |
+          - name: glm
+            model: opencode-go/glm-5.2
+            default: true
+          - name: kimi
+            model: opencode-go/kimi-k2.6
+          - name: deepseek
+            model: opencode-go/deepseek-v4-pro
+          - name: qwen
+            model: opencode-go/qwen3.6-plus
       runs-on:
-        description: Runner label.
+        description: Runner label for the agent job.
         required: false
         type: string
         default: ubuntu-latest
@@ -48,7 +65,7 @@ concurrency:
   group: agent-${{ github.event.issue.number || github.event.pull_request.number }}
 
 jobs:
-  run:
+  select:
     # Coarse pre-filter + loop guard: skip the agent's own comments, and only
     # spin a runner when the trigger phrase appears somewhere in the payload.
     if: >-
@@ -56,24 +73,13 @@ jobs:
       ( contains(github.event.comment.body, inputs.trigger-phrase)
         || contains(github.event.review.body, inputs.trigger-phrase)
         || contains(github.event.issue.body, inputs.trigger-phrase) )
-    runs-on: ${{ inputs.runs-on }}
-    environment: opencode
-    permissions:
-      # Writes ride the App token from agent-runtime, not GITHUB_TOKEN; the
-      # opencode engine needs id-token for its own auth (mirrors opencode.yml).
-      id-token: write
-      contents: read
-      issues: read
-      pull-requests: read
+    runs-on: ubuntu-latest
+    outputs:
+      mentioned: ${{ steps.ctx.outputs.mentioned }}
+      matrix: ${{ steps.pick.outputs.matrix }}
+      prompt: ${{ steps.pick.outputs.prompt }}
+      sha: ${{ steps.ref.outputs.sha }}
     steps:
-      # A local `uses: ./...` action must exist on disk first; comment/issue
-      # events check out nothing by default. agent-runtime re-checks-out as the
-      # bot (correct ref + push token) once the gate has passed.
-      - name: Checkout action definitions
-        uses: actions/checkout@v6.0.3
-        with:
-          persist-credentials: false
-
       - name: Parse mention
         id: ctx
         uses: actions/github-script@v7
@@ -108,17 +114,40 @@ jobs:
             if (!allowed.includes(assoc))
               core.setFailed(`Not authorized: author_association=${assoc}`);
 
-      - name: Compose prompt
-        id: compose
+      - name: Select models and compose prompt
+        id: pick
         if: steps.ctx.outputs.mentioned == 'true'
         env:
+          MODELS: ${{ inputs.models }}
           BASE: ${{ inputs.base-prompt }}
           COMMAND: ${{ steps.ctx.outputs.command }}
         shell: bash
         run: |
+          models_json=$(printf '%s' "$MODELS" | yq -o=json -I=0)
+
+          # Select every table entry whose +<name> token appears in the command
+          # (\b so +glm does not also match +glment).
+          selected=$(jq -cn --argjson m "$models_json" --arg body "$COMMAND" \
+            '[ $m[] | . as $e | select($body | test("\\+" + $e.name + "\\b")) ]')
+
+          # No explicit +token -> fall back to the table default(s).
+          if [ "$selected" = "[]" ]; then
+            selected=$(jq -cn --argjson m "$models_json" \
+              '[ $m[] | select(.default == true) ]')
+          fi
+
+          matrix=$(jq -cn --argjson s "$selected" '{include: [ $s[] | {name, model} ]}')
+          names=$(printf '%s' "$models_json" | jq -r '[ .[].name ] | join("|")')
+
+          # Strip the +<name> selection tokens from the prompt the agent sees.
+          cleaned=$(printf '%s' "$COMMAND" \
+            | sed -E "s/[[:space:]]*\+(${names})\b//g" \
+            | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           {
             echo "prompt<<__AGENT_PROMPT_EOF__"
-            printf '%s\n\n## Request\n\n%s\n' "$BASE" "$COMMAND"
+            printf '%s\n\n## Request\n\n%s\n' "$BASE" "$cleaned"
             echo "__AGENT_PROMPT_EOF__"
           } >> "$GITHUB_OUTPUT"
 
@@ -138,14 +167,39 @@ jobs:
             });
             core.setOutput('sha', pr.head.sha);
 
+  agent:
+    needs: select
+    if: needs.select.outputs.mentioned == 'true'
+    runs-on: ${{ inputs.runs-on }}
+    name: agent (${{ matrix.name }})
+    environment: opencode
+    permissions:
+      # Writes ride the App token from agent-runtime, not GITHUB_TOKEN; the
+      # opencode engine needs id-token for its own auth (mirrors opencode.yml).
+      id-token: write
+      contents: read
+      issues: read
+      pull-requests: read
+    strategy:
+      # One +model must not cancel the others; each reports independently.
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
+    steps:
+      # A local `uses: ./...` action must exist on disk first; comment/issue
+      # events check out nothing by default. agent-runtime re-checks-out as the
+      # bot (correct ref + push token) once the gate has passed.
+      - name: Checkout action definitions
+        uses: actions/checkout@v6.0.3
+        with:
+          persist-credentials: false
+
       - name: Run agent
-        if: steps.ctx.outputs.mentioned == 'true'
         uses: ./.github/actions/agent-runtime
         with:
-          prompt: ${{ steps.compose.outputs.prompt }}
-          model: ${{ inputs.model }}
+          prompt: ${{ needs.select.outputs.prompt }}
+          model: ${{ matrix.model }}
           app-id: ${{ vars.REPO_AGENT_APP_ID }}
           private-key: ${{ secrets.REPO_AGENT_APP_KEY }}
           opencode-api-key: ${{ secrets.OPENCODE_API_KEY }}
           swissai-api-key: ${{ secrets.SWISSAI_API_KEY }}
-          checkout-ref: ${{ steps.ref.outputs.sha }}
+          checkout-ref: ${{ needs.select.outputs.sha }}
