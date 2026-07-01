@@ -50,7 +50,7 @@ Credentials live as `vars.REPO_AGENT_APP_ID` and
 - `.github/workflows/agent.yml` (`workflow_call`) wraps the mention plumbing —
   loop guard (`sender.type != 'Bot'`), word-boundary mention parse, an
   `author_association` gate that runs _before_ any PR-head checkout, and
-  `+model` selection over a shared table (fanning out one matrix job per
+  `^model` selection over a shared table (fanning out one matrix job per
   selected model, like `opencode.yml`) — and calls the composite action with
   the composed prompt. Model selection lives here, not in callers, so a new
   agent never re-implements it.

@@ -43,8 +43,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   setup and the security model are documented in `docs/agent-workflows.md`;
   the identity decision is recorded in
   [ADR 0008](docs/adr/0008-github-app-agent-identity.md). The invoker selects
-  which model(s) run with `+<name>` tokens in the mention (e.g. `+small
-  +cscs:glm`), mirroring `opencode.yml`'s selection table; the table lives once
+  which model(s) run with `^<name>` tokens in the mention (e.g. `^small
+  ^cscs:glm`), mirroring `opencode.yml`'s selection table; the table lives once
   in `agent.yml` (a `select` job parses the tokens and fans out one matrix job
   per chosen model), so mention workflows never replicate it. The default table
   reads its `default`/`small`/`large` tiers from the `REPO_AGENT_MODEL_*`

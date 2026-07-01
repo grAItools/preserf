@@ -3,7 +3,7 @@ name: agent
 # Reusable workflow: wraps the @mention plumbing (loop guard, mention parse,
 # auth gate, model selection) around the agent-runtime composite action.
 # Callers supply only an `on:` trigger and a `base-prompt`; everything else,
-# including the +model selection table, is shared infrastructure defined here
+# including the ^model selection table, is shared infrastructure defined here
 # once — callers never replicate it.
 #
 # A reusable workflow cannot declare the caller's `on:` triggers, so each
@@ -23,9 +23,9 @@ on:
         default: "@repo-agent"
       models:
         description: >-
-          YAML table of selectable models. Each entry: `name` (the +token a
-          user types, e.g. +glm), `model` (opencode id), and optional
-          `default: true`. A mention with one or more +<name> tokens runs those
+          YAML table of selectable models. Each entry: `name` (the ^token a
+          user types, e.g. ^glm), `model` (opencode id), and optional
+          `default: true`. A mention with one or more ^<name> tokens runs those
           models (one parallel run each); a mention with no token runs the
           default(s). Defined once here — callers only override to change the
           menu. The table should always mark at least one `default: true`.
@@ -132,12 +132,12 @@ jobs:
           set -euo pipefail
           models_json=$(printf '%s' "$MODELS" | yq -o=json -I=0)
 
-          # Select every table entry whose +<name> token appears in the command
-          # (\b so +glm does not also match +glment).
+          # Select every table entry whose ^<name> token appears in the command
+          # (\b so ^glm does not also match ^glment).
           selected=$(jq -cn --argjson m "$models_json" --arg body "$COMMAND" \
-            '[ $m[] | . as $e | select($body | test("\\+" + $e.name + "\\b")) ]')
+            '[ $m[] | . as $e | select($body | test("\\^" + $e.name + "\\b")) ]')
 
-          # No explicit +token -> fall back to the table default(s).
+          # No explicit ^token -> fall back to the table default(s).
           if [ "$selected" = "[]" ]; then
             selected=$(jq -cn --argjson m "$models_json" \
               '[ $m[] | select(.default == true) ]')
@@ -149,7 +149,7 @@ jobs:
           # tokenless mention then selects nothing. Fail loudly rather than
           # dispatch an empty/invalid matrix.
           if [ "$(jq -r '.include | length' <<<"$matrix")" -eq 0 ]; then
-            echo "::error::no models selected: the +token(s) matched no table entry and the models table has no 'default: true'." >&2
+            echo "::error::no models selected: the ^token(s) matched no table entry and the models table has no 'default: true'." >&2
             exit 1
           fi
 
@@ -164,9 +164,9 @@ jobs:
 
           names=$(printf '%s' "$models_json" | jq -r '[ .[].name ] | join("|")')
 
-          # Strip the +<name> selection tokens from the prompt the agent sees.
+          # Strip the ^<name> selection tokens from the prompt the agent sees.
           cleaned=$(printf '%s' "$COMMAND" \
-            | sed -E "s/[[:space:]]*\+(${names})\b//g" \
+            | sed -E "s/[[:space:]]*\^(${names})\b//g" \
             | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
 
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
@@ -206,7 +206,7 @@ jobs:
       issues: read
       pull-requests: read
     strategy:
-      # One +model must not cancel the others; each reports independently.
+      # One ^model must not cancel the others; each reports independently.
       fail-fast: false
       matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
     steps:

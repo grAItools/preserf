@@ -79,17 +79,17 @@ Optional `with:` inputs: `models` (the selection table, see below), `runs-on`
 
 ## Selecting the model(s)
 
-The invoker picks which model runs by adding `+<name>` tokens to the mention;
+The invoker picks which model runs by adding `^<name>` tokens to the mention;
 this is handled once in `agent.yml`, so callers get it for free.
 
 ```text
-@repo-agent +small refactor this function
-@repo-agent +cscs:glm +sai:glm4 compare approaches   # runs both, one parallel run each
+@repo-agent ^small refactor this function
+@repo-agent ^cscs:glm ^sai:glm4 compare approaches   # runs both, one parallel run each
 @repo-agent just do it                                 # no token -> the default model
 ```
 
 The menu is the `models` input — a YAML table defined once in `agent.yml`
-(`name` = the `+token`, `model` = the opencode id, `default: true` = what runs
+(`name` = the `^token`, `model` = the opencode id, `default: true` = what runs
 with no token). The default table pairs three repo-variable-driven tiers with
 provider-pinned entries:
 
@@ -110,7 +110,7 @@ models: |
     model: swiss-ai/zai-org/GLM-4.7-Flash
 ```
 
-Callers only pass `models:` to change the menu. The `+<name>` tokens are
+Callers only pass `models:` to change the menu. The `^<name>` tokens are
 stripped from the text the agent sees, and each selected model runs as an
 independent parallel job (`fail-fast: false`), so one model failing doesn't
 cancel the others. Keep a `default: true` entry, or a tokenless mention selects
@@ -134,7 +134,7 @@ nothing and no run starts.
 
 > Running several models against the same PR means several agents push in
 > parallel. That's ideal for question-answering or when each opens its own
-> branch/PR; for in-place edits to one branch, prefer a single `+model`.
+> branch/PR; for in-place edits to one branch, prefer a single `^model`.
 
 ## Security model
 
