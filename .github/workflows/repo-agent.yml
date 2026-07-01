@@ -1,4 +1,4 @@
-name: agent
+name: repo-agent
 
 # Reusable workflow: wraps the @mention plumbing (loop guard, mention parse,
 # auth gate, model selection) around the agent-runtime composite action.
@@ -53,10 +53,22 @@ on:
       allowed-associations:
         description: >-
           Comma-separated author_association values permitted to invoke the
-          agent. Gate runs before any PR-head checkout.
+          agent. Gate runs before any PR-head checkout. Ignored when
+          require-mention is false.
         required: false
         type: string
         default: "OWNER,MEMBER,COLLABORATOR"
+      require-mention:
+        description: >-
+          When true (default) the agent runs only if the trigger-phrase is
+          mentioned, and the command is the text after it, gated by
+          author_association. When false the agent runs automatically on every
+          non-bot triggering event with an empty command (base-prompt only) and
+          no author gate — for unattended automations like issue triage that key
+          off the event itself, not a mention.
+        required: false
+        type: boolean
+        default: true
     secrets:
       OPENCODE_API_KEY:
         required: true
@@ -68,15 +80,24 @@ on:
         required: false
 
 concurrency:
-  group: agent-${{ github.event.issue.number || github.event.pull_request.number }}
+  # Serialize the SAME agent on one issue/PR (across any number of comments),
+  # while letting DIFFERENT agents on the same issue/PR run in parallel — the
+  # key is (agent identity, issue/PR number). cancel-in-progress stays off so an
+  # in-flight commit/push is queued behind, not killed mid-run. By default
+  # (queue: single) GitHub keeps at most ONE pending run per group, so a burst of
+  # same-agent retriggers collapses to (running + newest pending) rather than
+  # queueing every one — see the Concurrency section in docs/agent-workflows.md.
+  group: agent-${{ inputs.trigger-phrase }}-${{ github.event.issue.number || github.event.pull_request.number }}
 
 jobs:
   select:
-    # Coarse pre-filter + loop guard: skip the agent's own comments, and only
-    # spin a runner when the trigger phrase appears somewhere in the payload.
+    # Coarse pre-filter + loop guard: skip the agent's own comments. In mention
+    # mode, only spin a runner when the trigger phrase appears in the payload; in
+    # automatic mode (require-mention == false) run on every non-bot event.
     if: >-
       github.event.sender.type != 'Bot' &&
-      ( contains(github.event.comment.body || '', inputs.trigger-phrase)
+      ( inputs.require-mention == false
+        || contains(github.event.comment.body || '', inputs.trigger-phrase)
         || contains(github.event.review.body || '', inputs.trigger-phrase)
         || contains(github.event.issue.body || '', inputs.trigger-phrase) )
     runs-on: ubuntu-latest
@@ -91,8 +112,16 @@ jobs:
         uses: actions/github-script@v7
         env:
           PHRASE: ${{ inputs.trigger-phrase }}
+          REQUIRE_MENTION: ${{ inputs.require-mention }}
         with:
           script: |
+            // Automatic mode: the event itself is the trigger, so there is no
+            // mention to parse and no per-invocation command (base-prompt only).
+            if (process.env.REQUIRE_MENTION !== 'true') {
+              core.setOutput('mentioned', 'true');
+              core.setOutput('command', '');
+              return;
+            }
             const body =
               context.payload.comment?.body ??
               context.payload.review?.body ??
@@ -111,7 +140,9 @@ jobs:
             core.setOutput('command', command);
 
       - name: Authorize caller
-        if: steps.ctx.outputs.mentioned == 'true'
+        # Automatic mode keys off the trusted event (issue/PR opened), not a
+        # mentioning user, so there is no author_association gate.
+        if: steps.ctx.outputs.mentioned == 'true' && inputs.require-mention
         uses: actions/github-script@v7
         env:
           ALLOWED: ${{ inputs.allowed-associations }}
@@ -137,18 +168,29 @@ jobs:
           set -euo pipefail
           models_json=$(printf '%s' "$MODELS" | yq -o=json -I=0)
 
-          # Select every table entry whose ^<name> token appears in the command
-          # (\b so ^glm does not also match ^glment).
-          selected=$(jq -cn --argjson m "$models_json" --arg body "$COMMAND" \
-            '[ $m[] | . as $e | select($body | test("\\^" + $e.name + "\\b")) ]')
+          # Parse ^<name> selection tokens and strip them from the command using
+          # CONSTANT regexes only — model names are compared by exact string
+          # equality, never interpolated into a pattern, so a name containing a
+          # regex metacharacter can't break matching or stripping. A selection
+          # token is a start- or whitespace-led "^" followed by a run of
+          # non-whitespace that exactly equals a table name; a no-token mention
+          # falls back to the table default(s). gsub only rewrites the tokens, so
+          # the rest of the request text (including newlines) is preserved.
+          result=$(jq -cn --argjson m "$models_json" --arg cmd "$COMMAND" '
+            ($m | map(.name)) as $names
+            | ( [ $cmd | scan("(?:^|\\s)\\^(\\S+)") | .[0] | select(. as $n | $names | index($n)) ] | unique ) as $picked
+            | ( if ($picked | length) > 0
+                then [ $m[] | select(.name as $n | $picked | index($n)) ]
+                else [ $m[] | select(.default == true) ] end ) as $selected
+            | {
+                matrix: { include: ($selected | map({name, model})) },
+                cleaned: ( $cmd
+                           | gsub("(?<lead>(?:^|\\s))\\^(?<name>\\S+)";
+                               if (.name as $n | $names | index($n)) then "" else "\(.lead)^\(.name)" end)
+                           | sub("^\\s+"; "") | sub("\\s+$"; "") )
+              }')
 
-          # No explicit ^token -> fall back to the table default(s).
-          if [ "$selected" = "[]" ]; then
-            selected=$(jq -cn --argjson m "$models_json" \
-              '[ $m[] | select(.default == true) ]')
-          fi
-
-          matrix=$(jq -cn --argjson s "$selected" '{include: [ $s[] | {name, model} ]}')
+          matrix=$(jq -c '.matrix' <<<"$result")
 
           # A caller can override `models` with a table that has no default; a
           # tokenless mention then selects nothing. Fail loudly rather than
@@ -167,18 +209,23 @@ jobs:
             exit 1
           fi
 
-          names=$(printf '%s' "$models_json" | jq -r '[ .[].name ] | join("|")')
-
-          # Strip the ^<name> selection tokens from the prompt the agent sees.
-          cleaned=$(printf '%s' "$COMMAND" \
-            | sed -E "s/[[:space:]]*\^(${names})\b//g" \
-            | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+          cleaned=$(jq -r '.cleaned' <<<"$result")
 
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          # Random per-run heredoc delimiter: the request text is untrusted user
+          # input, so a fixed marker could be spoofed to break out of GITHUB_OUTPUT.
+          delim="AGENT_PROMPT_EOF_${RANDOM}${RANDOM}${RANDOM}"
           {
-            echo "prompt<<__AGENT_PROMPT_EOF__"
-            printf '%s\n\n## Request\n\n%s\n' "$BASE" "$cleaned"
-            echo "__AGENT_PROMPT_EOF__"
+            echo "prompt<<${delim}"
+            if [ -n "$cleaned" ]; then
+              # User text after the mention becomes the request under a heading.
+              printf '%s\n\n## Request\n\n%s\n' "$BASE" "$cleaned"
+            else
+              # Mention-only trigger (no extra prompt): hand opencode just the
+              # base prompt, with no empty "## Request" section.
+              printf '%s\n' "$BASE"
+            fi
+            echo "${delim}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Resolve PR head ref

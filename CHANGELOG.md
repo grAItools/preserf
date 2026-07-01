@@ -35,9 +35,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   composite action (`.github/actions/agent-runtime/`) mints a GitHub-App
   installation token, resolves the bot's git identity, checks out as the bot,
   and runs the existing opencode engine; a reusable workflow
-  (`.github/workflows/agent.yml`, `workflow_call`) wraps the mention parse,
+  (`.github/workflows/repo-agent.yml`, `workflow_call`) wraps the mention parse,
   loop guard, and `author_association` gate around it. Adding a new agent is a
-  ~15-line caller (`.github/workflows/agent-mention.yml` is the template) that
+  ~15-line caller (`.github/workflows/repo-agent-actions.yml` is the template) that
   supplies only an `on:` trigger and a `base-prompt`. Everything the agent
   commits/pushes/opens is attributed to `repo-agent[bot]`. One-time App
   setup and the security model are documented in `docs/agent-workflows.md`;
@@ -45,12 +45,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   [ADR 0008](docs/adr/0008-github-app-agent-identity.md). The invoker selects
   which model(s) run with `^<name>` tokens in the mention (e.g. `^small
   ^cscs:glm`), mirroring `opencode.yml`'s selection table; the table lives once
-  in `agent.yml` (a `select` job parses the tokens and fans out one matrix job
+  in `repo-agent.yml` (a `select` job parses the tokens and fans out one matrix job
   per chosen model), so mention workflows never replicate it. The default table
   reads its `default`/`small`/`large` tiers from the `REPO_AGENT_MODEL_*`
   repository variables and pins `cscs-inference/*` and `swiss-ai/*` provider
   models; those providers are declared in `opencode.json`, keyed on
-  `CSCS_INFERENCE_API_KEY` / `SWISSAI_API_KEY` respectively.
+  `CSCS_INFERENCE_API_KEY` / `SWISSAI_API_KEY` respectively. Runs are grouped
+  for concurrency by `(agent, issue/PR)`, so the same agent on one issue/PR is
+  serialized while different agents run in parallel.
+- `@repo-reviewer` PR-review agent (`.github/workflows/repo-agent-pr-actions.yml`):
+  a PR-comment-only caller of the reusable workflow that runs a high-effort,
+  standards-grounded code review (reading `AGENTS.md`, `docs/style.md`,
+  `docs/testing.md`, `docs/architecture.md`, the ADRs, and
+  `.github/instructions/security.instructions.md`) and publishes findings as
+  threaded inline review comments on the PR as `repo-agent[bot]`. Defaults to the
+  largest configured model.
+- `@repo-triager` automatic issue-triage agent
+  (`.github/workflows/repo-agent--issue-actions.yml`): fires on every opened
+  issue (no mention) via the reusable workflow's new `require-mention: false`
+  mode, then analyzes and categorizes the issue, applies best-matching existing
+  labels, and posts a structured triage summary (affected area, severity,
+  completeness gaps, next steps) as `repo-agent[bot]`. The issue content is
+  treated as untrusted data. `require-mention: false` skips the mention and
+  author gates and runs the agent on the trusted event itself.
 - `.gemini/settings.json` points Gemini CLI's `context.fileName` at `AGENTS.md`
   (and `GEMINI.md`), wiring Gemini CLI to the single-source-of-truth instructions
   by reference — the file the `.agents/README.md` "adding an agent" recipe

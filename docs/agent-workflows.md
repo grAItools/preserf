@@ -10,11 +10,13 @@ See [ADR 0008](adr/0008-github-app-agent-identity.md) for the why.
 
 ## Pieces
 
-| File                                       | Role                                                                                                                   |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| `.github/actions/agent-runtime/action.yml` | Composite action: mint App token → resolve bot git identity → checkout as bot → run opencode with the prompt.          |
-| `.github/workflows/agent.yml`              | Reusable workflow (`workflow_call`): mention parse, loop guard, `author_association` gate; calls the composite action. |
-| `.github/workflows/agent-mention.yml`      | Example caller / copy-me template.                                                                                     |
+| File                                              | Role                                                                                                                          |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `.github/actions/agent-runtime/action.yml`        | Composite action: mint App token → resolve bot git identity → checkout as bot → run opencode with the prompt.                 |
+| `.github/workflows/repo-agent.yml`                | Reusable workflow (`workflow_call`): mention parse, loop guard, `author_association` gate; calls the composite action.        |
+| `.github/workflows/repo-agent-actions.yml`        | Caller for issue/PR agents (the general `@repo-agent`); the copy-me template.                                                 |
+| `.github/workflows/repo-agent-pr-actions.yml`     | Caller for PR-only agents — bundles `@repo-reviewer`, a high-effort code reviewer that posts threaded inline review comments. |
+| `.github/workflows/repo-agent--issue-actions.yml` | Caller for automatic issue agents (no mention) — bundles `@repo-triager`, which triages, labels, and summarizes new issues.   |
 
 ## One-time setup (manual)
 
@@ -44,7 +46,7 @@ from CI.
 
 ## Add a new agent
 
-Copy `agent-mention.yml`, rename it, and change three things:
+Copy `repo-agent-actions.yml`, rename it, and change three things:
 
 ```yaml
 name: docs-agent
@@ -52,10 +54,12 @@ on:
   issue_comment:
     types: [created, edited]
 permissions:
-  contents: read
+  id-token: write # opencode OIDC (reusable-workflow perms can only be reduced,
+  contents: read #  not elevated — so grant everything repo-agent.yml needs here)
+  pull-requests: read # the select job resolves the PR head SHA via the API
 jobs:
   agent:
-    uses: ./.github/workflows/agent.yml
+    uses: ./.github/workflows/repo-agent.yml
     with:
       trigger-phrase: "@preserf-docs"
       base-prompt: |
@@ -64,14 +68,32 @@ jobs:
     secrets: inherit
 ```
 
-The user's text after the trigger phrase is appended to `base-prompt` under a
-`## Request` heading and handed to the agent. `secrets: inherit` passes
-`OPENCODE_API_KEY` / `REPO_AGENT_APP_KEY` / `SWISSAI_API_KEY` through;
-`REPO_AGENT_APP_ID` is read from repo variables.
+Grant the caller `id-token: write` + `contents: read`, plus `pull-requests: read`
+whenever the agent can run in PR context (issue comments on PRs, review
+comments). Reusable-workflow token permissions can only be **reduced**, not
+elevated, by the callee, so a caller that grants only `contents: read` starves
+the reusable workflow: opencode's OIDC (`id-token`) is dropped and the `select`
+job can't resolve the PR head SHA (it falls back to the default branch). An
+issue-only caller can omit `pull-requests: read`.
+
+The user's text after the trigger phrase (with any `^model` tokens removed) is
+appended to `base-prompt` under a `## Request` heading and handed to the agent.
+A **mention-only** trigger with no text after it — e.g. a fixed-purpose agent
+invoked with just `@repo-agent` — sends the `base-prompt` alone, with no empty
+`## Request` section, so agents that need no per-invocation prompt get a clean
+input. `secrets: inherit` passes `OPENCODE_API_KEY` / `REPO_AGENT_APP_KEY` /
+`SWISSAI_API_KEY` through; `REPO_AGENT_APP_ID` is read from repo variables.
 
 Optional `with:` inputs: `models` (the selection table, see below), `runs-on`
 (default `ubuntu-latest`), `allowed-associations` (default
-`OWNER,MEMBER,COLLABORATOR`).
+`OWNER,MEMBER,COLLABORATOR`), and `require-mention` (default `true`).
+
+Set `require-mention: false` for an **automatic** agent that fires on the event
+itself rather than a mention — e.g. `repo-agent--issue-actions.yml` triages
+every opened issue. In that mode the mention gate and the `author_association`
+gate are skipped, the command is empty (so the agent gets the `base-prompt`
+alone), and the prompt should read the triggering payload from
+`$GITHUB_EVENT_PATH` and treat its user content as untrusted data.
 
 > The caller must define its own `on:` triggers — a reusable workflow cannot
 > declare them for the caller. The workflow file must also be on the **default
@@ -80,7 +102,7 @@ Optional `with:` inputs: `models` (the selection table, see below), `runs-on`
 ## Selecting the model(s)
 
 The invoker picks which model runs by adding `^<name>` tokens to the mention;
-this is handled once in `agent.yml`, so callers get it for free.
+this is handled once in `repo-agent.yml`, so callers get it for free.
 
 ```text
 @repo-agent ^small refactor this function
@@ -88,7 +110,7 @@ this is handled once in `agent.yml`, so callers get it for free.
 @repo-agent just do it                                 # no token -> the default model
 ```
 
-The menu is the `models` input — a YAML table defined once in `agent.yml`
+The menu is the `models` input — a YAML table defined once in `repo-agent.yml`
 (`name` = the `^token`, `model` = the opencode id, `default: true` = what runs
 with no token). The default table pairs three repo-variable-driven tiers with
 provider-pinned entries:
@@ -129,7 +151,7 @@ nothing and no run starts.
 >   `swiss-ai/*` → `SWISSAI_API_KEY`, `cscs-inference/*` → `CSCS_INFERENCE_API_KEY`.
 >
 > Adding a new provider-backed model means updating **both** `opencode.json`
-> (provider + model) and, for a new key, the secret wiring in `agent.yml` and
+> (provider + model) and, for a new key, the secret wiring in `repo-agent.yml` and
 > `agent-runtime/action.yml`.
 
 > Running several models against the same PR means several agents push in
@@ -149,3 +171,20 @@ nothing and no run starts.
   `foo@repo-agent` nor a longer handle like `@repo-agent-staging` fires it.
 - **Scoped, short-lived token.** The installation token expires (~1h) and is
   scoped to the install; it is never written to logs.
+
+## Concurrency
+
+Runs are grouped by `(agent, issue/PR)` — `agent-<trigger-phrase>-<number>`.
+So the **same** agent triggered more than once on one issue/PR is serialized
+(one run at a time, regardless of which comment triggered it), while
+**different** agents on the same issue/PR run in parallel. `cancel-in-progress`
+is off, so a second trigger of the same agent queues behind the first rather
+than killing an in-flight commit/push.
+
+> By default (`queue: single`) GitHub keeps at most one running + one pending
+> run per group, so if the same agent is triggered 3+ times on one issue in
+> quick succession, the middle pending run is dropped (only the running one and
+> the newest are kept). To keep the intermediate triggers, set
+> `concurrency.queue: max` (up to 100 pending, FIFO — not combinable with
+> `cancel-in-progress`). For ordering several _different_ agents in one run,
+> chain the caller jobs with `needs:` instead.
