@@ -29,6 +29,9 @@ jobs:
     uses: ./.github/workflows/repo-agent.yml
     with:
       trigger-phrase: "@repo-reviewer"
+      # The reviewer checks out the PR head, whose .opencode/ project config may
+      # be invalid for opencode (older frontmatter) and abort the run — drop it.
+      drop-project-context: true
       # Default to the largest configured model for a high-effort review;
       # `^small` still downshifts for a quick pass.
       models: |

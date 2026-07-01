@@ -86,7 +86,8 @@ input. `secrets: inherit` passes `OPENCODE_API_KEY` / `REPO_AGENT_APP_KEY` /
 
 Optional `with:` inputs: `models` (the selection table, see below), `runs-on`
 (default `ubuntu-latest`), `allowed-associations` (default
-`OWNER,MEMBER,COLLABORATOR`), and `require-mention` (default `true`).
+`OWNER,MEMBER,COLLABORATOR`), `require-mention` (default `true`), and
+`drop-project-context` (default `false`).
 
 Set `require-mention: false` for an **automatic** agent that fires on the event
 itself rather than a mention — e.g. `repo-agent--issue-actions.yml` triages
@@ -94,6 +95,13 @@ every opened issue. In that mode the mention gate and the `author_association`
 gate are skipped, the command is empty (so the agent gets the `base-prompt`
 alone), and the prompt should read the triggering payload from
 `$GITHUB_EVENT_PATH` and treat its user content as untrusted data.
+
+Set `drop-project-context: true` when the agent checks out an arbitrary or
+untrusted ref (e.g. a PR under review): `agent-runtime` then removes the
+project's `.opencode/agents|commands|skills` before running opencode, so a
+checked-out ref whose project config is invalid for opencode can't abort the
+run. The default `false` keeps the project context intact. The bundled
+`@repo-reviewer` sets this; the general `@repo-agent` does not.
 
 > The caller must define its own `on:` triggers — a reusable workflow cannot
 > declare them for the caller. The workflow file must also be on the **default

@@ -69,6 +69,16 @@ on:
         required: false
         type: boolean
         default: true
+      drop-project-context:
+        description: >-
+          When true, remove the project's .opencode/agents|commands|skills
+          before running opencode. Set this for agents that check out an
+          arbitrary/untrusted ref (e.g. a PR under review) whose project config
+          might be invalid for opencode and abort the run. Default false keeps
+          the project context.
+        required: false
+        type: boolean
+        default: false
     secrets:
       OPENCODE_API_KEY:
         required: true
@@ -279,3 +289,4 @@ jobs:
           swissai-api-key: ${{ secrets.SWISSAI_API_KEY }}
           cscs-inference-api-key: ${{ secrets.CSCS_INFERENCE_API_KEY }}
           checkout-ref: ${{ needs.select.outputs.sha }}
+          drop-project-context: ${{ inputs.drop-project-context }}

@@ -38,6 +38,14 @@ inputs:
       for PR-context runs so the agent acts on the PR's code.
     required: false
     default: ""
+  drop-project-context:
+    description: >-
+      When "true", remove the project's .opencode/agents|commands|skills before
+      running opencode. Set this for agents that check out an arbitrary/untrusted
+      ref (e.g. a PR under review) whose project config might be invalid for
+      opencode and abort the run. Default "false" keeps the project context.
+    required: false
+    default: "false"
 
 outputs:
   token:
@@ -115,6 +123,7 @@ runs:
     # commit cannot record the removal; these are symlinks to .agents/*, whose
     # targets are left intact for other tools.
     - name: Drop project agents/commands/skills for the opencode run
+      if: ${{ inputs.drop-project-context == 'true' }}
       shell: bash
       run: |
         for p in .opencode/agents .opencode/agent .opencode/commands .opencode/command .opencode/skills; do
