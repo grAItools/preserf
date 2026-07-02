@@ -47,9 +47,9 @@ jobs:
       # repo's own opencode providers (declared in opencode.json); override per
       # tier with the OPENCODE_MODEL_* repository variables.
       MODEL_MAP: |
-        default: ${{ vars.OPENCODE_MODEL_DEFAULT || 'opencode-go/glm-5.2' }}
-        large:   ${{ vars.OPENCODE_MODEL_LARGE || 'cscs-inference/zai-org/GLM-5.2' }}
-        fast:    ${{ vars.OPENCODE_MODEL_FAST || 'opencode-go/kimi-k2.6' }}
+        default: ${{ vars.OPENCODE_MODEL_DEFAULT }}
+        large:   ${{ vars.OPENCODE_MODEL_LARGE }}
+        fast:    ${{ vars.OPENCODE_MODEL_FAST }}
     steps:
       - uses: actions/checkout@v6.0.3
         with:
@@ -108,11 +108,10 @@ jobs:
           persist-credentials: false
       - uses: anomalyco/opencode/github@latest
         env:
-          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           # Custom providers declared in opencode.json read their own key from the
           # environment (swiss-ai -> SWISSAI_API_KEY, cscs-inference -> CSCS_INFERENCE_API_KEY).
-          SWISSAI_API_KEY: ${{ secrets.SWISSAI_API_KEY }}
           CSCS_INFERENCE_API_KEY: ${{ secrets.CSCS_INFERENCE_API_KEY }}
+          SWISSAI_API_KEY: ${{ secrets.SWISSAI_API_KEY }}
         with:
           model: ${{ matrix.model }}
           agent: ${{ inputs.agent }}
