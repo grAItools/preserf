@@ -22,17 +22,13 @@ jobs:
            persist-credentials: false
 
        - name: Run OpenCode
-        uses: anomalyco/opencode/github@latest
-        env:
-          # Custom providers declared in opencode.json read their own key
-          # from the environment (e.g. swiss-ai → {env:SWISSAI_API_KEY}).
-          CSCS_INFERENCE_API_KEY: ${{ secrets.CSCS_INFERENCE_API_KEY }}
-          SWISSAI_API_KEY: ${{ secrets.SWISSAI_API_KEY }}
-        with:
-          model: ${{ variables.OPENCODE_MODEL_DEFAULT}}
-          # share: true
-          # github_token: xxxx
-          
-          
-          
-          name: opencode
+         uses: anomalyco/opencode/github@latest
+         env:
+           # Custom providers declared in opencode.json read their own key
+           # from the environment (e.g. swiss-ai → {env:SWISSAI_API_KEY}).
+           CSCS_INFERENCE_API_KEY: ${{ secrets.CSCS_INFERENCE_API_KEY }}
+           SWISSAI_API_KEY: ${{ secrets.SWISSAI_API_KEY }}
+         with:
+           model: ${{ variables.OPENCODE_MODEL_DEFAULT}}
+           # share: true
+           # github_token: xxxx
