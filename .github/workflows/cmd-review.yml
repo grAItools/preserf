@@ -12,11 +12,17 @@ on:
 
 jobs:
   review:
-    # Cheap prefilter so a runner is not spun up for every comment.
-    # Loose contains() on purpose; the strict word-boundary match is in the
-    # parser. The author-association gate is centralized in the engine
+    # Cheap prefilter so a runner is not spun up for every comment (loose
+    # contains() on purpose; the strict word-boundary match is in the parser),
+    # restricted to PR context: /review is PR-scoped, so ignore it on plain
+    # issues. pull_request_review_comment is always on a PR; issue_comment also
+    # fires on non-PR issues, so require the PR marker there. The
+    # author-association gate is centralized in the engine
     # (opencode-cmd-engine.yml), so callers don't repeat it here.
-    if: contains(github.event.comment.body, '/review')
+    if: >-
+      contains(github.event.comment.body, '/review') &&
+      (github.event_name == 'pull_request_review_comment'
+       || github.event.issue.pull_request != null)
     permissions:
       id-token: write
       contents: read

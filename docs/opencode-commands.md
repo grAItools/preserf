@@ -64,6 +64,12 @@ then edit the `prompt:` template. Use `{{request}}` where the user's comment
 (with the `/command` token and `^model` selectors stripped) should be spliced
 in. `secrets: inherit` passes the provider keys through.
 
+If the command is **PR-scoped** (like `/review`), keep the caller's PR-context
+guard so it ignores comments on plain issues:
+`github.event_name == 'pull_request_review_comment' || github.event.issue.pull_request != null`.
+For an issue-scoped command, drop that clause and keep just the `contains(...)`
+prefilter.
+
 That caller file is the entire per-command surface area; everything else —
 parsing, the model map, the 👀/😕 acknowledgement, the opencode invocation —
 lives in [`opencode-cmd-engine.yml`](../.github/workflows/opencode-cmd-engine.yml).
