@@ -1,0 +1,113 @@
+name: opencode-cmd-engine
+
+# Reusable engine for custom slash commands built on the opencode GitHub
+# integration. Callers (cmd-*.yml) supply only a trigger word and a prompt
+# template; this engine centralizes comment parsing, the ^shortcut model map,
+# the 👀/😕 acknowledgement, and the opencode invocation. See
+# docs/opencode-commands.md.
+
+on:
+  workflow_call:
+    inputs:
+      command:
+        description: "Slash command trigger word, without the leading slash"
+        required: true
+        type: string
+      prompt:
+        description: "Prompt template. Use {{request}} for the cleaned user comment."
+        required: true
+        type: string
+      agent:
+        description: "opencode agent to use"
+        required: false
+        type: string
+        default: build
+
+jobs:
+  parse:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write # reactions + error replies on issue/PR comments
+      pull-requests: write # reactions on PR review comments
+    outputs:
+      run: ${{ steps.parse.outputs.run }}
+      models: ${{ steps.parse.outputs.models }}
+      prompt: ${{ steps.parse.outputs.prompt }}
+    env:
+      # ---- central model shortcut map ----
+      # One "shortcut: full-model-spec" per line. Values may use ${{ vars.* }}
+      # with || fallbacks. A "default" entry is mandatory. The fallbacks pin the
+      # repo's own opencode providers (declared in opencode.json); override per
+      # tier with the OPENCODE_MODEL_* repository variables.
+      MODEL_MAP: |
+        default: ${{ vars.OPENCODE_MODEL_DEFAULT || 'opencode-go/glm-5.2' }}
+        large:   ${{ vars.OPENCODE_MODEL_LARGE || 'cscs-inference/zai-org/GLM-5.2' }}
+        fast:    ${{ vars.OPENCODE_MODEL_FAST || 'opencode-go/kimi-k2.6' }}
+    steps:
+      - uses: actions/checkout@v6.0.3
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      - name: Parse comment
+        id: parse
+        env:
+          COMMAND: ${{ inputs.command }}
+          PROMPT_TEMPLATE: ${{ inputs.prompt }}
+          COMMENT_BODY: ${{ github.event.comment.body }} # via env only; NEVER into run: via ${{ }}
+        run: python3 .github/scripts/parse_opencode_cmd.py
+
+      - name: Acknowledge command
+        if: steps.parse.outputs.ack != 'none' && steps.parse.outputs.ack != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          ACK: ${{ steps.parse.outputs.ack }}
+        run: |
+          case "${{ github.event_name }}" in
+            pull_request_review_comment)
+              endpoint="repos/${{ github.repository }}/pulls/comments/${COMMENT_ID}/reactions" ;;
+            *)
+              endpoint="repos/${{ github.repository }}/issues/comments/${COMMENT_ID}/reactions" ;;
+          esac
+          gh api "$endpoint" -f content="$ACK"
+
+      - name: Report parse error
+        if: steps.parse.outputs.error != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          MSG: ${{ steps.parse.outputs.error }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            -f body="$MSG"
+
+  opencode:
+    needs: parse
+    if: needs.parse.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    environment: opencode
+    strategy:
+      fail-fast: false # ^a ^b must not cancel each other
+      matrix:
+        model: ${{ fromJSON(needs.parse.outputs.models) }} # ^a ^b fans out per model
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6.0.3
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: anomalyco/opencode/github@latest
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          # Custom providers declared in opencode.json read their own key from the
+          # environment (swiss-ai -> SWISSAI_API_KEY, cscs-inference -> CSCS_INFERENCE_API_KEY).
+          SWISSAI_API_KEY: ${{ secrets.SWISSAI_API_KEY }}
+          CSCS_INFERENCE_API_KEY: ${{ secrets.CSCS_INFERENCE_API_KEY }}
+        with:
+          model: ${{ matrix.model }}
+          agent: ${{ inputs.agent }}
+          prompt: ${{ needs.parse.outputs.prompt }}

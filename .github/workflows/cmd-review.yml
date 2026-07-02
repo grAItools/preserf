@@ -1,0 +1,32 @@
+name: cmd-review
+
+# Example custom slash command. This file is the entire per-command surface
+# area: to add a command, copy this file and change the command word in the two
+# places marked below (the `if:` prefilter and `with.command`) and the prompt.
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+jobs:
+  review:
+    # Cheap prefilter so a runner is not spun up for every comment.
+    # Loose contains() on purpose; the strict word-boundary match is in the parser.
+    if: contains(github.event.comment.body, '/review')
+    permissions:
+      id-token: write
+      contents: read
+      issues: write
+      pull-requests: write
+    uses: ./.github/workflows/opencode-cmd-engine.yml
+    secrets: inherit
+    with:
+      command: review
+      prompt: |
+        Perform a focused code review of this pull request. Prioritize
+        correctness and performance regressions over style.
+
+        The user's specific request was:
+        {{request}}
