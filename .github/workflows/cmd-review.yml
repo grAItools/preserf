@@ -12,14 +12,11 @@ on:
 
 jobs:
   review:
-    # Cheap prefilter so a runner is not spun up for every comment (loose
-    # contains() on purpose; the strict word-boundary match is in the parser),
-    # plus an author gate: only OWNER/MEMBER/COLLABORATOR may trigger a run that
-    # inherits secrets and requests id-token: write, so an arbitrary commenter
-    # can't start billable/privileged CI in the base-repo context.
-    if: >-
-      contains(github.event.comment.body, '/review') &&
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    # Cheap prefilter so a runner is not spun up for every comment.
+    # Loose contains() on purpose; the strict word-boundary match is in the
+    # parser. The author-association gate is centralized in the engine
+    # (opencode-cmd-engine.yml), so callers don't repeat it here.
+    if: contains(github.event.comment.body, '/review')
     permissions:
       id-token: write
       contents: read

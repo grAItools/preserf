@@ -57,9 +57,7 @@ to `.github/workflows/cmd-<name>.yml` and change **two** occurrences of the
 command word plus the prompt:
 
 1. the `if:` prefilter — `contains(github.event.comment.body, '/<name>')`
-   (a job-level `if:` cannot reference `with:` inputs, so it is separate;
-   the author-association gate beside it — see below — is command-independent,
-   leave it as is), and
+   (a job-level `if:` cannot reference `with:` inputs, so it is separate), and
 2. `with.command: <name>`,
 
 then edit the `prompt:` template. Use `{{request}}` where the user's comment
@@ -118,20 +116,20 @@ Those secrets are the same ones `opencode.yml` already uses.
 ### Restricting who can run a command
 
 A command run inherits secrets and requests `id-token: write`, so an arbitrary
-commenter must not be able to trigger it. The `cmd-review.yml` template
-therefore gates its job on `author_association`, and every caller should keep
-this gate:
+commenter must not be able to trigger it. This is gated **once, centrally** in
+the engine (`opencode-cmd-engine.yml`): its `parse` job — which the `opencode`
+job depends on — runs only for authorized commenters, so an unauthorized
+comment skips the whole engine. Callers don't repeat the gate.
 
 ```yaml
-if: >-
-  contains(github.event.comment.body, '/review') &&
-  contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+# opencode-cmd-engine.yml, parse job
+if: contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
 ```
 
 This holds regardless of whether the opencode action also enforces commenter
 permissions on its own (unverified here — see below); the gate is a
-fail-secure default. Widen or narrow the association list per command as
-needed.
+fail-secure default. To change who may run commands, edit this one list; it
+applies to every command.
 
 ## Known assumptions / follow-ups
 

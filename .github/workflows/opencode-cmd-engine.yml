@@ -25,6 +25,12 @@ on:
 
 jobs:
   parse:
+    # Central author gate for every command: only OWNER/MEMBER/COLLABORATOR may
+    # trigger a run that inherits secrets and requests id-token: write, so an
+    # arbitrary commenter can't start billable/privileged CI in the base-repo
+    # context. Defined once here so callers (cmd-*.yml) never repeat it; an
+    # unauthorized comment skips this job, and `opencode` (needs: parse) with it.
+    if: contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
     permissions:
       contents: read
