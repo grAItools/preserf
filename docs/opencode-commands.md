@@ -27,11 +27,11 @@ word:
 
   Currently defined shortcuts:
 
-  | Shortcut   | Model (default fallback)        |
-  | ---------- | ------------------------------- |
-  | `^default` | `opencode-go/glm-5.2`           |
+  | Shortcut   | Model (default fallback)         |
+  | ---------- | -------------------------------- |
+  | `^default` | `opencode-go/glm-5.2`            |
   | `^large`   | `cscs-inference/zai-org/GLM-5.2` |
-  | `^fast`    | `opencode-go/kimi-k2.6`         |
+  | `^fast`    | `opencode-go/kimi-k2.6`          |
 
   (A maintainer may override any tier via a repository variable — see below —
   so the resolved model can differ.)
@@ -44,9 +44,9 @@ word:
 
 ### Currently defined commands
 
-| Command   | What it does                                                     |
-| --------- | --------------------------------------------------------------- |
-| `/review` | Focused code review of the pull request (correctness > style).  |
+| Command   | What it does                                                   |
+| --------- | -------------------------------------------------------------- |
+| `/review` | Focused code review of the pull request (correctness > style). |
 
 ## For maintainers
 
