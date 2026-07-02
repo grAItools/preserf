@@ -34,7 +34,7 @@ this file.
 
 - Architecture overview: [`docs/architecture.md`](docs/architecture.md)
 - Driving the harness (Claude Code & OpenCode): [`docs/harness-usage.md`](docs/harness-usage.md)
-- Mention-triggered agent workflows (`@repo-agent`): [`docs/agent-workflows.md`](docs/agent-workflows.md)
+- Custom slash commands (`/review`, opencode-backed): [`docs/opencode-commands.md`](docs/opencode-commands.md)
 - Style guide: [`docs/style.md`](docs/style.md)
 - Testing strategy: [`docs/testing.md`](docs/testing.md)
 - ADRs (decisions of record): [`docs/adr/`](docs/adr/) — Nygard format
