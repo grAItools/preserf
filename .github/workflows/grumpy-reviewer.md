@@ -34,9 +34,9 @@ source: githubnext/agentics/workflows/grumpy-reviewer.md@e15e57b40918dbca11b350c
 engine:
   id: copilot
   env:
-    COPILOT_PROVIDER_BASE_URL: ${{ variables.OPENCODE_BASE_URL }}
-    COPILOT_MODEL: opencode-go/glm-5.2
-    COPILOT_PROVIDER_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+    COPILOT_PROVIDER_BASE_URL: ${{ variables.CSCS_INFERENCE_BASE_URL }}
+    COPILOT_MODEL: zai-org/GLM-5.2
+    COPILOT_PROVIDER_API_KEY: ${{ secrets.CSCS_INFERENCE_API_KEY }}
     COPILOT_PROVIDER_TYPE: openai
 
 network:
