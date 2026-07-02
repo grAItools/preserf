@@ -14,7 +14,7 @@ jobs:
   review:
     # Cheap prefilter so a runner is not spun up for every comment (loose
     # contains() on purpose; the strict word-boundary match is in the parser),
-    # restricted to PR context: /review is PR-scoped, so ignore it on plain
+    # restricted to PR context: /agent is PR-scoped, so ignore it on plain
     # issues. pull_request_review_comment is always on a PR; issue_comment also
     # fires on non-PR issues, so require the PR marker there. The
     # author-association gate is centralized in the engine
@@ -25,7 +25,7 @@ jobs:
        || github.event.issue.pull_request != null)
     permissions:
       id-token: write
-      contents: write
+      contents: read
       issues: write
       pull-requests: write
     uses: ./.github/workflows/opencode-cmd-engine.yml

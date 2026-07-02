@@ -8,27 +8,36 @@ on:
 
 jobs:
   opencode:
-    if: |
-      contains(github.event.comment.body, '/oc') ||
-      contains(github.event.comment.body, '/opencode')
+    # This run inherits secrets and requests id-token: write, so it must not be
+    # startable by an arbitrary commenter: gate to trusted author associations.
+    # The trigger matches the /oc and /opencode command tokens at a word
+    # boundary (start of body, or preceded by whitespace) so a word that merely
+    # contains "oc"/"opencode" (e.g. /ocaml) does not co-trigger.
+    if: >-
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+      (startsWith(github.event.comment.body, '/oc') ||
+       startsWith(github.event.comment.body, '/opencode') ||
+       contains(github.event.comment.body, ' /oc') ||
+       contains(github.event.comment.body, ' /opencode'))
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       id-token: write
     steps:
-       - name: Checkout repository
-         uses: actions/checkout@v6
-         with:
-           fetch-depth: 1
-           persist-credentials: false
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
 
-       - name: Run OpenCode
-         uses: anomalyco/opencode/github@latest
-         env:
-           # Custom providers declared in opencode.json read their own key
-           # from the environment (e.g. swiss-ai → {env:SWISSAI_API_KEY}).
-           CSCS_INFERENCE_API_KEY: ${{ secrets.CSCS_INFERENCE_API_KEY }}
-           SWISSAI_API_KEY: ${{ secrets.SWISSAI_API_KEY }}
-         with:
-           model: ${{ variables.OPENCODE_MODEL_DEFAULT}}
-           # share: true
-           # github_token: xxxx
+      - name: Run OpenCode
+        uses: anomalyco/opencode/github@latest
+        env:
+          # Custom providers declared in opencode.json read their own key
+          # from the environment (e.g. swiss-ai → {env:SWISSAI_API_KEY}).
+          CSCS_INFERENCE_API_KEY: ${{ secrets.CSCS_INFERENCE_API_KEY }}
+          SWISSAI_API_KEY: ${{ secrets.SWISSAI_API_KEY }}
+        with:
+          model: ${{ vars.OPENCODE_MODEL_DEFAULT || 'cscs-inference/moonshotai/Kimi-K2.7-Code' }}
+          # share: true
+          # github_token: xxxx

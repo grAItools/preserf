@@ -47,9 +47,9 @@ jobs:
       # repo's own opencode providers (declared in opencode.json); override per
       # tier with the OPENCODE_MODEL_* repository variables.
       MODEL_MAP: |
-        default: ${{ vars.OPENCODE_MODEL_DEFAULT }}
-        large:   ${{ vars.OPENCODE_MODEL_LARGE }}
-        fast:    ${{ vars.OPENCODE_MODEL_FAST }}
+        default: ${{ vars.OPENCODE_MODEL_DEFAULT || 'cscs-inference/moonshotai/Kimi-K2.7-Code' }}
+        large:   ${{ vars.OPENCODE_MODEL_LARGE   || 'cscs-inference/zai-org/GLM-5.2' }}
+        fast:    ${{ vars.OPENCODE_MODEL_FAST     || 'swiss-ai/zai-org/GLM-4.7-Flash' }}
     steps:
       - uses: actions/checkout@v6.0.3
         with:

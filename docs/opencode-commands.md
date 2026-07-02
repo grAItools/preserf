@@ -27,11 +27,11 @@ word:
 
   Currently defined shortcuts:
 
-  | Shortcut   | Model (default fallback)         |
-  | ---------- | -------------------------------- |
-  | `^default` | `opencode-go/glm-5.2`            |
-  | `^large`   | `cscs-inference/zai-org/GLM-5.2` |
-  | `^fast`    | `opencode-go/kimi-k2.6`          |
+  | Shortcut   | Model (default fallback)                   |
+  | ---------- | ------------------------------------------ |
+  | `^default` | `cscs-inference/moonshotai/Kimi-K2.7-Code` |
+  | `^large`   | `cscs-inference/zai-org/GLM-5.2`           |
+  | `^fast`    | `swiss-ai/zai-org/GLM-4.7-Flash`           |
 
   (A maintainer may override any tier via a repository variable — see below —
   so the resolved model can differ.)
@@ -83,17 +83,17 @@ fallbacks:
 
 ```yaml
 MODEL_MAP: |
-  default: ${{ vars.OPENCODE_MODEL_DEFAULT || 'opencode-go/glm-5.2' }}
+  default: ${{ vars.OPENCODE_MODEL_DEFAULT || 'cscs-inference/moonshotai/Kimi-K2.7-Code' }}
   large:   ${{ vars.OPENCODE_MODEL_LARGE || 'cscs-inference/zai-org/GLM-5.2' }}
-  fast:    ${{ vars.OPENCODE_MODEL_FAST || 'opencode-go/kimi-k2.6' }}
+  fast:    ${{ vars.OPENCODE_MODEL_FAST || 'swiss-ai/zai-org/GLM-4.7-Flash' }}
 ```
 
 Set the `OPENCODE_MODEL_DEFAULT` / `_LARGE` / `_FAST` **repository variables**
 (Settings → Secrets and variables → Actions → Variables) to override a tier
 without editing the workflow. Each model's **provider** must be declared in
 [`opencode.json`](../opencode.json) and its API key present as a secret and
-threaded through the engine's opencode step: `opencode-go/*` → `OPENCODE_API_KEY`,
-`swiss-ai/*` → `SWISSAI_API_KEY`, `cscs-inference/*` → `CSCS_INFERENCE_API_KEY`.
+threaded through the engine's opencode step: `swiss-ai/*` → `SWISSAI_API_KEY`,
+`cscs-inference/*` → `CSCS_INFERENCE_API_KEY`.
 Those secrets are the same ones `opencode.yml` already uses.
 
 ### Naming constraints
