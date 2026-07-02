@@ -106,7 +106,7 @@ untrusted ref (e.g. a PR under review): `agent-runtime` then replaces the
 checked-out ref's opencode config (`.opencode/` and root `opencode.json`) with
 the trusted default-branch version before running opencode. This does two
 things at once — it neutralizes any hostile config the reviewed ref might carry
-(opencode *executes* `formatter` and local `mcp` server commands, and any
+(opencode _executes_ `formatter` and local `mcp` server commands, and any
 `.opencode/plugin|tool` code, at startup, so a planted one would otherwise run
 under the App token before the agent does anything), and it keeps a valid
 providers config so a ref whose opencode config is malformed can't abort the

@@ -9,10 +9,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - `@external-reviewer` (`drop-project-context: true`) hardening: the composite
-  action (`.github/actions/agent-runtime/`) previously only *removed* the
+  action (`.github/actions/agent-runtime/`) previously only _removed_ the
   reviewed ref's `.opencode/agents|commands|skills` while **keeping** the
   ref's `.opencode/opencode.jsonc` and root `opencode.json` — both of which
-  opencode *executes* at startup (`formatter` / local `mcp` server commands,
+  opencode _executes_ at startup (`formatter` / local `mcp` server commands,
   and any `.opencode/plugin|tool` code). A fork PR under review could plant one
   and get code execution under the App token before the agent ran. It now
   replaces the whole opencode config (`.opencode/` + root `opencode.json`) with
