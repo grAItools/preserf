@@ -52,7 +52,7 @@ Copy `repo-agent-actions.yml`, rename it, and change three things:
 name: docs-agent
 on:
   issue_comment:
-    types: [created, edited]
+    types: [created] # not `edited` — an edit would re-run the whole agent
 permissions:
   id-token: write # opencode OIDC (reusable-workflow perms can only be reduced,
   contents: read #  not elevated — so grant everything repo-agent.yml needs here)
@@ -86,8 +86,13 @@ input. `secrets: inherit` passes `OPENCODE_API_KEY` / `REPO_AGENT_APP_KEY` /
 
 Optional `with:` inputs: `models` (the selection table, see below), `runs-on`
 (default `ubuntu-latest`), `allowed-associations` (default
-`OWNER,MEMBER,COLLABORATOR`), `require-mention` (default `true`), and
-`drop-project-context` (default `false`).
+`OWNER,MEMBER,COLLABORATOR`), `require-mention` (default `true`),
+`drop-project-context` (default `false`), `timeout-minutes` (default `30`; hard
+wall-clock cap on the agent job so a hung engine can't hold a runner and its
+concurrency slot), and `permission-contents` / `permission-issues` /
+`permission-pull-requests` (default empty = the App token inherits the
+installation's full grant; set e.g. `read` to scope the minted token down for an
+agent that never pushes — see [Security model](#security-model)).
 
 Set `require-mention: false` for an **automatic** agent that fires on the event
 itself rather than a mention — e.g. `repo-agent--issue-actions.yml` triages
@@ -97,12 +102,17 @@ alone), and the prompt should read the triggering payload from
 `$GITHUB_EVENT_PATH` and treat its user content as untrusted data.
 
 Set `drop-project-context: true` when the agent checks out an arbitrary or
-untrusted ref (e.g. a PR under review): `agent-runtime` then removes the
-project's `.opencode/agents|commands|skills` before running opencode, so a
-checked-out ref whose project config is invalid for opencode can't abort the
-run. The default `false` keeps the project context intact. The bundled
-`@external-reviewer` sets this; its mirror `@repo-reviewer` and the general
-`@repo-agent` keep the context.
+untrusted ref (e.g. a PR under review): `agent-runtime` then replaces the
+checked-out ref's opencode config (`.opencode/` and root `opencode.json`) with
+the trusted default-branch version before running opencode. This does two
+things at once — it neutralizes any hostile config the reviewed ref might carry
+(opencode *executes* `formatter` and local `mcp` server commands, and any
+`.opencode/plugin|tool` code, at startup, so a planted one would otherwise run
+under the App token before the agent does anything), and it keeps a valid
+providers config so a ref whose opencode config is malformed can't abort the
+run. The default `false` keeps the checked-out ref's project context intact. The
+bundled `@external-reviewer` sets this; its mirror `@repo-reviewer` and the
+general `@repo-agent` keep the context.
 
 > The caller must define its own `on:` triggers — a reusable workflow cannot
 > declare them for the caller. The workflow file must also be on the **default
@@ -179,7 +189,17 @@ nothing and no run starts.
   must not be followed by a word character or hyphen, so neither an embedded
   `foo@repo-agent` nor a longer handle like `@repo-agent-staging` fires it.
 - **Scoped, short-lived token.** The installation token expires (~1h) and is
-  scoped to the install; it is never written to logs.
+  scoped to the install; it is never written to logs. By default it carries the
+  App installation's full grant (Contents + Issues + Pull requests, read/write).
+  For an agent that runs on **untrusted input without a mention gate** — the
+  automatic `@repo-triager` fires on every opened issue — scope the token down
+  with the `permission-*` inputs (the triager sets `permission-contents: read`,
+  `permission-issues: write`), so a successful prompt injection can't push code
+  or open PRs, only what the agent legitimately needs.
+- **Untrusted reviewed config.** For agents that check out an untrusted ref,
+  `drop-project-context: true` restores the trusted default-branch opencode
+  config so a hostile head can't run code at opencode startup (see
+  [Add a new agent](#add-a-new-agent)).
 
 ## Concurrency
 

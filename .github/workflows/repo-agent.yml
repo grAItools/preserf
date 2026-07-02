@@ -79,6 +79,33 @@ on:
         required: false
         type: boolean
         default: false
+      permission-contents:
+        description: >-
+          Optional least-privilege scope ("read"/"write") for the minted App
+          token's Contents permission, passed to agent-runtime. Empty (default)
+          inherits the installation's full grant. Set "read" on agents that
+          never push (e.g. an automatic triager).
+        required: false
+        type: string
+        default: ""
+      permission-issues:
+        description: Optional scope for the token's Issues permission (see permission-contents).
+        required: false
+        type: string
+        default: ""
+      permission-pull-requests:
+        description: Optional scope for the token's Pull requests permission (see permission-contents).
+        required: false
+        type: string
+        default: ""
+      timeout-minutes:
+        description: >-
+          Hard wall-clock cap (minutes) for the agent job, so a hung engine
+          can't hold a runner — and its concurrency slot — for the 6-hour
+          default. The select job is capped separately at a small fixed value.
+        required: false
+        type: number
+        default: 30
     secrets:
       OPENCODE_API_KEY:
         required: true
@@ -109,8 +136,10 @@ jobs:
       ( inputs.require-mention == false
         || contains(github.event.comment.body || '', inputs.trigger-phrase)
         || contains(github.event.review.body || '', inputs.trigger-phrase)
-        || contains(github.event.issue.body || '', inputs.trigger-phrase) )
+        || (github.event_name == 'issues'
+            && contains(github.event.issue.body || '', inputs.trigger-phrase)) )
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       mentioned: ${{ steps.ctx.outputs.mentioned }}
       matrix: ${{ steps.pick.outputs.matrix }}
@@ -142,8 +171,11 @@ jobs:
             // start the line or follow whitespace, and must not be followed by a
             // word char or hyphen (so "@repo-agent-staging" does not fire). The
             // command is everything after that first valid mention, so an earlier
-            // "foo@repo-agent" substring can't hijack the request text.
-            const m = body.match(new RegExp(`(?:^|\\s)${phrase}(?![\\w-])`));
+            // "foo@repo-agent" substring can't hijack the request text. Matched
+            // case-insensitively: GitHub renders "@Repo-Agent" as a real mention
+            // and the coarse contains() prefilter is case-insensitive too, so a
+            // case-sensitive parse here would silently no-op a valid mention.
+            const m = body.match(new RegExp(`(?:^|\\s)${phrase}(?![\\w-])`, 'i'));
             const mentioned = !!m;
             const command = mentioned ? body.slice(m.index + m[0].length).trim() : '';
             core.setOutput('mentioned', String(mentioned));
@@ -258,6 +290,7 @@ jobs:
     needs: select
     if: needs.select.outputs.mentioned == 'true'
     runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     name: agent (${{ matrix.name }})
     environment: opencode
     permissions:
@@ -292,3 +325,6 @@ jobs:
           cscs-inference-api-key: ${{ secrets.CSCS_INFERENCE_API_KEY }}
           checkout-ref: ${{ needs.select.outputs.sha }}
           drop-project-context: ${{ inputs.drop-project-context }}
+          permission-contents: ${{ inputs.permission-contents }}
+          permission-issues: ${{ inputs.permission-issues }}
+          permission-pull-requests: ${{ inputs.permission-pull-requests }}

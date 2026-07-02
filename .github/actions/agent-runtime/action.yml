@@ -40,12 +40,30 @@ inputs:
     default: ""
   drop-project-context:
     description: >-
-      When "true", remove the project's .opencode/agents|commands|skills before
-      running opencode. Set this for agents that check out an arbitrary/untrusted
-      ref (e.g. a PR under review) whose project config might be invalid for
-      opencode and abort the run. Default "false" keeps the project context.
+      When "true", replace the checked-out ref's opencode project config
+      (.opencode/ and root opencode.json) with the trusted default-branch
+      version before running opencode. Set this for agents that check out an
+      arbitrary/untrusted ref (e.g. a PR under review): it neutralises any
+      hostile plugin/tool/mcp/formatter the reviewed ref might carry AND keeps a
+      valid providers config so the run still works. Default "false" keeps the
+      checked-out ref's project context.
     required: false
     default: "false"
+  permission-contents:
+    description: >-
+      Optional least-privilege scope ("read"/"write") for the minted App token's
+      Contents permission. Empty (the default) inherits the installation's full
+      grant, preserving prior behaviour. Set "read" on agents that never push.
+    required: false
+    default: ""
+  permission-issues:
+    description: Optional scope for the token's Issues permission (see permission-contents).
+    required: false
+    default: ""
+  permission-pull-requests:
+    description: Optional scope for the token's Pull requests permission (see permission-contents).
+    required: false
+    default: ""
 
 outputs:
   token:
@@ -64,6 +82,13 @@ runs:
       with:
         app-id: ${{ inputs.app-id }}
         private-key: ${{ inputs.private-key }}
+        # Empty permission-* inputs are ignored by the action, so the token
+        # inherits the installation's full grant (prior behaviour). A caller
+        # (e.g. the automatic triager, which runs untrusted issue text) sets
+        # these to least-privilege to cap the blast radius of a prompt injection.
+        permission-contents: ${{ inputs.permission-contents }}
+        permission-issues: ${{ inputs.permission-issues }}
+        permission-pull-requests: ${{ inputs.permission-pull-requests }}
 
     # create-github-app-token already registers the token as a secret, but mask
     # it explicitly too: it is a runtime-minted credential, so a stray `set -x`
@@ -112,30 +137,45 @@ runs:
         git config user.name  "$BOT_NAME"
         git config user.email "$BOT_EMAIL"
 
-    # opencode validates the project agents/commands/skills it discovers under
-    # .opencode/ at startup and aborts the whole run if one is invalid — and the
-    # checked-out ref (e.g. a PR under review) may carry definitions in a format
-    # opencode rejects (an older `tools:` string, `model: inherit`, ...). Our
-    # runs drive opencode's built-in primary agent with an explicit prompt and
-    # never use these project extras, so drop them before running (the root
-    # .opencode/opencode.jsonc — providers, permission, formatter — is kept).
-    # `git update-index --skip-worktree` first, so a write-agent's `git add -A` /
-    # commit cannot record the removal; these are symlinks to .agents/*, whose
-    # targets are left intact for other tools.
-    - name: Drop project agents/commands/skills for the opencode run
+    # opencode discovers project config under .opencode/ and at the repo root
+    # (opencode.json), and it *executes* content from there at startup —
+    # formatter commands, local mcp-server commands, and any .opencode/plugin|tool
+    # code — before the agent does anything. On a reviewed ref (e.g. a fork PR
+    # under review) all of that is attacker-controlled, so a hostile head could
+    # run code under the App token via a planted plugin/mcp/formatter, or ship a
+    # config opencode rejects and aborts on. Rather than delete piecemeal (which
+    # would also drop the providers config the run needs), swap the whole set for
+    # the trusted default-branch version: it neutralises tampering and keeps a
+    # valid providers config so the run still works. `git update-index
+    # --skip-worktree` + `git reset` around the swap keep a write-agent's later
+    # `git add -A` / commit from recording it (the .opencode symlinks point at
+    # .agents/*, whose targets are left intact for other tools).
+    - name: Restore trusted opencode config for the reviewed ref
       if: ${{ inputs.drop-project-context == 'true' }}
       shell: bash
+      env:
+        GH_TOKEN: ${{ steps.app.outputs.token }}
       run: |
         set -euo pipefail
-        for p in .opencode/agents .opencode/agent .opencode/commands .opencode/command .opencode/skills .opencode/skill; do
-          [ -e "$p" ] || [ -L "$p" ] || continue
-          # Mark every tracked entry under $p skip-worktree before removing it,
-          # so a write-agent's later `git add -A` can't stage the removal. Uses
-          # `git ls-files` so this holds whether $p is a symlink, a file, or a
-          # real tracked directory (an arbitrary reviewed ref may ship any).
+        default_branch=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)
+        # Fail (rather than run on untrusted config) if the trusted ref can't be
+        # fetched; the checkout above brought only the reviewed ref into scope.
+        git fetch --depth=1 origin "$default_branch"
+        # opencode reads config from both the .opencode/ dir and root opencode.json;
+        # opencode.jsonc is listed too in case a ref uses that spelling at the root.
+        paths=(.opencode opencode.json opencode.jsonc)
+        for p in "${paths[@]}"; do
           git ls-files -z -- "$p" | xargs -0 -r git update-index --skip-worktree || true
           rm -rf "$p"
         done
+        for p in "${paths[@]}"; do
+          # Skip any path absent on the trusted ref; restore the rest verbatim.
+          git checkout "origin/$default_branch" -- "$p" 2>/dev/null || true
+        done
+        # Re-mark the restored entries skip-worktree, then reset the index back
+        # to the reviewed ref so the swap is invisible to a later `git add -A`.
+        git ls-files -z -- "${paths[@]}" | xargs -0 -r git update-index --skip-worktree || true
+        git reset -q -- "${paths[@]}" 2>/dev/null || true
 
     - name: Run opencode
       uses: anomalyco/opencode/github@latest

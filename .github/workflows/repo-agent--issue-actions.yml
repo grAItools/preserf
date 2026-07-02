@@ -25,6 +25,13 @@ jobs:
       # unused for matching here but still names the agent's concurrency group.
       require-mention: false
       trigger-phrase: "repo-triager"
+      # This is the one ungated entry point — anyone who can open an issue gets
+      # a run over their (untrusted) text — so scope the App token to exactly
+      # what triage needs: read code to ground itself, write issues to label and
+      # comment. No Contents write, no Pull requests, so a prompt injection can't
+      # push code or open PRs.
+      permission-contents: read
+      permission-issues: write
       base-prompt: |
         You are @repo-triager, the automatic issue-triage agent for the preserf
         repository (a Python preprocessor for Fortran `!$SER` serialization

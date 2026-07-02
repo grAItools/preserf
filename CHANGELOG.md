@@ -8,6 +8,43 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `@external-reviewer` (`drop-project-context: true`) hardening: the composite
+  action (`.github/actions/agent-runtime/`) previously only *removed* the
+  reviewed ref's `.opencode/agents|commands|skills` while **keeping** the
+  ref's `.opencode/opencode.jsonc` and root `opencode.json` — both of which
+  opencode *executes* at startup (`formatter` / local `mcp` server commands,
+  and any `.opencode/plugin|tool` code). A fork PR under review could plant one
+  and get code execution under the App token before the agent ran. It now
+  replaces the whole opencode config (`.opencode/` + root `opencode.json`) with
+  the trusted default-branch version, which both neutralizes tampering and
+  keeps a valid providers config so a malformed reviewed config can't abort the
+  run (`--skip-worktree` + `git reset` keep the swap out of a write-agent's
+  commit).
+- `@repo-triager` (`.github/workflows/repo-agent--issue-actions.yml`) — the one
+  entry point that runs on untrusted input with no mention gate — now scopes its
+  minted App token to `contents: read` + `issues: write` (via new optional
+  `permission-contents` / `permission-issues` / `permission-pull-requests`
+  inputs on `repo-agent.yml` / `agent-runtime`; empty default preserves the
+  full grant for every other agent), so a prompt injection in an issue can't
+  push code or open PRs.
+- `repo-agent.yml` mention parse is now case-insensitive, matching GitHub's own
+  case-insensitive mentions and the coarse `contains()` prefilter — `@Repo-Agent`
+  previously highlighted as a mention but silently no-op'd.
+- `repo-agent.yml` now caps the `select` job at 5 min and the `agent` job at a
+  configurable `timeout-minutes` (default 30), so a hung engine can't hold a
+  runner — and its concurrency slot — for the 6-hour default.
+- `repo-agent-actions.yml` / `repo-agent-pr-actions.yml` triggers dropped
+  `edited` (kept only `created`/`opened`): editing a comment or issue body no
+  longer re-runs the whole agent, and the `select` prefilter only inspects
+  `issue.body` on `issues` events, so a comment on an issue whose body contains
+  the handle no longer spins a runner that then finds no mention.
+- `@repo-reviewer` / `@external-reviewer` prompt gained an explicit
+  untrusted-content guard (treat the PR title/description/diff/comments as data,
+  not instructions), matching `@repo-triager`.
+- `.github/dependabot.yml` now scans `/.github/actions/agent-runtime`; the `/`
+  github-actions entry only covered `.github/workflows/`, so the composite
+  action's own pins (`actions/checkout`, `create-github-app-token`, opencode)
+  went un-updated.
 - `.opencode/opencode.jsonc` allow-listed `make *` despite this project using
   `pixi` as its build tool (and the adjacent comment claiming parity with
   `.claude/settings.json`, which allows `pixi:*`); the allow-list now grants
