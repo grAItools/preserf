@@ -1,4 +1,4 @@
-name: cmd-review
+name: cmd-agent
 
 # Example custom slash command. This file is the entire per-command surface
 # area: to add a command, copy this file and change the command word in the two

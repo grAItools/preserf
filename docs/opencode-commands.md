@@ -98,11 +98,12 @@ Those secrets are the same ones `opencode.yml` already uses.
 
 ### Naming constraints
 
-- A command name must not begin with `oc` or `opencode`: the stock
-  `opencode.yml` gate is `startsWith(body, '/oc') || contains(body, ' /oc')`
-  (and likewise for `/opencode`), so a comment starting with `/oc…` /
-  `/opencode…` would co-trigger it. A name that merely contains `oc` later
-  (e.g. `/blocklist`) is fine.
+- A command name must not be `oc` or `opencode`: the stock `opencode.yml` gate
+  fires when `/oc` / `/opencode` is followed by a space or ends the comment
+  (`endsWith(body, '/oc') || contains(body, '/oc ')`, and likewise for
+  `/opencode`), so only an exact `/oc` / `/opencode` token co-triggers it. A
+  name that merely starts with or contains `oc` (e.g. `/october`, `/blocklist`)
+  is fine.
 - Avoid command names that are prefixes of another command's name. The parser
   handles it correctly (word-boundary match), but both prefilters will briefly
   spin up runners.

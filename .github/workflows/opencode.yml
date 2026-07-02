@@ -10,22 +10,25 @@ jobs:
   opencode:
     # This run inherits secrets and requests id-token: write, so it must not be
     # startable by an arbitrary commenter: gate to trusted author associations.
-    # The trigger matches the /oc and /opencode command tokens at a word
-    # boundary (start of body, or preceded by whitespace) so a word that merely
-    # contains "oc"/"opencode" (e.g. /ocaml) does not co-trigger.
+    # The trigger matches the /oc and /opencode command tokens only when a space
+    # follows the token or the token ends the comment, so a word that merely
+    # starts with "/oc"/"/opencode" (e.g. /ocaml) does not co-trigger. GitHub
+    # Actions expression literals can't hold a newline, so a token immediately
+    # followed by a newline is intentionally not matched (write the request on
+    # the same line as the command).
     if: >-
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
-      (startsWith(github.event.comment.body, '/oc') ||
-       startsWith(github.event.comment.body, '/opencode') ||
-       contains(github.event.comment.body, ' /oc') ||
-       contains(github.event.comment.body, ' /opencode'))
+      (endsWith(github.event.comment.body, '/oc') ||
+       endsWith(github.event.comment.body, '/opencode') ||
+       contains(github.event.comment.body, '/oc ') ||
+       contains(github.event.comment.body, '/opencode '))
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.3
         with:
           fetch-depth: 1
           persist-credentials: false
