@@ -52,7 +52,24 @@ def main() -> int:
 
         # Model selectors: ^shortcut tokens preceded by start-of-string or whitespace
         sel_re = re.compile(r"(?:^|(?<=\s))\^([\w.-]+)")
-        selectors = sel_re.findall(body) or ["default"]
+        explicit = sel_re.findall(body)
+        selectors = explicit or ["default"]
+
+        # A tokenless comment falls back to the mandatory `default` entry. If the
+        # maintainer's MODEL_MAP omits it, that's a configuration error, not a
+        # user typo — report it plainly instead of the misleading "unknown model
+        # shortcut(s): `^default`" the user never actually typed.
+        if not explicit and "default" not in model_map:
+            emit(out, "run", "false")
+            emit(out, "ack", "confused")
+            emit(
+                out,
+                "error",
+                "Command misconfigured: its MODEL_MAP has no `default` entry. "
+                "Ask a maintainer to add one, or select a model with `^shortcut`.",
+            )
+            return 0
+
         unknown = [s for s in selectors if s not in model_map]
         if unknown:
             known = ", ".join(f"`^{k}`" for k in sorted(model_map))

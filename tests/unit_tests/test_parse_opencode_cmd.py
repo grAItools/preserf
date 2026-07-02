@@ -171,6 +171,25 @@ def test_unknown_selector_aborts(
     assert "models" not in out
 
 
+def test_missing_default_entry_is_config_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A tokenless comment falls back to `default`; if the map omits it, the
+    # error must name the misconfiguration, not a `^default` the user never typed.
+    out = _run(
+        tmp_path,
+        monkeypatch,
+        body="/review look here",
+        model_map="large: opencode-go/glm-5.2\n",
+    )
+    assert out["run"] == "false"
+    assert out["ack"] == "confused"
+    assert "MODEL_MAP" in out["error"]
+    assert "`default`" in out["error"]
+    assert "^default" not in out["error"]
+    assert "models" not in out
+
+
 def test_cleaned_request_strips_command_and_selectors(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
