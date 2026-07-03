@@ -1,4 +1,4 @@
-name: cmd-review
+name: cmd-reviewer
 
 # Example custom slash command. This file is the entire per-command surface
 # area: to add a command, copy this file and change the command word in the two
@@ -14,13 +14,13 @@ jobs:
   review:
     # Cheap prefilter so a runner is not spun up for every comment (loose
     # contains() on purpose; the strict word-boundary match is in the parser),
-    # restricted to PR context: /review is PR-scoped, so ignore it on plain
+    # restricted to PR context: /reviewer is PR-scoped, so ignore it on plain
     # issues. pull_request_review_comment is always on a PR; issue_comment also
     # fires on non-PR issues, so require the PR marker there. The
     # author-association gate is centralized in the engine
     # (opencode-cmd-engine.yml), so callers don't repeat it here.
     if: >-
-      contains(github.event.comment.body, '/review') &&
+      contains(github.event.comment.body, '/reviewer') &&
       (github.event_name == 'pull_request_review_comment'
        || github.event.issue.pull_request != null)
     permissions:
@@ -31,7 +31,7 @@ jobs:
     uses: ./.github/workflows/opencode-cmd-engine.yml
     secrets: inherit
     with:
-      command: review
+      command: reviewer
       prompt: |
         Perform a focused code review of this pull request. Prioritize
         correctness and performance regressions over style.

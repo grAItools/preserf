@@ -13,28 +13,32 @@ Invoke a command by starting a line of an issue or PR comment with the command
 word:
 
 ```text
-/review please look at the fused kernels
+/reviewer please look at the fused kernels
 ```
 
 - **Pick a model** with `^shortcut` tokens anywhere in the comment. Multiple
   selectors fan out one opencode run per model:
 
   ```text
-  /review ^large focus on correctness
-  /review ^fast ^large compare approaches   # runs both, one run each
-  /review just do it                        # no token -> the default model
+  /reviewer ^large focus on correctness
+  /reviewer ^kimi ^glm compare approaches   # runs both, one run each
+  /reviewer just do it                      # no token -> the default model
   ```
 
   Currently defined shortcuts:
 
-  | Shortcut   | Model (default fallback)                   |
-  | ---------- | ------------------------------------------ |
-  | `^default` | `cscs-inference/moonshotai/Kimi-K2.7-Code` |
-  | `^large`   | `cscs-inference/zai-org/GLM-5.2`           |
-  | `^fast`    | `swiss-ai/zai-org/GLM-4.7-Flash`           |
+  | Shortcut   | Model                                            |
+  | ---------- | ------------------------------------------------ |
+  | `^default` | `vars.OPENCODE_MODEL_DEFAULT` (repo variable)    |
+  | `^large`   | `vars.OPENCODE_MODEL_LARGE` (repo variable)      |
+  | `^fast`    | `vars.OPENCODE_MODEL_FAST` (repo variable)       |
+  | `^kimi`    | `cscs-inference/moonshotai/Kimi-K2.7-Code`       |
+  | `^glm`     | `cscs-inference/zai-org/GLM-5.2`                 |
+  | `^glm4`    | `swiss-ai/zai-org/GLM-4.7-Flash`                 |
 
-  (A maintainer may override any tier via a repository variable — see below —
-  so the resolved model can differ.)
+  (The tier shortcuts resolve through repository variables — see below — so
+  the resolved model can differ; an unset tier variable makes that shortcut
+  unavailable.)
 
 - **Reactions tell you what happened:**
   - 👀 (`eyes`) — the command was accepted and is running.
@@ -44,15 +48,16 @@ word:
 
 ### Currently defined commands
 
-| Command   | What it does                                                   |
-| --------- | -------------------------------------------------------------- |
-| `/review` | Focused code review of the pull request (correctness > style). |
+| Command     | Where               | What it does                                                   |
+| ----------- | ------------------- | -------------------------------------------------------------- |
+| `/agent`    | issue & PR comments | Forwards the request verbatim to opencode.                     |
+| `/reviewer` | PR comments only    | Focused code review of the pull request (correctness > style). |
 
 ## For maintainers
 
 ### Add a command
 
-Copy [`.github/workflows/cmd-review.yml`](../.github/workflows/cmd-review.yml)
+Copy [`.github/workflows/cmd-reviewer.yml`](../.github/workflows/cmd-reviewer.yml)
 to `.github/workflows/cmd-<name>.yml` and change **two** occurrences of the
 command word plus the prompt:
 
@@ -64,11 +69,11 @@ then edit the `prompt:` template. Use `{{request}}` where the user's comment
 (with the `/command` token and `^model` selectors stripped) should be spliced
 in. `secrets: inherit` passes the provider keys through.
 
-If the command is **PR-scoped** (like `/review`), keep the caller's PR-context
+If the command is **PR-scoped** (like `/reviewer`), keep the caller's PR-context
 guard so it ignores comments on plain issues:
 `github.event_name == 'pull_request_review_comment' || github.event.issue.pull_request != null`.
-For an issue-scoped command, drop that clause and keep just the `contains(...)`
-prefilter.
+For a command that should also work on plain issues (like `/agent`), drop that
+clause and keep just the `contains(...)` prefilter.
 
 That caller file is the entire per-command surface area; everything else —
 parsing, the model map, the 👀/😕 acknowledgement, the opencode invocation —
@@ -78,19 +83,24 @@ lives in [`opencode-cmd-engine.yml`](../.github/workflows/opencode-cmd-engine.ym
 
 The shortcut → model mapping is the `MODEL_MAP` env block in the engine's
 `parse` job. One `shortcut: full-model-spec` per line; a `default` entry is
-mandatory. Values may reference repository/organization variables with `||`
-fallbacks:
+mandatory. Values may reference repository/organization variables; a line
+whose value resolves empty (unset variable) is dropped from the map:
 
 ```yaml
 MODEL_MAP: |
-  default: ${{ vars.OPENCODE_MODEL_DEFAULT || 'cscs-inference/moonshotai/Kimi-K2.7-Code' }}
-  large:   ${{ vars.OPENCODE_MODEL_LARGE || 'cscs-inference/zai-org/GLM-5.2' }}
-  fast:    ${{ vars.OPENCODE_MODEL_FAST || 'swiss-ai/zai-org/GLM-4.7-Flash' }}
+  default: ${{ vars.OPENCODE_MODEL_DEFAULT }}
+  large:   ${{ vars.OPENCODE_MODEL_LARGE }}
+  fast:    ${{ vars.OPENCODE_MODEL_FAST }}
+  kimi: cscs-inference/moonshotai/Kimi-K2.7-Code
+  glm: cscs-inference/zai-org/GLM-5.2
+  glm4: swiss-ai/zai-org/GLM-4.7-Flash
 ```
 
 Set the `OPENCODE_MODEL_DEFAULT` / `_LARGE` / `_FAST` **repository variables**
-(Settings → Secrets and variables → Actions → Variables) to override a tier
-without editing the workflow. Each model's **provider** must be declared in
+(Settings → Secrets and variables → Actions → Variables) to (re)point a tier
+without editing the workflow. `OPENCODE_MODEL_DEFAULT` must stay set: without
+it a tokenless comment has no model, and the engine replies with a
+"command misconfigured" error. Each model's **provider** must be declared in
 [`opencode.json`](../opencode.json) and its API key present as a secret and
 threaded through the engine's opencode step: `swiss-ai/*` → `SWISSAI_API_KEY`,
 `cscs-inference/*` → `CSCS_INFERENCE_API_KEY`.
