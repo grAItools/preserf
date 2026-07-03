@@ -6,103 +6,41 @@ on:
   pull_request_review_comment:
     types: [created]
 
-env:
-  # ── Declarative model table ──────────────────────────────────────────────
-  # Single source of truth: short-name (the +token users type) → full model id.
-  # `default: true` marks the model that runs on a bare /oc with no +token.
-  MODELS: |
-    - name: go:glm
-      model: opencode-go/glm-5.2
-      default: true
-    - name: go:kimi
-      model: opencode-go/kimi-k2.6
-    - name: go:deepseek
-      model: opencode-go/deepseek-v4-pro
-    - name: go:qwen
-      model: opencode-go/qwen3.6-plus
-    - name: sai:glm4
-      model: swiss-ai/zai-org/GLM-4.7-Flash
-
 jobs:
-  select:
-    # Trigger gate (unchanged from the original): /oc or /opencode, at the
-    # start of the comment or preceded by a space.
-    if: |
-      startsWith(github.event.comment.body, '/oc') ||
-      contains(github.event.comment.body, ' /oc') ||
-      startsWith(github.event.comment.body, '/opencode') ||
-      contains(github.event.comment.body, ' /opencode')
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.pick.outputs.matrix }}
-      names: ${{ steps.pick.outputs.names }}
-    steps:
-      - name: Pick models from the table
-        id: pick
-        env:
-          BODY: ${{ github.event.comment.body }}
-        run: |
-          models_json=$(printf '%s' "$MODELS" | yq -o=json -I=0)
-
-          # Select every table entry whose +<name> token appears in the body
-          # (\b so +glm doesn't match +glment, mirroring the strip step below).
-          selected=$(jq -cn --argjson m "$models_json" --arg body "$BODY" \
-            '[ $m[] | . as $e | select($body | test("\\+" + $e.name + "\\b")) ]')
-
-          # No explicit +token → fall back to the table's default(s).
-          if [ "$selected" = "[]" ]; then
-            selected=$(jq -cn --argjson m "$models_json" \
-              '[ $m[] | select(.default == true) ]')
-          fi
-
-          matrix=$(jq -cn --argjson s "$selected" \
-            '{include: [ $s[] | {name, model} ]}')
-          names=$(printf '%s' "$models_json" | jq -r '[ .[].name ] | join("|")')
-
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-          echo "names=$names"   >> "$GITHUB_OUTPUT"
-
   opencode:
-    needs: select
+    # This run inherits secrets and requests id-token: write, so it must not be
+    # startable by an arbitrary commenter: gate to trusted author associations.
+    # The trigger matches the /oc and /opencode command tokens only when a space
+    # follows the token or the token ends the comment, so a word that merely
+    # starts with "/oc"/"/opencode" (e.g. /ocaml) does not co-trigger. GitHub
+    # Actions expression literals can't hold a newline, so a token immediately
+    # followed by a newline is intentionally not matched (write the request on
+    # the same line as the command).
+    if: >-
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+      (endsWith(github.event.comment.body, '/oc') ||
+       endsWith(github.event.comment.body, '/opencode') ||
+       contains(github.event.comment.body, '/oc ') ||
+       contains(github.event.comment.body, '/opencode '))
     runs-on: ubuntu-latest
-    name: opencode (${{ matrix.name }})
-    environment: opencode
     permissions:
-      id-token: write
       contents: read
-      pull-requests: read
-      issues: read
-    strategy:
-      fail-fast: false # +glm +kimi must not cancel each other
-      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
+      id-token: write
     steps:
-      - name: Strip model-selection tokens from the prompt
-        id: clean
-        env:
-          BODY: ${{ github.event.comment.body }}
-          NAMES: ${{ needs.select.outputs.names }} # e.g. go:glm|go:kimi|sai:glm4
-        run: |
-          cleaned=$(printf '%s' "$BODY" \
-            | sed -E "s/[[:space:]]*\+(${NAMES})\b//g" \
-            | sed -E 's/[[:space:]]+$//')
-          {
-            echo "prompt<<__OC_PROMPT_EOF__"
-            printf '%s\n' "$cleaned"
-            echo "__OC_PROMPT_EOF__"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Checkout repository
         uses: actions/checkout@v6.0.3
         with:
+          fetch-depth: 1
           persist-credentials: false
 
-      - name: Run opencode
+      - name: Run OpenCode
         uses: anomalyco/opencode/github@latest
         env:
-          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           # Custom providers declared in opencode.json read their own key
           # from the environment (e.g. swiss-ai → {env:SWISSAI_API_KEY}).
+          CSCS_INFERENCE_API_KEY: ${{ secrets.CSCS_INFERENCE_API_KEY }}
           SWISSAI_API_KEY: ${{ secrets.SWISSAI_API_KEY }}
         with:
-          model: ${{ matrix.model }}
-          prompt: ${{ steps.clean.outputs.prompt }}
+          model: ${{ vars.OPENCODE_MODEL_DEFAULT || 'cscs-inference/moonshotai/Kimi-K2.7-Code' }}
+          # share: true
+          # github_token: xxxx

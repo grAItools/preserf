@@ -8,6 +8,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The opencode command workflows were hardened after review:
+  `.github/workflows/opencode.yml` now gates its privileged run behind trusted
+  author associations and a `/oc`/`/opencode` trigger that fires only when the
+  token is followed by a space or ends the comment (previously a bare
+  `contains()` let any commenter start a secrets-bearing run via a substring
+  like `/ocaml`), grants `contents: read` so `actions/checkout` can read the
+  repo, pins `actions/checkout` to `v6.0.3` (matching the other workflows), uses
+  a consistent step indentation, and resolves its model via a valid `vars.*`
+  reference with a fallback instead of the non-existent `variables` context. `.github/workflows/opencode-cmd-engine.yml` restores
+  `|| 'model'` fallbacks (to providers declared in `opencode.json`) so a
+  tokenless comment still resolves a `default` model when the repository
+  variables are unset, and `.github/workflows/cmd-agent.yml` drops to
+  `contents: read` (matching what the engine needs) and fixes a copy-paste
+  comment that still described `/agent` as `/review`.
 - `.opencode/opencode.jsonc` allow-listed `make *` despite this project using
   `pixi` as its build tool (and the adjacent comment claiming parity with
   `.claude/settings.json`, which allows `pixi:*`); the allow-list now grants
