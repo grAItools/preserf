@@ -13,16 +13,16 @@ Invoke a command by starting a line of an issue or PR comment with the command
 word:
 
 ```text
-/reviewer please look at the fused kernels
+/review please look at the fused kernels
 ```
 
 - **Pick a model** with `^shortcut` tokens anywhere in the comment. Multiple
   selectors fan out one opencode run per model:
 
   ```text
-  /reviewer ^large focus on correctness
-  /reviewer ^kimi ^glm compare approaches   # runs both, one run each
-  /reviewer just do it                      # no token -> the default model
+  /review ^large focus on correctness
+  /review ^kimi ^glm compare approaches   # runs both, one run each
+  /review just do it                      # no token -> the default model
   ```
 
   Currently defined shortcuts:
@@ -48,16 +48,16 @@ word:
 
 ### Currently defined commands
 
-| Command     | Where               | What it does                                                   |
-| ----------- | ------------------- | -------------------------------------------------------------- |
-| `/agent`    | issue & PR comments | Forwards the request verbatim to opencode.                     |
-| `/reviewer` | PR comments only    | Focused code review of the pull request (correctness > style). |
+| Command   | Where               | What it does                                                   |
+| --------- | ------------------- | -------------------------------------------------------------- |
+| `/agent`  | issue & PR comments | Forwards the request verbatim to opencode.                     |
+| `/review` | PR comments only    | Focused code review of the pull request (correctness > style). |
 
 ## For maintainers
 
 ### Add a command
 
-Copy [`.github/workflows/cmd-reviewer.yml`](../.github/workflows/cmd-reviewer.yml)
+Copy [`.github/workflows/cmd-review.yml`](../.github/workflows/cmd-review.yml)
 to `.github/workflows/cmd-<name>.yml` and change **two** occurrences of the
 command word plus the prompt:
 
@@ -69,7 +69,7 @@ then edit the `prompt:` template. Use `{{request}}` where the user's comment
 (with the `/command` token and `^model` selectors stripped) should be spliced
 in. `secrets: inherit` passes the provider keys through.
 
-If the command is **PR-scoped** (like `/reviewer`), keep the caller's PR-context
+If the command is **PR-scoped** (like `/review`), keep the caller's PR-context
 guard so it ignores comments on plain issues:
 `github.event_name == 'pull_request_review_comment' || github.event.issue.pull_request != null`.
 For a command that should also work on plain issues (like `/agent`), drop that

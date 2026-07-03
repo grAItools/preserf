@@ -11,12 +11,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `.github/workflows/cmd-agent.yml` no longer requires PR context: `/agent`
   now also runs on plain-issue comments (the caller kept the PR-scoped guard
   from the template it was copied from, so every `/agent` on an issue was
-  silently skipped), and the `/review` command was renamed to `/reviewer`
-  (`.github/workflows/cmd-reviewer.yml`) to match its intended name — a
-  `/reviewer` comment previously passed the `contains()` prefilter but failed
-  the parser's word-boundary match and did nothing, with no feedback.
-  `docs/opencode-commands.md` is synced with the engine's current `MODEL_MAP`
-  (`^kimi`/`^glm`/`^glm4` literals plus variable-driven tiers).
+  silently skipped). `docs/opencode-commands.md` now documents both commands
+  (`/agent`, `/review`) with their scopes and is synced with the engine's
+  current `MODEL_MAP` (`^kimi`/`^glm`/`^glm4` literals plus variable-driven
+  tiers).
 - The opencode command workflows were hardened after review:
   `.github/workflows/opencode.yml` now gates its privileged run behind trusted
   author associations and a `/oc`/`/opencode` trigger that fires only when the
