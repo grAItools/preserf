@@ -13,16 +13,12 @@ on:
 jobs:
   review:
     # Cheap prefilter so a runner is not spun up for every comment (loose
-    # contains() on purpose; the strict word-boundary match is in the parser),
-    # restricted to PR context: /agent is PR-scoped, so ignore it on plain
-    # issues. pull_request_review_comment is always on a PR; issue_comment also
-    # fires on non-PR issues, so require the PR marker there. The
-    # author-association gate is centralized in the engine
-    # (opencode-cmd-engine.yml), so callers don't repeat it here.
-    if: >-
-      contains(github.event.comment.body, '/agent') &&
-      (github.event_name == 'pull_request_review_comment'
-       || github.event.issue.pull_request != null)
+    # contains() on purpose; the strict word-boundary match is in the parser).
+    # /agent is issue-scoped as well as PR-scoped, so there is no PR-context
+    # guard: it fires on comments on plain issues, PR conversations, and PR
+    # review threads alike. The author-association gate is centralized in the
+    # engine (opencode-cmd-engine.yml), so callers don't repeat it here.
+    if: contains(github.event.comment.body, '/agent')
     permissions:
       id-token: write
       contents: read
