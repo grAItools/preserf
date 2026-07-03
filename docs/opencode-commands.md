@@ -27,14 +27,14 @@ word:
 
   Currently defined shortcuts:
 
-  | Shortcut   | Model                                            |
-  | ---------- | ------------------------------------------------ |
-  | `^default` | `vars.OPENCODE_MODEL_DEFAULT` (repo variable)    |
-  | `^large`   | `vars.OPENCODE_MODEL_LARGE` (repo variable)      |
-  | `^fast`    | `vars.OPENCODE_MODEL_FAST` (repo variable)       |
-  | `^kimi`    | `cscs-inference/moonshotai/Kimi-K2.7-Code`       |
-  | `^glm`     | `cscs-inference/zai-org/GLM-5.2`                 |
-  | `^glm4`    | `swiss-ai/zai-org/GLM-4.7-Flash`                 |
+  | Shortcut   | Model                                         |
+  | ---------- | --------------------------------------------- |
+  | `^default` | `vars.OPENCODE_MODEL_DEFAULT` (repo variable) |
+  | `^large`   | `vars.OPENCODE_MODEL_LARGE` (repo variable)   |
+  | `^fast`    | `vars.OPENCODE_MODEL_FAST` (repo variable)    |
+  | `^kimi`    | `cscs-inference/moonshotai/Kimi-K2.7-Code`    |
+  | `^glm`     | `cscs-inference/zai-org/GLM-5.2`              |
+  | `^glm4`    | `swiss-ai/zai-org/GLM-4.7-Flash`              |
 
   (The tier shortcuts resolve through repository variables — see below — so
   the resolved model can differ; an unset tier variable makes that shortcut
