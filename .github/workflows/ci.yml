@@ -32,7 +32,7 @@ jobs:
             # the osx-arm64 platform label.
             runs-on: macos-14
     steps:
-      - uses: actions/checkout@v6.0.3
+      - uses: actions/checkout@v7.0.0
 
       - name: Set up pixi
         # Keep pixi-version in lockstep with the pin in .devcontainer/Dockerfile
@@ -97,7 +97,7 @@ jobs:
       # netcdf-fortran.pc is what preserf's pkg_check_modules discovers.
       NFDIR: ${{ github.workspace }}/.nf-intel
     steps:
-      - uses: actions/checkout@v6.0.3
+      - uses: actions/checkout@v7.0.0
 
       - name: Derive netcdf-fortran version from pixi.lock
         # Single source of truth: build the SAME netcdf-fortran version the
@@ -122,7 +122,7 @@ jobs:
         # compiler lane stays reproducible. v1.6.3+ is required for oneAPI
         # 2025.x: Intel dropped the classic C/C++ compiler in 2024.0, so the
         # apt package is intel-oneapi-compiler-dpcpp-cpp (not -and-cpp-classic).
-        uses: fortran-lang/setup-fortran@v1.9.1
+        uses: fortran-lang/setup-fortran@v1.9.2
         id: setup-fortran
         with:
           compiler: intel
@@ -145,7 +145,7 @@ jobs:
       # from source on a cache miss (version/compiler/OS-keyed).
       - name: Cache netcdf-fortran (ifx) build
         id: cache-nf
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ${{ env.NFDIR }}
           key: netcdf-fortran-${{ env.NETCDF_FORTRAN_VERSION }}-ifx-${{ runner.os }}
