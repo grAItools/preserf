@@ -35,7 +35,7 @@ engine:
   id: copilot
   env:
     COPILOT_PROVIDER_BASE_URL: ${{ variables.CSCS_INFERENCE_BASE_URL }}
-    COPILOT_MODEL: ${{ variables.OPENCODE_MODEL_DEFAULT }}
+    COPILOT_MODEL: moonshotai/Kimi-K2.7-Code
     COPILOT_PROVIDER_API_KEY: ${{ secrets.CSCS_INFERENCE_API_KEY }}
     COPILOT_PROVIDER_TYPE: openai
 
