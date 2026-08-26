@@ -455,6 +455,15 @@ Resulting NetCDF4 / NCZarr store:
   (no `chunksizes` set, no compression filter). Both are tunable via
   netCDF-Fortran APIs and should be exposed through `!$SER OPTION` keys;
   defer naming to a follow-up ADR.
+- **Content deduplication across savepoints.** preserf stores every
+  `(savepoint, field)` write as its own variable; Serialbox
+  content-deduplicates byte-identical writes by checksum (~2.63× fewer stored
+  versions on the icon4py reference dump). Transparent dedup is not expressible
+  in the NetCDF4 or NCZarr data model, so closing the gap requires a
+  content-addressed store (an in-file blob pool + reference index) as an opt-in
+  mode, distinct from the default self-describing group-per-savepoint layout
+  above — see [ADR 0010](../adr/0010-content-dedup-requires-content-addressed-store.md)
+  for the options, tradeoffs, and recommended sequencing (compression first).
 - **Per-rank stores under MPI.** `ppser_initialize`'s `mpi_rank` argument
   currently maps to a `_rank<n>` suffix on the store name. Parallel HDF5 /
   parallel NCZarr is a future option.

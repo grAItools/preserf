@@ -52,6 +52,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- ADR
+  [0010](docs/adr/0010-content-dedup-requires-content-addressed-store.md)
+  records the decision to defer content deduplication across savepoints
+  ([#47](https://github.com/grAItools/preserf/issues/47)): preserf stores every
+  `(savepoint, field)` write separately while Serialbox dedups byte-identical
+  writes by checksum (~2.63× fewer stored versions, 11 GB vs 31.7 GB on the
+  icon4py reference dump). Transparent dedup is not expressible in NetCDF4 or
+  NCZarr, so it needs a content-addressed store; the ADR weighs the in-file
+  blob-pool, dataset-per-hash, and filesystem-reflink options and recommends an
+  opt-in blob-pool mode sequenced after compression lands. `storage_mapping.md`
+  §9 now cross-references the ADR. Docs only — no behaviour change.
 - Custom slash-command framework on the opencode GitHub integration: a reusable
   engine (`.github/workflows/opencode-cmd-engine.yml`, `workflow_call`)
   centralizes comment parsing, the `^shortcut` model map, the 👀/😕
