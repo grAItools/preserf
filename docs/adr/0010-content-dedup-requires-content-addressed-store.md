@@ -7,8 +7,10 @@ Proposed
 ## Context
 
 [Issue #47](https://github.com/grAItools/preserf/issues/47) reports that
-preserf stores **every `(savepoint, field)` write as its own dataset**, whereas
-Serialbox content-**deduplicates** identical writes by checksum: a field whose
+preserf stores **every `(savepoint, field)` write as its own variable** (one
+netCDF variable per field inside each savepoint group, per
+`storage_mapping.md` §6), whereas Serialbox
+content-**deduplicates** identical writes by checksum: a field whose
 value is unchanged across savepoints is stored once and later savepoints
 reference the existing copy. The result is that a preserf store is
 substantially larger than the Serialbox equivalent for the same data.
@@ -71,8 +73,9 @@ decision rather than re-deriving it. Three considerations drive the deferral:
 2. **Compression is the cheaper, orthogonal size lever and is not even
    landed yet.** Opt-in field-write compression is in flight but unmerged
    ([PR #53](https://github.com/grAItools/preserf/pull/53) for #46), and its
-   NCZarr extension is itself blocked (ADR
-   [0007](0007-nczarr-compression-deferred-pending-codec-plugins.md), #111).
+   NCZarr extension is itself blocked (issue
+   [#111](https://github.com/grAItools/preserf/issues/111), deferral proposed
+   in [PR #124](https://github.com/grAItools/preserf/pull/124)).
    Compression and dedup are additive — a byte-identical duplicate is _not_
    collapsed by a compressor, each copy is still stored and compressed — so
    dedup's structural cost should be weighed against the **residual** size gap
@@ -87,12 +90,30 @@ decision rather than re-deriving it. Three considerations drive the deferral:
 
 ### Options considered (for the eventual implementation)
 
-Let `H(field_bytes)` be a content hash (e.g. a strong non-cryptographic or
-SHA-family digest) computed at write time. In every option the dedup happens by
-writing the _bytes once_ and recording a _reference_ everywhere the same bytes
-recur. The index that maps `H → stored location` can live **inside** the file
-(preserf is not constrained to Serialbox's external index, which exists only
-because Serialbox's archive is a flat directory of `.dat` files).
+Let `H(field_bytes)` be a content hash computed at write time. In every option
+the dedup happens by writing the _bytes once_ and recording a _reference_
+everywhere the same bytes recur. The index that maps `H → stored location` can
+live **inside** the file (preserf is not constrained to Serialbox's external
+index, which exists only because Serialbox's archive is a flat directory of
+`.dat` files).
+
+**Collision safety is mandatory, not optional.** These are correctness-critical
+serialization payloads, so silent aliasing of two _distinct_ field values must
+be impossible. The implementation MUST guarantee this by **both** of:
+
+1. Using a **collision-resistant** digest — SHA-256 or BLAKE3 — for `H`. A fast
+   non-cryptographic hash (xxHash, CityHash, etc.) MAY be used only as a cheap
+   first-level bucket key, never as the sole identity of a payload.
+2. On any hash match, performing a **full byte-for-byte comparison** of the
+   candidate payload against the stored blob before treating them as identical.
+   The bytes are collapsed only when the compare confirms equality; a hash
+   match with a byte mismatch stores a new blob (a normal hash-table collision,
+   not data loss). This makes correctness independent of the digest's collision
+   probability — the hash is an index, the byte-compare is the arbiter.
+
+The byte-compare is cheap relative to the write it avoids (only the colliding
+candidate is compared, and only on a hash hit), and it removes any possibility
+of a duplicate reference aliasing different data.
 
 - **Option A — in-file blob pool + reference index (recommended).** One (or a
   few, keyed by dtype/rank) growable dataset per store acts as a blob pool;
