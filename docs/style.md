@@ -12,13 +12,10 @@ documents intent.
   `-std=f2008` enforces standards conformance at build time).
 - **Markdown, JSON, TOML:** `dprint` (config in `dprint.json`).
 
-The PostToolUse hook in `.claude/settings.json` runs `pixi run fmt-py-src`
-or `pixi run fmt-f-src` on every Write/Edit of a `.py` / `.f90` file as
-a best-effort auto-format — it swallows errors with `|| true` so that a
-missing pixi or a transient task failure doesn't block the agent's
-edit loop. The hard gate is the Stop hook, which runs `pixi run verify`
-(fmt-check + lint + typecheck + test) and exits non-zero on drift —
-that's what blocks "done" until the tree is clean.
+No harness auto-format hooks are configured. Run `pixi run fmt` after
+editing (or the file-scoped `pixi run fmt-py-src` / `pixi run fmt-f-src`),
+and treat `pixi run verify` (fmt-check + lint + typecheck + test) as the
+pre-done gate — CI is the only hard enforcement of it.
 
 ## Conventions
 

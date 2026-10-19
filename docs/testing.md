@@ -6,7 +6,7 @@
   typecheck + `test-py-with-fortran` (which chains `build-fortran` and
   `test-fortran` and then runs pytest strictly, so a missing Fortran
   binary fails the gate instead of silently skipping the wire-compat
-  test). Also what the Claude Code `Stop` hook runs. On a cold tree the
+  test). On a cold tree the
   Fortran configure+build adds ~15s; warm runs settle at <6s.
 - **Fast loop:** `pixi run test-py` (or `pixi run test-py-unit` for the
   Python unit slice only) — currently completes in <1s and must stay <60s.

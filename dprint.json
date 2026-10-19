@@ -4,7 +4,10 @@
   "excludes": [
     ".pixi/**",
     "pixi.lock",
-    ".agents/plugins/**",
+    ".claude/**",
+    ".agents/**",
+    ".opencode/**",
+    ".omp/**",
     "tests/_support/fixtures/serialbox_golden/*.json"
   ],
   "plugins": [

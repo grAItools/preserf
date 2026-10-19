@@ -738,7 +738,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reference-only and excluded from the distribution. Collapsed the
   duplicate `[Unreleased]` / `[0.2.0-dev]` changelog headers and fixed
   the broken compare link ([#69](https://github.com/grAItools/preserf/issues/69),
-  [#85](https://github.com/grAItools/preserf/issues/85)).
+  [#85](https://github.com/grAItools/preserf/issues/85))).
+
+### Changed
+
+- Replaced the in-repo coding harness (`.agents/` four-phase loop, per-tool
+  wiring, comment-driven agent workflows, grumpy-reviewer, legacy
+  `specs/` planning tree) with the lightweight OpenSpec spec-driven
+  framework: living capability specs under `openspec/specs/`, project
+  context and workflow rules in `openspec/config.yaml`, and propose → apply
+  → archive as the change loop, installed for Claude Code, OpenCode, Codex,
+  and OMP (ADR 0010). `docs/architecture.md` and `docs/tool-bootstrap.md`
+  were distilled into the OpenSpec layer and `AGENTS.md`; CI gained an
+  `openspec validate --all --strict` job.
 
 ## [0.1.0] — 2026-05
 

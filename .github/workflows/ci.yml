@@ -76,6 +76,32 @@ jobs:
         run: pixi run test-consumer
 
   # ---------------------------------------------------------------------------
+  # OpenSpec structural gate. The spec layer (openspec/) is plain markdown;
+  # this job keeps it from rotting: every capability spec and every change
+  # folder must pass the CLI's strict validation (missing scenarios, dangling
+  # requirement references, malformed deltas). Cheap, no toolchain needed —
+  # so it runs on every push/PR independently of the pixi lanes.
+  openspec:
+    name: openspec validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.3
+
+      - name: Set up Node (openspec CLI requires >= 20.19)
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      # Pinned so a spec can't start failing because the CLI changed
+      # underneath it; bump deliberately alongside `openspec update`.
+      - name: Install openspec CLI
+        run: npm install -g @fission-ai/openspec@1.14.3
+
+      - name: Validate specs and changes
+        # --all: non-interactive (a bare `validate` prompts headless and exits 1)
+        run: openspec validate --all --strict
+
+  # ---------------------------------------------------------------------------
   # Non-GNU compiler lane (issue #78). The pixi env above only ever resolves
   # gfortran, so the per-compiler flag branches added in #97 for Intel /
   # IntelLLVM (and the FATAL_ERROR fallthrough) were never exercised. This job

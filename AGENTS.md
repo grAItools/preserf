@@ -1,102 +1,87 @@
 # preserf — Agent Instructions
 
 `preserf` is a preprocessor for Fortran data serialization directives
-implemented in Python. It expands `!$SER` directives in Fortran
-source into explicit serialization calls implemented in helper modules.
+implemented in Python: it expands `!$SER` directives in Fortran source into
+explicit serialization calls. Two parts: `src/preserf/` (preprocessor engine
 
-The source code is split into two main parts:
+- CLI) and `src/preserf/fortran/` (the Fortran runtime those calls target).
 
-- `src/preserf/`: the preprocessor engine and CLI.
-- `src/preserf/fortran/`: Fortran helper modules that provide the runtime API
-  targeted by generated code.
+## Toolchain
 
-## Stack
+`pixi` is the single entry point (conda-forge, pinned in `pixi.toml` /
+`pixi.lock`). Do not install Python/Fortran tools by hand. If `pixi` is
+missing from your shell:
 
-- Language: **python**
-- Package / build manager: **pixi**
-- License: MIT
-- Tool versions live in `pixi.toml` / `pixi.lock` (single source of truth);
-  for `pixi` install steps and environment setup see:
-  [`docs/tool-bootstrap.md`](docs/tool-bootstrap.md).
+```sh
+curl -fsSL https://pixi.sh/install.sh | sh   # then reload $PATH (~/.pixi/bin)
+```
 
-## Commands (prefer these over guessing)
+Commands (prefer these over guessing):
 
-- `pixi run test-py` — fast Python test suite (unit + integration; integration skips without the Fortran binary)
-- `pixi run test-all` — Python + Fortran ctest + examples (slow; not in `verify`)
-- `pixi run lint` — static checks
-- `pixi run fmt` — auto-format
-- `pixi run verify` — full verification gate (what the Claude Code `Stop` hook runs)
+- `pixi run test-py` — fast Python test suite
+- `pixi run test-all` — Python + Fortran ctest + examples (slow)
+- `pixi run lint` / `pixi run fmt` — static checks / auto-format
+- `pixi run verify` — full verification gate; run before claiming done
 
-If a command above is wrong for your environment, **fix the pixi.toml file**, not
-this file.
+## Spec-driven development (OpenSpec)
 
-## Where things live (capabilities, not paths)
+This repo uses [OpenSpec](https://openspec.dev/). The system's behavior is
+specified in `openspec/specs/` (living capability specs: preprocessor, cli,
+fortran-runtime, storage, packaging-distribution); project context and rules
+for the workflows live in `openspec/config.yaml` and are injected into every
+workflow run.
 
-- Architecture overview: [`docs/architecture.md`](docs/architecture.md)
-- Driving the harness (Claude Code & OpenCode): [`docs/harness-usage.md`](docs/harness-usage.md)
-- Custom slash commands (`/agent`, `/review`, opencode-backed): [`docs/opencode-commands.md`](docs/opencode-commands.md)
-- Style guide: [`docs/style.md`](docs/style.md)
-- Testing strategy: [`docs/testing.md`](docs/testing.md)
-- ADRs (decisions of record): [`docs/adr/`](docs/adr/) — Nygard format
-- Reference docs (specs / schemas too detailed for `docs/`): [`docs/references/`](docs/references/)
-- Per-feature specs: [`specs/<YYYY-MM>-<slug>/`](specs/)
-- Per-PR release history: [`CHANGELOG.md`](CHANGELOG.md)
-- Supported agents & how to add one: [`.agents/README.md`](.agents/README.md)
+Every non-trivial change goes through the loop, in any harness:
 
-## Do
+- Explore (optional): think the idea through before planning
+- **Propose**: draft `openspec/changes/<change>/` (proposal, delta specs,
+  design, tasks) — no code yet
+- Review the artifacts, correct them while they are still words
+- **Apply**: implement `tasks.md`, checking off each task
+- **Archive**: merge the delta specs into `openspec/specs/` and move the
+  change to `changes/archive/`
 
-- `pixi` is bootstrapped automatically at session start by
-  [`.agents/hooks/ensure-toolchain.sh`](.agents/hooks/ensure-toolchain.sh); if you
-  land in a bare shell without it, run that script (details in
-  [`docs/tool-bootstrap.md`](docs/tool-bootstrap.md)).
-- Run `pixi run verify` before claiming a task is done.
-- For a net-new feature, follow the four-phase loop:
-  `/spec` (Product Owner) → `/plan` (Architect) → `/build` (Developer)
-  → `/verify` (Reviewer). Each phase stops for review before the next
-  begins. See `.agents/commands/` and `.agents/subagents/`.
-- For a new architectural choice (dependency, framework, persistence, auth),
-  add an ADR in `docs/adr/`. ADRs are append-only; supersede with a new file.
-- When investigating a large codebase, prefer the `explorer` subagent (read-only)
-  over loading large files into the main context.
+Invoke it by name in your tool (`/opsx:propose` in Claude Code,
+`/opsx-propose` in OpenCode and OMP, `$openspec-propose` in Codex) or just
+ask in plain language ("propose a change to ..."). The skills are installed
+for Claude Code (`.claude/`), Codex (`.agents/skills/`), OpenCode
+(`.opencode/`), and OMP (`.omp/`).
 
-## Don't
+One-time per-machine setup (the generated workflow files are committed; the
+CLI and its profile are not):
 
-- Don't add a runtime dependency without an ADR.
-- Don't run destructive Git: `push --force`, `reset --hard origin/*`,
-  history rewrites on shared branches.
-- Don't put secrets, hostnames, or per-developer paths in this file —
-  they belong in a git-ignored file (e.g `AGENTS.local.md` or `CLAUDE.local.md`).
-- Don't auto-generate or expand this file beyond ~200 lines. The instruction
-  budget is finite; adding rules degrades adherence to _all_ rules.
+```sh
+npm install -g @fission-ai/openspec@latest   # Node >= 20.19 required
+openspec config profile                       # optional: add verify/onboard workflows
+openspec update                               # refresh installed skills/commands
+```
+
+Validate specs and changes headlessly with `openspec validate --all --strict`
+(CI runs this too). The expanded profile (adds `verify` and `onboard`) is
+per-machine global config; a fresh clone works with the core six workflows.
 
 ## Conventions
 
-- Code style: see `docs/style.md`. One worked example > a page of prose.
-- Comments describe the code, not the process: explain _why_, keep them
-  accurate, no review/release-process prose. See
-  [`docs/style.md`](docs/style.md#comments).
 - Tests are the spec. If you change behaviour, change a test first.
-- Commit messages: **Conventional Commits 1.0.0** — apply the format to the **PR title** (squash-merge).
-  See [`docs/style.md`](docs/style.md#commit-messages) for the format,
-  type list, breaking-change syntax, examples, and full merge-strategy
-  guidance.
-- Changelog: if the project keeps a `CHANGELOG.md`, log user-facing changes
-  under `[Unreleased]` as one concise bullet each, leading with the
-  file/behaviour. See [`docs/style.md`](docs/style.md#changelog).
-- Branch names: `<initials>/<slug>` for personal branches; bare slug for
-  shared feature branches.
+- Code style: see [`docs/style.md`](docs/style.md). Testing strategy:
+  [`docs/testing.md`](docs/testing.md).
+- Errors carry context: raise `DirectiveError` with file/line, never a bare
+  `ValueError` from the preprocessor.
+- Commit messages: Conventional Commits 1.0.0, applied to the PR title
+  (squash-merge).
+- Changelog: log user-facing changes under `[Unreleased]` in `CHANGELOG.md`,
+  one concise bullet each, leading with the file/behaviour.
+- Architecture decision records live in [`docs/adr/`](docs/adr/) (Nygard
+  format, append-only; supersede with a new file, never edit history).
+  A new architectural choice (dependency, framework, persistence, auth)
+  requires an ADR as part of the change that makes it.
+- No new runtime dependency without an ADR.
+- Don't run destructive Git on shared branches: no `push --force`, no
+  `reset --hard origin/*`, no history rewrites.
 
-## Working memory
+## Where things live
 
-Per-feature spec directories use this layout:
-
-```
-specs/<YYYY-MM>-<slug>/
-├─ spec.md     # WHAT and WHY; no implementation detail
-├─ plan.md     # numbered phased plan; each phase has tests
-├─ tasks.md    # checkbox list the agent ticks off
-└─ scratch.md  # agent's working notes; cleared on completion (gitignored)
-```
-
-`scratch.md` is gitignored by default. Promote anything durable into `spec.md`,
-`plan.md`, an ADR, or `docs/`.
+- Directive grammar: [`docs/references/directives_specification.md`](docs/references/directives_specification.md)
+- Storage model mapping: [`docs/references/storage_mapping.md`](docs/references/storage_mapping.md)
+- Fortran runtime README: [`src/preserf/fortran/README.md`](src/preserf/fortran/README.md)
+- Per-change history: `openspec/changes/archive/`

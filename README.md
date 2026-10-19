@@ -117,7 +117,7 @@ PRESERF_BACKEND=nczarr-v2 ./my_app   # write a Zarr V2 store instead of .nc
 
 ## Key documentation
 
-- Project architecture overview: [docs/architecture.md](docs/architecture.md)
+- Living capability specs (system behavior as built): [openspec/specs/](openspec/specs/)
 - Directive grammar and expansion contract:
   [docs/references/directives_specification.md](docs/references/directives_specification.md)
 - Storage model mapping:

@@ -216,7 +216,6 @@ examples/**/out/
 examples/**/prefix/
 
 
-# >>> ai-agent-harness (managed by copier) >>>
 # Personal overrides — never commit
 CLAUDE.local.md
 .claude/settings.local.json
@@ -224,10 +223,10 @@ CLAUDE.local.md
 .claude/checkpoints/
 .claude/shell-snapshots/
 .opencode/local/
+opencode.local.json
 .codex/auth.json
 .cursor/settings.local.json
 
-# Agent scratch space (team decision; comment out to commit)
-specs/*/scratch.md
-.agents/.cache/
-# <<< ai-agent-harness (managed by copier) <<<
+# Agent scratch space inside an OpenSpec change folder (team decision;
+# comment out to commit)
+openspec/changes/*/scratch.md
