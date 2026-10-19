@@ -8,11 +8,16 @@ The on-disk serialization format written by the Fortran runtime and read by the 
 
 ### Requirement: Backend selection
 
-The runtime SHALL write to NetCDF4 (default, `<dir>/<prefix>.nc`) or NCZarr V2 (`<dir>/<prefix>.zarr`, directory store via the `file://<path>#mode=nczarr,zarr2` URL), selected by the `backend=` keyword on `ppser_initialize` and overridable at runtime by the `PRESERF_BACKEND` environment variable. Both backends SHALL use the same `nf90_*` code path and group layout.
+The runtime SHALL write to NetCDF4 (default, `<dir>/<prefix>.nc`) or NCZarr V2 (`<dir>/<prefix>.zarr`, directory store via the `file://<path>#mode=nczarr,zarr2` URL). An explicit `backend=` keyword on `ppser_initialize` SHALL take precedence over the `PRESERF_BACKEND` environment variable, which in turn overrides the default. Both backends SHALL use the same `nf90_*` code path and group layout.
 
-#### Scenario: Backend override
+#### Scenario: Explicit argument beats environment
 
-- **WHEN** the process runs with `PRESERF_BACKEND=nczarr-v2`
+- **WHEN** `ppser_initialize` is called with an explicit `backend=` while `PRESERF_BACKEND` is set to a different value
+- **THEN** the explicit argument wins and the environment variable is ignored
+
+#### Scenario: Environment fallback
+
+- **WHEN** no `backend=` argument is passed and the process runs with `PRESERF_BACKEND=nczarr-v2`
 - **THEN** initialization opens a `.zarr` store instead of `.nc`, with identical group structure
 
 ### Requirement: Group layout
@@ -26,7 +31,7 @@ Each store SHALL contain a `/_fields` registry group and one group per savepoint
 
 ### Requirement: Type coverage
 
-Fields of boolean, int32, int64, real32, and real64 in ranks 0D to 4D SHALL round-trip through the store with their dtype preserved per the TypeID mapping in `docs/references/storage_mapping.md`.
+Fields of boolean, int32, int64, real32, and real64 in ranks 0D to 4D SHALL round-trip through the store with their dtype preserved per the TypeID mapping in `docs/references/storage_mapping.md`. Dimensions are recorded in netCDF C-order (slowest axis first) per `storage_mapping.md` §1.1; the Python support reader handles the axis translation.
 
 #### Scenario: Cross-language round-trip
 
@@ -35,12 +40,12 @@ Fields of boolean, int32, int64, real32, and real64 in ranks 0D to 4D SHALL roun
 
 ### Requirement: Initialization keyword coverage
 
-`ppser_initialize` SHALL accept every Serialbox-compatible keyword: `directory`, `prefix`, `mode`, `directory_ref`, `prefix_ref`, `singlefile`, `mpi_rank`, `rprecision`, `rperturb`, `realtype`, `archive`, `unique_id`, with defaults matching Serialbox so existing call sites are unaffected.
+`ppser_initialize` SHALL require `directory` and `prefix`. The Serialbox-compatible optional keywords are `mode`, `directory_ref`+`prefix_ref` (supplied together or not at all), `singlefile`, `mpi_rank`, `rprecision`, `rperturb`, `realtype`, `archive`, `unique_id`, and `backend`. Append mode (`mode='a'`) is rejected (tracked in the `add-append-mode` change).
 
-#### Scenario: Keyword acceptance
+#### Scenario: Required and paired arguments
 
-- **WHEN** `ppser_initialize` is called with any subset of the Serialbox-compatible keywords
-- **THEN** the call compiles and the omitted keywords keep Serialbox's default behavior
+- **WHEN** `ppser_initialize` is called with exactly one of `directory_ref`/`prefix_ref`
+- **THEN** initialization fails with a clear error instead of misbehaving
 
 ### Requirement: Rank-suffixed stores
 
@@ -53,16 +58,21 @@ The `mpi_rank` initialization keyword SHALL apply a `_rank<n>` suffix to the sto
 
 ### Requirement: Initialization state threading
 
-The `realtype`/`rprecision`, and `rperturb` initialization keywords SHALL update the runtime state that generated code reads: `realtype`/`rprecision` set `ppser_realtype`/`ppser_reallength` (so pp_ser-emitted REGISTER calls pick up single-precision metadata), and `rperturb` sets `ppser_zrperturb` consumed by the read-perturb path.
+The `realtype` keyword SHALL set the type string used by `ppser_realtype`/`ppser_reallength` (e.g. `realtype='float'` registers single-precision real fields), and `rperturb` SHALL set `ppser_zrperturb` consumed by the read-perturb path. `rprecision` SHALL be accepted for Serialbox interface compatibility as a real-valued tolerance and is currently ignored — the real byte length is determined by `realtype`/the real kind.
 
 #### Scenario: Single-precision registration
 
-- **WHEN** `ppser_initialize` runs with `rprecision=real32` and a `real` field is registered
+- **WHEN** `ppser_initialize` runs with `realtype='float'` and a `real` field is registered
 - **THEN** the field's type metadata records the single-precision TypeID
+
+#### Scenario: Tolerance accepted but unused
+
+- **WHEN** `ppser_initialize` is called with a real-valued `rprecision`
+- **THEN** the call succeeds and the value does not change the registered real byte length
 
 ### Requirement: Initialization metadata round-trip
 
-The `singlefile`, `archive`, and `unique_id` initialization keywords SHALL be recorded as root attributes of the store and SHALL surface on the Python dump unchanged.
+The `singlefile`, `archive`, and `unique_id` initialization keywords SHALL be recorded as root attributes of the store and SHALL surface on the Python dump unchanged; they are metadata-only and do not implement Serialbox's operational semantics.
 
 #### Scenario: Metadata round-trip
 
@@ -71,18 +81,23 @@ The `singlefile`, `archive`, and `unique_id` initialization keywords SHALL be re
 
 ### Requirement: Perturbed reads
 
-The runtime SHALL support read-perturb mode: `fs_read_field_*_perturb` SHALL apply the perturbation scale from `ppser_zrperturb` to real-valued fields during deserialization.
+The runtime SHALL support read-perturb mode: floating-point `fs_read_field_*_perturb` SHALL multiply each element by `1 + scale*(2u - 1)` with `u` uniform in [0, 1) and `scale` taken from `ppser_zrperturb`. Scale zero SHALL be an identity; zero-valued elements stay zero; rounding may leave individual values unchanged. Integer and logical perturb overloads SHALL perform an ordinary read (no-op perturbation).
 
 #### Scenario: Read-perturb applies scale
 
-- **WHEN** a field is read with a non-zero `rperturb`
-- **THEN** the returned values differ from the stored values by the configured perturbation
+- **WHEN** a floating-point field is read with a non-zero `rperturb`
+- **THEN** each non-zero element is perturbed within the configured multiplicative bounds
 
-### Requirement: Serialbox wire compatibility
+#### Scenario: Zero-scale and non-floating no-op
 
-Where Serialbox defines equivalent behavior, stores SHALL be byte-compatible with the Serialbox `BinaryArchive`/`MetaData` reference layout for the golden fixtures, so serialbox4py can read preserf dumps and vice versa (column-major element order, declaration-order dims).
+- **WHEN** the perturbation scale is zero, an integer or logical field is read, or an element is exactly zero
+- **THEN** the value is returned unchanged
+
+### Requirement: Serialbox reference fidelity
+
+The test-support Serialbox reader/writer (`tests/_support/serialbox.py`) SHALL decode and encode Serialbox `BinaryArchive`/`MetaData` payloads faithfully, verified against real `serialbox4py` dumps in the golden fixture test. Byte-identity SHALL be guaranteed only for those reference `.dat` payloads. Runtime stores are NetCDF4/NCZarr — they are NOT Serialbox `BinaryArchive` stores; cross-language round-trips go through the Python support adapters, not through serialbox4py.
 
 #### Scenario: Golden fixture
 
 - **WHEN** the golden serialbox fixtures are read through `tests/_support/serialbox.py`
-- **THEN** every field decodes with the reference values, including multi-dimensional arrays in Fortran order
+- **THEN** every field decodes with the reference values, with array payloads in column-major (Fortran) element order

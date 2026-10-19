@@ -1,19 +1,12 @@
-# Tasks: add string-array-metainfo support
+# Tasks: add string-array metainfo support
 
 ## 1. Runtime overload
 
-- [ ] Add `fs_add_savepoint_metainfo_s_1d` and
-      `fs_add_serializer_metainfo_s_1d` overloads to `m_preserf.F90`
-- [ ] Choose and document the on-disk encoding in
-      `docs/references/storage_mapping.md`
+- [ ] Add an NC_STRING-vector cross-language round-trip test that fails against the current runtime
+- [ ] Add `fs_add_savepoint_metainfo_s_1d` and `fs_add_serializer_metainfo_s_1d` overloads to `m_preserf.F90`
+- [ ] Confirm the on-disk encoding matches the `NC_STRING` vector contract already decoded by `tests/_support/storage.py`
 
-## 2. Round-trip support
+## 2. Verification
 
-- [ ] Teach `tests/_support/storage.py` to surface 1D string metainfo
-- [ ] Add a native Fortran scenario writing a 2-element string-array metainfo
-
-## 3. Verification
-
-- [ ] Cross-language round-trip test in
-      `tests/integration_tests/test_fortran_wire_compat.py`
-- [ ] `pixi run verify` green
+- [ ] Extend the wire-compat test in `tests/integration_tests/test_fortran_wire_compat.py` with the string-array metainfo scenario
+- [ ] Run `pixi run verify` and confirm it is green

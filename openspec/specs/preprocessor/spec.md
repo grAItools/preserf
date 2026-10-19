@@ -8,7 +8,7 @@ Expand `!$SER` directives embedded in Fortran source into explicit calls to the 
 
 ### Requirement: Directive recognition
 
-The preprocessor SHALL recognize `!$SER` directives (case-insensitive, optional leading whitespace) on `.f90`, `.f`, `.f03`, `.inc`, and `.incf` files, with all directive keywords and their abbreviations matched case-insensitively while preserving the case of arguments.
+The preprocessor SHALL recognize `!$SER` directives (case-insensitive, optional leading spaces — tabs are not recognized) on `.f90`, `.f`, `.f03`, `.inc`, and `.incf` files, with all directive keywords and their abbreviations matched case-insensitively while preserving the case of arguments.
 
 #### Scenario: Abbreviated keyword
 
@@ -17,7 +17,7 @@ The preprocessor SHALL recognize `!$SER` directives (case-insensitive, optional 
 
 ### Requirement: Two-pass processing
 
-The preprocessor SHALL process each file in two passes: an analysis pass that collects every serialization API call required by the source, and a generation pass that injects the corresponding `USE` imports and rewrites each directive as a guarded block of Fortran calls.
+The preprocessor SHALL process each file in two passes: an analysis pass that collects every serialization API call required by the source, and a generation pass that injects the corresponding `USE` imports and rewrites each directive as a guarded block of Fortran calls. By default expansions are guarded by `#ifdef SERIALIZE` / `#endif`; an empty `Options.ifdef` disables the guards.
 
 #### Scenario: USE import injection
 
@@ -26,12 +26,17 @@ The preprocessor SHALL process each file in two passes: an analysis pass that co
 
 ### Requirement: Scope tracking
 
-The preprocessor SHALL track Fortran scoping units (`MODULE`/`PROGRAM`/`SUBROUTINE`/`FUNCTION`) so `USE` statements are emitted once after the enclosing unit header rather than after each contained subprogram.
+The preprocessor SHALL track `MODULE`/`PROGRAM` scoping units: a `USE` block is emitted once after the enclosing `MODULE`/`PROGRAM` header and suppressed for directives in contained subprograms. Standalone subprograms (outside a module) each receive their own `USE` block after their header, including continuation lines.
 
 #### Scenario: Standalone subprogram with continuation
 
 - **WHEN** a standalone subroutine header spans continuation lines and contains a directive
 - **THEN** the `USE` block is inserted after the full header, including continuations
+
+#### Scenario: Standalone nested subprograms
+
+- **WHEN** two standalone subprograms outside any module each contain a directive
+- **THEN** each gets its own `USE` block; suppression applies only within `MODULE`/`PROGRAM` scope
 
 ### Requirement: Line continuation
 
@@ -80,9 +85,14 @@ All directive errors SHALL raise `DirectiveError` carrying the file name and lin
 
 ### Requirement: Differential parity with reference pp_ser
 
-The expansion SHALL remain differentially consistent with the reference Serialbox `pp_ser` preprocessor on shared inputs, verified by the test-only `serialbox4py` comparison suite.
+On the designated agreement corpus, the preprocessor's expansion SHALL produce the same normalized sequence of runtime calls as the reference Serialbox `pp_ser` preprocessor (serialization intent, not byte-identical text), verified by the test-only `serialbox4py` comparison suite. Intentional divergences from the reference — e.g. the corrected handling of subscript arithmetic in `!$SER DATA` values — are preserved and covered by their own tests.
 
 #### Scenario: Golden expansion
 
-- **WHEN** the differential test preprocesses a shared fixture with both preserf and the reference `pp_ser`
-- **THEN** the generated outputs match
+- **WHEN** the differential test preprocesses a shared agreement-corpus fixture with both preserf and the reference `pp_ser`
+- **THEN** the normalized runtime-call sequences match
+
+#### Scenario: Intentional divergence stays divergent
+
+- **WHEN** a fixture exercises subscript arithmetic in a DATA value (where preserf fixed a reference bug)
+- **THEN** the normalized calls differ from the reference by design, and the difference is asserted, not accidental

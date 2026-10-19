@@ -17,7 +17,7 @@ The Fortran helper modules shipped as source inside the wheel: the canonical `fs
 
 ### Requirement: Field type/rank coverage
 
-`fs_write_field` and `fs_read_field` SHALL cover boolean, int32, int64, real32, and real64 in ranks 0D to 4D via generic interfaces; `fs_read_field` SHALL additionally provide perturb variants for the read-perturb path.
+`fs_write_field` and `fs_read_field` SHALL cover boolean, int32, int64, real32, and real64 in ranks 0D to 4D via generic interfaces; string data fields are deferred past v1.0 (tracked in ADR 0010 and `docs/references/storage_mapping.md`). `fs_read_field` SHALL additionally provide perturb variants for the read-perturb path.
 
 #### Scenario: Generic dispatch
 
@@ -62,12 +62,17 @@ The Fortran helper modules shipped as source inside the wheel: the canonical `fs
 
 ### Requirement: Tracer serialization
 
-The tracer API SHALL register and write tracers by name, index, or all-at-once, supporting the `!$SER REGISTERTRACERS` / `!$SER TRACER` directives with their suffix (`#tens`/`#bd`/`#surf`/`#sedimvel`) and grid (`@<name>`) specifiers.
+The tracer API SHALL register and write tracers by name, index, or all-at-once, supporting the `!$SER REGISTERTRACERS` / `!$SER TRACER` directives with their `#tens`/`#bd`/`#surf`/`#sedimvel` suffix and optional `@<timelevel>` specifier, which the expansion emits as a `timelevel=...` argument on the generated call.
 
 #### Scenario: Write all tracers
 
 - **WHEN** `ppser_write_tracer_all` is called after `fs_RegisterAllTracers`
 - **THEN** every registered tracer lands in the current savepoint under its declared name
+
+#### Scenario: Time-level specifier
+
+- **WHEN** a `!$SER TRACER t@2` directive is expanded
+- **THEN** the generated call passes `timelevel=2` for that tracer
 
 ### Requirement: Legacy alias modules
 

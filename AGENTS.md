@@ -2,9 +2,9 @@
 
 `preserf` is a preprocessor for Fortran data serialization directives
 implemented in Python: it expands `!$SER` directives in Fortran source into
-explicit serialization calls. Two parts: `src/preserf/` (preprocessor engine
-
-- CLI) and `src/preserf/fortran/` (the Fortran runtime those calls target).
+explicit serialization calls. It has two parts: `src/preserf/` is the
+preprocessor engine and Typer CLI, and `src/preserf/fortran/` is the Fortran
+runtime that the generated calls target.
 
 ## Toolchain
 

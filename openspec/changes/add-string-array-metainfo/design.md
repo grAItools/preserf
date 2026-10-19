@@ -5,30 +5,31 @@
 The netCDF Fortran API provides `nf90_put_att_text` (single text) but no
 vector form; NC_STRING attributes with multiple values are writable from
 C (`nc_put_att_string`) but the Fortran bindings expose only character
-literals. `docs/references/storage_mapping.md` §1 carries the original note.
+literals. `docs/references/storage_mapping.md` §1 pins the on-disk contract:
+array string-tagged attributes (TypeID 22) are always `NC_STRING` vectors —
+`NC_CHAR` has no shape rule that round-trips a vector of strings. The Python
+support reader already decodes that encoding
+(`tests/_support/storage.py`).
 
 ## Goals / Non-Goals
 
-- Goal: `_s_1d` overload exists and round-trips end-to-end (Fortran write,
-  Python `tests/_support/storage.py` read, and the reverse direction where
-  applicable).
+- Goal: `_s_1d` overloads exist and round-trip end-to-end (Fortran write,
+  Python `tests/_support/storage.py` read).
 - Non-goal: changing the on-disk attribute encoding of existing kinds.
 
 ## Decisions
 
-- Serialize the 1D string array as a single `NC_STRING`-typed attribute via
-  the C-interop path or as an `_preserf_*` housekeeping-encoded concatenation
-  if the C interop proves too invasive — decide at implementation time with a
-  note in `docs/references/storage_mapping.md`, which is the mapping of
-  record.
+- The on-disk encoding is fixed by the existing contract: the Fortran side
+  must produce the same `NC_STRING` vector attributes the Python reader
+  already supports — via the C interop path if the Fortran bindings cannot
+  express it. No alternative encoding (e.g. concatenation) is in scope; the
+  compatibility contract in `storage_mapping.md` §1 wins.
 
 ## Risks / Trade-offs
 
-- Cross-language round-trip fidelity for string arrays depends on the
-  `netcdf4` Python package's NC_STRING support; verify on the pinned
-  versions in `pixi.toml`.
+- The C-interop path adds an `iso_c_binding` dependency to the metainfo
+  writer; keep it isolated so backends without the symbol still build.
 
 ## Open Questions
 
-- None blocking; the encoding choice is intentionally deferred to
-  implementation.
+- None blocking.

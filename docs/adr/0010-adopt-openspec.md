@@ -45,8 +45,12 @@ v1.14.x), the lightweight spec-driven development framework.**
 - Capture the system's current behavior as five capability specs
   (preprocessor, cli, fortran-runtime, storage, packaging-distribution),
   distilled from `docs/architecture.md`, `docs/references/`, and the legacy
-  `specs/` tree, which is retired. The one genuinely deferred item (1D
-  string-array metainfo) survives as an active change folder.
+  `specs/` tree, which is retired. Deferred work survives as active change
+  folders: the 1D string-array metainfo gap (`add-string-array-metainfo`)
+  and append mode (`add-append-mode`, speced in the legacy
+  `specs/2026-05-fortran-append-mode/` and deferred past v1.0). String data
+  fields remain deferred without a spec; open an OpenSpec change when demand
+  emerges.
 - Every future change runs propose → apply → archive; archiving merges the
   change's delta specs into the living specs, so the code merge and the spec
   merge land in the same PR. CI runs `openspec validate --all --strict`.
