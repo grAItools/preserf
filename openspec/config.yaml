@@ -1,32 +1,62 @@
 schema: spec-driven
 
-# Project context (optional)
-# Add only constraints that should guide OpenSpec artifacts and workflows.
-# Include constraints an agent cannot infer by reading the code.
-# Keep general project documentation and discoverable codebase facts out.
-# Example:
-#   context: |
-#     Designs and tasks must cover Windows, macOS, and Linux
-#     Write all artifacts in Spanish
+context: |
+  preserf is a preprocessor for Fortran data serialization directives:
+  a Python package that expands !$SER directives in Fortran source into
+  explicit serialization calls, plus the Fortran runtime those calls
+  target (shipped as source inside the wheel). The runtime writes to
+  NetCDF4 stores (default) or NCZarr V2 stores, both via the same
+  nf90_* code path; the layout/dtype mapping is in
+  docs/references/storage_mapping.md, the directive grammar in
+  docs/references/directives_specification.md.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always state what is out of scope
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+  Layout: src/preserf/ holds the preprocessor (preprocessor.py is a
+  typed port of Serialbox's pp_ser.py; cli.py is a Typer CLI) and
+  src/preserf/fortran/ holds the runtime (m_preserf.F90 canonical
+  fs_* API, utils_preserf.f90 ppser_* lifecycle, m_serialize.f90 /
+  utils_ppser.f90 alias modules so legacy pp_ser output compiles
+  unchanged).
 
-# Per-operation guidance (optional)
-# Add advisory guidance for how apply and archive work should be conducted.
-# This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+  Tooling: pixi (conda-forge) is the single entry point; do not
+  install Python/Fortran tools by hand. The verification gate is
+  `pixi run verify` (fmt-check + lint + typecheck + Fortran
+  build/ctest + strict pytest). Run it before claiming any task done.
+
+  Conventions: tests are the spec (change a test first when behaviour
+  changes). Errors carry file/line context via DirectiveError. Durable
+  docs live in docs/ (style.md, testing.md, adr/, references/); ADRs
+  are append-only, supersede with a new file. No new runtime dependency
+  without an ADR.
+
+rules:
+  proposal:
+    - Keep proposals under 200 words and always state what is out of scope
+    - Net-new features and architectural choices (dependency, framework,
+      persistence, auth) require an ADR in docs/adr/ as part of the change
+    - User-facing changes must log one concise bullet under [Unreleased]
+      in CHANGELOG.md, leading with the file/behaviour
+  specs:
+    - Requirements describe externally observable behaviour with
+      concrete WHEN/THEN scenarios; keep implementation detail out
+    - Cross-check behaviour claims against docs/references/
+      (directive grammar, storage mapping) and the actual source
+  tasks:
+    - Break tasks into phases of at most a few hours, each phase
+      landing with its tests
+    - When behaviour changes, the task list must include the test
+      change (tests are the spec)
+    - Finish each task by running `pixi run verify`
+
+operations:
+  apply:
+    guidance:
+      - Run `pixi run verify` before marking any task complete; CI is
+        the only hard gate, so do not claim done on a red tree
+      - Commit with Conventional Commits; the PR title (squash-merge)
+        carries the conventional type
+  archive:
+    guidance:
+      - Merge the change's delta specs into openspec/specs/ only after
+        every tasks.md box is checked and `pixi run verify` passes
+      - Summarize what was added/modified in each capability spec, and
+        confirm CHANGELOG.md and any ADRs are already updated
