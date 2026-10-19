@@ -94,7 +94,7 @@ The helper implements the full pp_ser directive surface:
 - **Append mode (`'a'`) is rejected** rather than half-implemented.
   It needs `nf90_inq_grps` index resumption that the netcdf-fortran
   4.5.x wrapper makes awkward. Tracked in the
-  [`add-append-mode`](../../openspec/changes/add-append-mode/) OpenSpec
+  [`add-append-mode`](../../../openspec/changes/add-append-mode/) OpenSpec
   change.
 - **Explicit `directory_ref` / `prefix_ref` test coverage is incomplete.**
   The integration test exercises only the implicit same-store reference

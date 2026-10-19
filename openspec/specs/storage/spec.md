@@ -31,12 +31,21 @@ Each store SHALL contain a `/_fields` registry group and one group per savepoint
 
 ### Requirement: Type coverage
 
-Fields of boolean, int32, int64, real32, and real64 in ranks 0D to 4D SHALL round-trip through the store with their dtype preserved per the TypeID mapping in `docs/references/storage_mapping.md`. Dimensions are recorded in netCDF C-order (slowest axis first) per `storage_mapping.md` §1.1; the Python support reader handles the axis translation.
+Fields of boolean, int32, int64, real32, and real64 in ranks 0D to 4D SHALL round-trip through the store with their dtype preserved per the TypeID mapping in `docs/references/storage_mapping.md`.
 
 #### Scenario: Cross-language round-trip
 
 - **WHEN** the Fortran runtime writes a `real64` 3D field and the Python support reader (`tests/_support/storage.py`) reads it back
-- **THEN** the array shape, dtype, and values match, in both write and read direction
+- **THEN** the dtype and values round-trip exactly, in both write and read direction
+
+### Requirement: Axis ordering
+
+Store dimensions SHALL be recorded in netCDF C-order (slowest axis first) per `storage_mapping.md` §1.1. The Fortran/netCDF writing path reverses the axes relative to the Fortran declaration order, so the Python support reader exposes C-order arrays.
+
+#### Scenario: Reversed shape
+
+- **WHEN** the Fortran runtime writes a `real64` 3D field of declaration shape `(4,3,2)` and the Python support reader reads it back
+- **THEN** the array reads back with Python shape `(2,3,4)`, and `python[k-1][j-1][i-1]` equals Fortran `field(i,j,k)` for every element
 
 ### Requirement: Initialization keyword coverage
 
