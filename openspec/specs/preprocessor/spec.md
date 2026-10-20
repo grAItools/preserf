@@ -49,7 +49,12 @@ Directives SHALL support multi-line form: a body ending in `&` continues on line
 
 ### Requirement: Directive vocabulary
 
-The preprocessor SHALL expand the full directive set: `INIT`, `CLEANUP`, `DATA`, `DATA_KBUFF`, `ACCDATA`, `MODE`, `OPTION`, `METAINFO`, `VERBATIM`, `REGISTER`, `REGISTERTRACERS`, `ZERO`, `SAVEPOINT`, `TRACER`, `ON`, `OFF`, each with the argument grammar (positionals, `key=value` pairs, trailing `IF` clause) documented in `dev/references/directives_specification.md`.
+The preprocessor SHALL expand the full directive set: `INIT`, `CLEANUP`, `DATA`, `DATA_KBUFF`, `ACCDATA`, `MODE`, `OPTION`, `METAINFO`, `VERBATIM`, `REGISTER`, `REGISTERTRACERS`, `ZERO`, `SAVEPOINT`, `TRACER`, `ON`, `OFF`, each with the argument grammar (positionals, `key=value` pairs, trailing `IF` clause) documented in `dev/references/directives_specification.md` — which is the upstream reference; preserf's divergences from it are marked inline there and pinned by the differential test.
+
+#### Scenario: OPTION accepts only the runtime's fixed keyword
+
+- **WHEN** an `!$SER OPTION` directive names any key other than `verbosity` (case-insensitive; `off`/`on` map to `0`/`1`)
+- **THEN** the preprocessor raises a `DirectiveError` naming the unsupported key, because the runtime's `fs_Option` exposes only that keyword (ADR 0003)
 
 #### Scenario: DATA with computed values
 

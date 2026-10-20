@@ -1,7 +1,7 @@
 ! Template body for a numeric fs_read_field overload (DATA directive,
 ! read side). Instantiated per (dtype, rank) from m_preserf.F90 via the
 ! same macros as preserf_write_field.inc. See
-! docs/adr/0004-fortran-cpp-templates.md. Logical fields use
+! dev/adr/0004-fortran-cpp-templates.md. Logical fields use
 ! preserf_read_field_logical.inc instead.
 subroutine PRESERF_SUB(s, sp, fieldname, data)
    type(t_serializer), intent(in) :: s

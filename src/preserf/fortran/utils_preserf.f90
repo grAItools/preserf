@@ -9,7 +9,7 @@
 !> `serialisation_enabled` gate, and the tracer / k-buffer registries).
 !> Concurrent `!$SER` from multiple OpenMP threads races on it. Run
 !> `!$SER` directives from serial regions only; guard any in-region use
-!> with `!$omp critical` / `!$omp master`. See ADR 0005 (docs/adr/).
+!> with `!$omp critical` / `!$omp master`. See ADR 0005 (dev/adr/).
 !>
 !> The actual netCDF operations live in m_preserf; this module only
 !> handles dataset open/close and mode state. The `backend` keyword on
@@ -19,7 +19,7 @@
 !> Zarr V3 stays deferred until netcdf-c's NCZarr V3 PR lands.
 !>
 !> Backed by the schema documented in
-!> `docs/references/storage_mapping.md`.
+!> `dev/references/storage_mapping.md`.
 module utils_preserf
    use, intrinsic :: iso_fortran_env, only: int8, int32, int64, real64, error_unit
    use, intrinsic :: iso_c_binding, only: c_char, c_size_t, c_ptr, &
@@ -255,7 +255,7 @@ contains
    !> reserved housekeeping attributes (e.g. `_preserf_unique_id`) as int32,
    !> so under `-fdefault-integer-8` a user-supplied default-kind value must
    !> be range-checked before the implicit narrowing at the wire — otherwise
-   !> it would silently wrap (docs/style.md anti-pattern). Mirrors the guard
+   !> it would silently wrap (dev/style.md anti-pattern). Mirrors the guard
    !> of the same name in m_preserf for the casts that live in this module.
    subroutine require_fits_int32(value, label)
       integer, intent(in) :: value
@@ -495,7 +495,7 @@ contains
    !>     aborts with a clear message. An
    !>     unrecognised `backend` aborts at this boundary. The same
    !>     group-per-savepoint schema serves both backends (see
-   !>     docs/adr/0002-storage-model-mapping.md).
+   !>     dev/adr/0002-storage-model-mapping.md).
    !>
    !> **Output directory:** in write mode `directory` is created with
    !> `mkdir -p` semantics before `nf90_create` (issue #42), matching

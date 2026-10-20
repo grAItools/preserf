@@ -3,6 +3,15 @@
 **Source**: Extracted from `pp_ser.py` (SerialBox Fortran preprocessor)
 **Version**: 0.1 (original author: Oliver Fuhrer, MeteoSwiss, 2014)
 
+> **preserf note**: this document is the _upstream reference_ grammar that
+> `src/preserf/preprocessor.py` ports. preserf's supported grammar differs
+> from the upstream text wherever a `**preserf note**` appears — the living
+> requirement spec is `openspec/specs/preprocessor/spec.md`, and the
+> intentional divergences are pinned by
+> `tests/unit_tests/test_pp_ser_differential.py`. Known divergences:
+> `OPTION` accepts only the `verbosity` key (see §OPTION), and computed-value
+> detection only counts top-level arithmetic (see the DATA section).
+
 ---
 
 ## 1. Overview
@@ -317,6 +326,13 @@ characters/substrings `*`, `+`, `-`, `/`, or the word `merge`, the field is
 considered _computed_. Computed fields are only written (serialized out); they
 are **not** read back in read or read-perturb modes.
 
+> **preserf note**: preserf corrects this heuristic — only _top-level_
+> arithmetic or a top-level `merge` marks a value computed; operators inside
+> subscripts (e.g. `arr(i-1)`, `a(i)%b(j-1)`) are part of a plain field
+> reference and are still read back. Upstream `pp_ser` misclassified those
+> and silently dropped them on read (issue #76); the divergence is asserted
+> by the differential test.
+
 **Intent(in) handling**: Field variables that appear in `DATA` directives are
 tracked. If they are declared with `INTENT(IN)` elsewhere in the source, the
 preprocessor generates `#ifdef`/`#else`/`#endif` blocks that remove the
@@ -486,6 +502,11 @@ call ppser_set_mode(<numeric_value_or_expression>)
 - **Only** key-value pairs are accepted. Positional arguments are a syntax
   error ("Must specify a name and a list of key=value pairs").
 - Optional `IF` clause.
+
+> **preserf note**: the Fortran runtime's `fs_Option` exposes a single fixed
+> keyword (`verbosity`, ADR 0003 §4), so preserf rejects any other OPTION
+> key with a `DirectiveError` ("unsupported") rather than emitting an
+> uncompilable call. Upstream `pp_ser` passed arbitrary keys through.
 
 **Special handling**: For the `verbosity` key (case-insensitive), the values
 `off` and `on` are automatically mapped to `0` and `1` respectively.

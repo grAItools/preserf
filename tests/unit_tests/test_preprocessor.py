@@ -526,10 +526,18 @@ def test_tracer_spec_with_trailing_junk_is_invalid() -> None:
 def test_tracer_imports_write_routine() -> None:
     src = "module m\n!$SER TRACER QV\nend module m\n"
     out = expand(src)
+    # The tracer writes are ppser_* in name but live in the serialization
+    # module (m_serialize re-exports them from m_preserf), NOT in
+    # utils_ppser (which only re-exports utils_preserf). A regression here
+    # emits `USE utils_ppser` and the generated code does not compile.
     use_block = out[
-        out.index("USE utils_ppser") : out.index("call ppser_write_tracer_by_name")
+        out.index("USE m_serialize") : out.index("call ppser_write_tracer_by_name")
     ]
     assert "ppser_write_tracer_by_name" in use_block
+    # utils_ppser is still imported (the always-required ppser_* state),
+    # but the tracer write must not be listed there.
+    utils_block = out[out.index("USE utils_ppser") : out.index("#endif")]
+    assert "ppser_write_tracer" not in utils_block
 
 
 # --- ON / OFF --------------------------------------------------------------
@@ -796,6 +804,28 @@ def test_intent_in_removed_across_continuation() -> None:
     assert out.count("#else") == 1
 
 
+def test_intent_in_removed_for_case_mismatched_declaration() -> None:
+    # Fortran identifiers are case-insensitive: a declaration of ``U`` and
+    # a directive value ``u`` name the same entity, so the qualifier must
+    # still be stripped for read mode. The stripped form preserves the
+    # declaration's original spelling.
+    src = "subroutine s(u)\nreal, intent(in) :: U\n!$SER DATA u=u\nend subroutine s\n"
+    out = expand(src)
+    assert "#else" in out
+    assert "real :: U" in out
+
+
+def test_intent_in_removed_with_spaces_inside_parens() -> None:
+    # ``intent ( in )`` is legal Fortran; the qualifier must be stripped
+    # regardless of whitespace inside the parentheses.
+    src = (
+        "subroutine s(u)\nreal, intent ( in ) :: u\n!$SER DATA u=u\nend subroutine s\n"
+    )
+    out = expand(src)
+    assert "#else" in out
+    assert "real :: u" in out
+
+
 # --- error rendering -------------------------------------------------------
 
 
@@ -807,3 +837,13 @@ def test_directive_error_message_format() -> None:
     assert 'File: "f.f90", line 7' in rendered
     assert "Invalid !$SER DATA directive" in rendered
     assert "Message: boom" in rendered
+
+
+def test_unterminated_quote_raises_directive_error_with_context() -> None:
+    # A body that tokenizes to nothing (unterminated quote) must surface
+    # as a contextual DirectiveError, not an IndexError.
+    with pytest.raises(DirectiveError, match="produced no arguments"):
+        expand("!$SER '\n")
+    with pytest.raises(DirectiveError) as excinfo:
+        expand("program p\n!$SER '\nend program p\n")
+    assert "line 2" in str(excinfo.value)

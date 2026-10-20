@@ -4,7 +4,8 @@
 # .agents/AGENTS.md (skills are portable: identical across harnesses except
 # for one invocation-spelling line, so the canonical generic copy wins).
 #
-#   link-agent-skills.sh          create/repair symlinks, prune stale ones
+#   link-agent-skills.sh          create/repair symlinks, prune stale ones,
+#                                convert byte-identical duplicates to links
 #   link-agent-skills.sh --check  exit 1 if the layout has drifted
 #
 # Written for bash 3.2 (macOS ships it) — no associative arrays.
@@ -29,7 +30,15 @@ drift=0
 
 for target_dir in "${TARGETS[@]}"; do
     abs_target="$REPO_ROOT/$target_dir"
-    mkdir -p "$abs_target"
+    if $CHECK; then
+        if [ ! -d "$abs_target" ]; then
+            echo "DRIFT: $abs_target missing (expected per-harness skill dir)" >&2
+            drift=1
+            continue
+        fi
+    else
+        mkdir -p "$abs_target"
+    fi
 
     for skill_dir in "$CANONICAL"/*/; do
         [ -d "$skill_dir" ] || continue
@@ -49,9 +58,30 @@ for target_dir in "${TARGETS[@]}"; do
                 ln -s "$link_target" "$link_path"
                 echo "Relinked: $link_path -> $link_target"
             fi
+        elif [ -d "$link_path" ]; then
+            # A real directory where the canonical skill already exists is
+            # the expected state right after `openspec init`/`openspec update`
+            # regenerated the harness files. Convert it back to a symlink only
+            # when it is a byte-identical duplicate of the canonical skill;
+            # differing content means a hand-edited or divergent copy, which
+            # is never deleted automatically.
+            if diff -r -q "$link_path" "$skill_dir" >/dev/null 2>&1; then
+                if $CHECK; then
+                    echo "DRIFT: $link_path is an unconverted duplicate of .agents/skills/$name" >&2
+                    drift=1
+                else
+                    rm -r "$link_path"
+                    ln -s "$link_target" "$link_path"
+                    echo "Converted duplicate: $link_path -> $link_target"
+                fi
+            else
+                echo "ERROR: $link_path exists as a real directory that differs from .agents/skills/$name." >&2
+                echo "       Reconcile manually (delete it after salvaging any edits), then re-run this script." >&2
+                exit 1
+            fi
         elif [ -e "$link_path" ]; then
             if $CHECK; then
-                echo "DRIFT: $link_path exists as a real file/directory (expected symlink $link_target)" >&2
+                echo "DRIFT: $link_path exists as a real file (expected symlink $link_target)" >&2
                 drift=1
             else
                 echo "ERROR: $link_path exists but is not a symlink; refusing to delete." >&2
@@ -68,9 +98,10 @@ for target_dir in "${TARGETS[@]}"; do
         fi
     done
 
-    # Prune stale symlinks whose canonical skill no longer exists.
-    for link in "$abs_target"/*/; do
-        link="${link%/}"
+    # Prune stale symlinks whose canonical skill no longer exists. Enumerate
+    # without a trailing slash so dangling symlinks (whose target directory
+    # is gone) are matched too.
+    for link in "$abs_target"/*; do
         [ -L "$link" ] || continue
         target="$(readlink "$link")"
         case "$target" in

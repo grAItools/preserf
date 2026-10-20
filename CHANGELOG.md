@@ -8,6 +8,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `!$SER TRACER` expansions now import the `ppser_write_tracer_*` routines
+  from the serialization module (`m_serialize`) instead of `utils_ppser`,
+  which only re-exports `utils_preserf` — the generated Fortran previously
+  did not compile against the bundled runtime.
+- `INTENT(IN)` stripping for read-mode fields now matches declarations
+  case-insensitively (a directive value `x` and a declaration of `X` name
+  the same Fortran entity) and tolerates whitespace inside the qualifier
+  (`intent ( in )`).
+- A directive body that tokenizes to nothing (e.g. `!$SER '` with an
+  unterminated quote) now raises a contextual `DirectiveError` instead of
+  crashing with an `IndexError`.
+- `.agents/scripts/link-agent-skills.sh` now prunes and reports dangling
+  symlinks (the trailing-slash glob previously skipped exactly those), does
+  not create target directories in check mode, and safely converts
+  byte-identical regenerated skill directories back to symlinks (refusing,
+  never deleting, divergent copies) so the documented
+  `openspec update` → `pixi run agent-config` workflow works when new
+  workflows are enabled; behavioral coverage added in
+  `tests/unit_tests/test_agent_config_script.py`.
+- The Fortran runtime README's relative links now resolve from
+  `src/preserf/fortran/` (they were one or two levels short), and stale
+  `docs/` paths in Fortran/CMake source comments now point at `dev/`.
 - `.github/workflows/cmd-agent.yml` no longer requires PR context: `/agent`
   now also runs on plain-issue comments (the caller kept the PR-scoped guard
   from the template it was copied from, so every `/agent` on an issue was
@@ -380,8 +402,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- Documentation is now split by audience: the former `docs/` tree (style,
-  testing, `adr/`, `references/`) moved to `dev/` for contributor/agent-facing
+- Documentation is now split by audience: the former `docs/` tree (style, testing, `adr/`, `references/`) moved to `dev/` for contributor/agent-facing
   development documentation, and `docs/` is reserved for user documentation
   (currently a `README.md` stating the folder's purpose); every reference
   across `AGENTS.md`, `README.md`, `openspec/`, source docstrings, tests, and
