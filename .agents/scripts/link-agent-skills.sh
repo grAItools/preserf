@@ -28,6 +28,26 @@ fi
 
 drift=0
 
+# The OpenSpec generator legitimately rewrites the canonical `/opsx:<cmd>`
+# references per harness (see the CLI's utils/command-references.js):
+# Claude keeps `/opsx:<cmd>`, Codex renders
+# `$openspec-<skill> (Codex) or /openspec-<skill> (other agents)`, and
+# OpenCode/OMP use `/opsx-<cmd>`. Normalizing every known spelling to one
+# token lets a freshly generated per-harness copy compare equal to the
+# canonical copy; any difference beyond those spellings (a genuine edit)
+# still differs and is refused.
+normalized_snapshot() {
+    (cd "$1" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do
+        printf '=== %s\n' "$f"
+        tr -d '\r' <"$f" | sed -E \
+            -e 's/\$openspec-[a-z0-9-]+ \(Codex\) or \/openspec-[a-z0-9-]+ \(other agents\)/INVOC/g' \
+            -e 's|/opsx:[a-z-]+|INVOC|g' \
+            -e 's|/opsx-[a-z-]+|INVOC|g' \
+            -e 's/\$openspec-[a-z0-9-]+/INVOC/g' \
+            -e 's|/openspec-[a-z0-9-]+|INVOC|g'
+    done)
+}
+
 for target_dir in "${TARGETS[@]}"; do
     abs_target="$REPO_ROOT/$target_dir"
     if $CHECK; then
@@ -61,11 +81,13 @@ for target_dir in "${TARGETS[@]}"; do
         elif [ -d "$link_path" ]; then
             # A real directory where the canonical skill already exists is
             # the expected state right after `openspec init`/`openspec update`
-            # regenerated the harness files. Convert it back to a symlink only
-            # when it is a byte-identical duplicate of the canonical skill;
-            # differing content means a hand-edited or divergent copy, which
-            # is never deleted automatically.
-            if diff -r -q "$link_path" "$skill_dir" >/dev/null 2>&1; then
+            # regenerated the harness files. Convert it back to a symlink
+            # when it differs from the canonical skill only in the known
+            # generator-controlled invocation spellings (or not at all);
+            # any other difference is a hand-edited or divergent copy,
+            # which is never deleted automatically.
+            if cmp -s <(normalized_snapshot "$link_path") \
+                     <(normalized_snapshot "$skill_dir"); then
                 if $CHECK; then
                     echo "DRIFT: $link_path is an unconverted duplicate of .agents/skills/$name" >&2
                     drift=1
@@ -75,7 +97,7 @@ for target_dir in "${TARGETS[@]}"; do
                     echo "Converted duplicate: $link_path -> $link_target"
                 fi
             else
-                echo "ERROR: $link_path exists as a real directory that differs from .agents/skills/$name." >&2
+                echo "ERROR: $link_path differs from .agents/skills/$name beyond the known per-harness invocation spellings." >&2
                 echo "       Reconcile manually (delete it after salvaging any edits), then re-run this script." >&2
                 exit 1
             fi
