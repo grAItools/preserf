@@ -7,8 +7,10 @@
 #   link-agent-skills.sh          create/repair symlinks, prune stale ones
 #   link-agent-skills.sh --check  exit 1 if the layout has drifted
 #
+# Written for bash 3.2 (macOS ships it) — no associative arrays.
+#
 # Run this after `openspec update` or `openspec init`, which rewrite the
-# per-harness directories with real files.
+# per-harness directories.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -24,17 +26,14 @@ if [ ! -d "$CANONICAL" ]; then
 fi
 
 drift=0
-declare -A valid_skills
-for skill_dir in "$CANONICAL"/*/; do
-    [ -d "$skill_dir" ] || continue
-    valid_skills["$(basename "$skill_dir")"]=1
-done
 
 for target_dir in "${TARGETS[@]}"; do
     abs_target="$REPO_ROOT/$target_dir"
     mkdir -p "$abs_target"
 
-    for name in "${!valid_skills[@]}"; do
+    for skill_dir in "$CANONICAL"/*/; do
+        [ -d "$skill_dir" ] || continue
+        name="$(basename "$skill_dir")"
         link_path="$abs_target/$name"
         link_target="../../.agents/skills/$name"
 
@@ -69,7 +68,7 @@ for target_dir in "${TARGETS[@]}"; do
         fi
     done
 
-    # Prune stale symlinks whose target left the canonical dir.
+    # Prune stale symlinks whose canonical skill no longer exists.
     for link in "$abs_target"/*/; do
         link="${link%/}"
         [ -L "$link" ] || continue
@@ -77,7 +76,7 @@ for target_dir in "${TARGETS[@]}"; do
         case "$target" in
             *"/.agents/skills/"*)
                 name="$(basename "$link")"
-                if [ -z "${valid_skills[$name]+x}" ]; then
+                if [ ! -d "$CANONICAL/$name" ]; then
                     if $CHECK; then
                         echo "DRIFT: stale symlink $link (no canonical skill $name)" >&2
                         drift=1
