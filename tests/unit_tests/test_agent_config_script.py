@@ -48,16 +48,21 @@ def sandbox(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def run_sync(sandbox: Path, check: bool = False) -> subprocess.CompletedProcess[str]:
+def run_sync(
+    sandbox: Path, check: bool = False, path_prefix: Path | None = None
+) -> subprocess.CompletedProcess[str]:
     args = ["bash", str(sandbox / ".agents" / "scripts" / "link-agent-skills.sh")]
     if check:
         args.append("--check")
+    path = "/usr/bin:/bin"
+    if path_prefix is not None:
+        path = f"{path_prefix}:{path}"
     return subprocess.run(
         args,
         cwd=sandbox,
         capture_output=True,
         text=True,
-        env={"PATH": "/usr/bin:/bin", "HOME": str(sandbox)},
+        env={"PATH": path, "HOME": str(sandbox)},
     )
 
 
@@ -200,6 +205,72 @@ class TestDuplicateConversion:
         assert result.returncode == 1
         assert "differs" in result.stderr
         assert edited.is_dir()
+
+    def test_workflow_identity_is_preserved(self, sandbox: Path) -> None:
+        """Renaming one workflow invocation to another is a genuine edit.
+
+        The normalization must keep command identity: replacing every
+        verify reference with archive spelling in a duplicate may not
+        compare equal to the verify skill.
+        """
+        fixture = Path(__file__).parent / "fixtures" / "openspec_generated"
+        shutil.copytree(
+            fixture / "codex" / "openspec-verify-change",
+            sandbox / ".agents" / "skills" / "openspec-verify-change",
+        )
+        dup = sandbox / ".claude" / "skills" / "openspec-verify-change"
+        shutil.copytree(fixture / "claude" / "openspec-verify-change", dup)
+        body = (dup / "SKILL.md").read_text()
+        (dup / "SKILL.md").write_text(body.replace("/opsx:verify", "/opsx:archive"))
+        result = run_sync(sandbox)
+        assert result.returncode == 1
+        assert "differs" in result.stderr
+        assert dup.is_dir()  # untouched: identity-preserving comparison refused
+
+    def test_duplicate_with_resource_symlink_is_refused(self, sandbox: Path) -> None:
+        """Extra non-regular entries disqualify automatic conversion.
+
+        A duplicate that carries the expected SKILL.md plus a local
+        resource symlink must not compare equal to the canonical dir —
+        conversion would delete the extra link.
+        """
+        fixture = Path(__file__).parent / "fixtures" / "openspec_generated"
+        shutil.copytree(
+            fixture / "codex" / "openspec-verify-change",
+            sandbox / ".agents" / "skills" / "openspec-verify-change",
+        )
+        dup = sandbox / ".opencode" / "skills" / "openspec-verify-change"
+        shutil.copytree(fixture / "opencode" / "openspec-verify-change", dup)
+        (dup / "references").symlink_to("../../resources")
+        result = run_sync(sandbox)
+        assert result.returncode == 1
+        assert dup.is_dir()
+        assert (dup / "references").is_symlink()  # preserved, not deleted
+
+    def test_snapshot_failure_refuses_and_preserves(self, sandbox: Path) -> None:
+        """A snapshot-generation failure must abort, never convert.
+
+        Injects a sed that exits 2 (the historical failure mode that made
+        empty snapshots compare equal) and asserts the script exits
+        nonzero and keeps the duplicate directory.
+        """
+        fixture = Path(__file__).parent / "fixtures" / "openspec_generated"
+        shutil.copytree(
+            fixture / "codex" / "openspec-verify-change",
+            sandbox / ".agents" / "skills" / "openspec-verify-change",
+        )
+        dup = sandbox / ".omp" / "skills" / "openspec-verify-change"
+        shutil.copytree(fixture / "oh-my-pi" / "openspec-verify-change", dup)
+
+        broken_bin = sandbox / "broken-bin"
+        broken_bin.mkdir()
+        (broken_bin / "sed").write_text("#!/bin/sh\nexit 2\n")
+        (broken_bin / "sed").chmod(0o755)
+
+        result = run_sync(sandbox, path_prefix=broken_bin)
+        assert result.returncode == 1
+        assert "snapshot" in result.stderr
+        assert dup.is_dir()  # untouched: failed comparison, nothing deleted
 
 
 class TestWorkflowExpansion:
