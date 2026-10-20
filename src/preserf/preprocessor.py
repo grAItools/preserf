@@ -2,7 +2,7 @@
 
 This is a typed reimplementation of Serialbox's ``pp_ser.py``. The
 directive grammar and generated code follow
-``docs/references/directives_specification.md``.
+``dev/references/directives_specification.md``.
 
 The preprocessor runs two passes over the input: an analysis pass that
 collects every serialization API call so the correct ``USE`` import can
@@ -143,11 +143,13 @@ _SUBPROG_HEAD = (
 _RE_SUBPROG = re.compile(_SUBPROG_HEAD, re.IGNORECASE)
 _RE_SUBPROG_CONT = re.compile(_SUBPROG_HEAD + r"([^!]*)&", re.IGNORECASE)
 _RE_CONTINUED = re.compile(r"^([^!]*)&")
-_RE_INTENT_IN = re.compile(r".*intent *\(in\)[^:]*::\s*([^!]*)\s*.*", re.IGNORECASE)
-_RE_INTENT_IN_CONT = re.compile(
-    r".*intent *\(in\)[^:]*::\s*([^!]*)\s*.*&", re.IGNORECASE
+_RE_INTENT_IN = re.compile(
+    r".*intent\s*\(\s*in\s*\)[^:]*::\s*([^!]*)\s*.*", re.IGNORECASE
 )
-_RE_INTENT_IN_SUB = re.compile(r", *intent *\(in\)", re.IGNORECASE)
+_RE_INTENT_IN_CONT = re.compile(
+    r".*intent\s*\(\s*in\s*\)[^:]*::\s*([^!]*)\s*.*&", re.IGNORECASE
+)
+_RE_INTENT_IN_SUB = re.compile(r",\s*intent\s*\(\s*in\s*\)", re.IGNORECASE)
 _RE_TRACER = re.compile(
     r"^([a-zA-Z_0-9]+|\$[a-zA-Z_0-9()]+(?:-[a-zA-Z_0-9()]+)?|%all)"
     r"(?:#(tens|bd|surf|sedimvel))?"
@@ -498,7 +500,13 @@ class Preprocessor:
                     break
                 idx += 1
 
-        matched = [x for x in self.intentin_to_remove if x in declared]
+        matched = [
+            x
+            for x in self.intentin_to_remove
+            # Fortran identifiers are case-insensitive: a declaration of
+            # ``X`` and a directive value ``x`` name the same entity.
+            if x.lower() in {d.lower() for d in declared}
+        ]
         if not matched:
             return
         stripped = _RE_INTENT_IN_SUB.sub("", self._line)
@@ -527,10 +535,20 @@ class Preprocessor:
     def _emit_use_stmt(self) -> None:
         if self._use_stmt_in_module:
             return
+
         # Sorted for reproducible output: the reference pp_ser iterated a
         # set here, so its USE block ordering was non-deterministic.
-        calls_pp = sorted(c for c in self._calls if c.startswith("ppser"))
-        calls_fs = sorted(c for c in self._calls if not c.startswith("ppser"))
+        # Tracer writes are ``ppser_*`` in name but live in the
+        # serialization module (``m_preserf``, aliased by ``m_serialize``),
+        # not in ``utils_preserf`` aliased by ``utils_ppser``; importing
+        # them from the utility module would not compile.
+        def in_ppser_module(call: str) -> bool:
+            return call.startswith("ppser") and not call.startswith(
+                "ppser_write_tracer"
+            )
+
+        calls_pp = sorted(c for c in self._calls if in_ppser_module(c))
+        calls_fs = sorted(c for c in self._calls if not in_ppser_module(c))
         if not calls_pp and not calls_fs:
             return
 
@@ -563,6 +581,13 @@ class Preprocessor:
         if not body:
             return True  # bare ``!$SER`` line: directive for grouping only
         args = _RE_TOKENS.split(body)[1::2]
+        if not args:
+            # A non-empty body that tokenizes to nothing means an
+            # unterminated quote (e.g. ``!$SER '``); report it with the
+            # file/line context instead of crashing on args[0].
+            raise self._error(
+                directive=body, msg="Directive body produced no arguments"
+            )
         keyword = args[0].upper()
         for name, spellings in _LANGUAGE.items():
             if keyword in spellings:

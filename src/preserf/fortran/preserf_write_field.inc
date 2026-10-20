@@ -3,7 +3,7 @@
 ! macros PRESERF_SUB (full subroutine name), PRESERF_DTYPE (declared
 ! type), PRESERF_DIMS (dimension attribute, empty for rank 0),
 ! PRESERF_NCTYPE (on-disk netCDF type) and PRESERF_TID (Serialbox
-! TypeID). See docs/adr/0004-fortran-cpp-templates.md. Logical fields use
+! TypeID). See dev/adr/0004-fortran-cpp-templates.md. Logical fields use
 ! preserf_write_field_logical.inc instead (they need a 0/1 byte buffer).
 subroutine PRESERF_SUB(s, sp, fieldname, data)
    type(t_serializer), intent(inout) :: s

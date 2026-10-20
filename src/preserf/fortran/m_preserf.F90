@@ -2,14 +2,14 @@
 !>
 !> This module exposes the `fs_*` API that `pp_ser`-expanded directives
 !> emit. The on-disk layout is the group-per-savepoint schema documented
-!> in `docs/references/storage_mapping.md`.
+!> in `dev/references/storage_mapping.md`.
 !>
 !> NOT THREAD-SAFE: the `fs_*` API mutates the `save`d module-level state
 !> in `utils_preserf` (serializer / savepoint structs, the enable gate,
 !> the tracer / k-buffer registries) and the shared `RANDOM_NUMBER` state
 !> with no synchronization. Run `!$SER` directives from serial regions
 !> only; guard any in-OpenMP-region use with `!$omp critical` /
-!> `!$omp master`. See ADR 0005 (docs/adr/).
+!> `!$omp master`. See ADR 0005 (dev/adr/).
 !>
 !> Implemented directives:
 !>   * `fs_register_field` — REGISTER (idempotent)
@@ -138,7 +138,7 @@ module m_preserf
    ! Field write/read overload matrix: {logical, int32, int64, real32,
    ! real64} x {0D, 1D, 2D, 3D, 4D}. The bodies are generated from
    ! `#include` templates in the contains section
-   ! (docs/adr/0004-fortran-cpp-templates.md); these lists keep every
+   ! (dev/adr/0004-fortran-cpp-templates.md); these lists keep every
    ! generated name greppable and resolve the generic interface.
    interface fs_write_field
       module procedure fs_write_field_l_0d, fs_write_field_l_1d, &
@@ -1951,7 +1951,7 @@ contains
    ! leaves the perturb arg unused). Perturbation is only meaningful for
    ! floating fields, so only real32 / real64 get the 5-arg overload; the
    ! apply_perturb_* helpers and the overloads themselves are generated
-   ! from templates (docs/adr/0004-fortran-cpp-templates.md).
+   ! from templates (dev/adr/0004-fortran-cpp-templates.md).
    ! ------------------------------------------------------------------------
 
    ! real32 perturbation helpers.
@@ -2460,7 +2460,7 @@ contains
    !> `slice_size*k_size` is evaluated in default integer and silently wraps
    !> past ~2^31 elements — plausible for an ICON-scale real64 field (a 17 GB
    !> field is ~2.1e9 elements). This is the wire-boundary integer hazard the
-   !> style guide names (docs/style.md): we promote each operand to int64
+   !> style guide names (dev/style.md): we promote each operand to int64
    !> *before* multiplying so the count is exact, and error_stop naming the
    !> field if even the int64 product would overflow (the buffer allocation
    !> and every `off + ss` index downstream use this same int64 count).

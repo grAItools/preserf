@@ -28,7 +28,7 @@ pytest = ">=8.0"
 ruff = ">=0.8"
 # Upstream Serialbox Python distribution, used test-only to differentially
 # validate preserf's `!$SER` expansion against the reference `pp_ser`
-# preprocessor it ports. See docs/adr/0006-ppser-differential-dependency.md.
+# preprocessor it ports. See dev/adr/0006-ppser-differential-dependency.md.
 serialbox4py = ">=2.6.3"
 
 # Standalone examples under examples/, exercised by `pixi run test-examples`
@@ -81,5 +81,11 @@ test-examples = { cmd = ["bash", "examples/run-all.sh"], default-environment = "
 test-consumer = { cmd = ["pytest", "-m", "consumer"], default-environment = "dev", env = { PRESERF_REQUIRE_FORTRAN = "1" } }
 test-all = { depends-on = ["test-py-with-fortran", "test-examples", "test-consumer"] }
 typecheck = { cmd = ["mypy", "src"], default-environment = "dev" }
-verify = { depends-on = ["fmt-check", "lint", "typecheck", "test-py-with-fortran"] }
+# Agent-agnostic layout: canonical OpenSpec skills in .agents/skills/, symlinked
+# into the per-harness dirs (.claude, .opencode, .omp). The check mode is part of
+# `verify` so a drift (e.g. after an `openspec update` without re-linking) fails
+# the gate instead of silently forking the copies. See .agents/AGENTS.md.
+agent-config = { cmd = [".agents/scripts/link-agent-skills.sh"], default-environment = "dev" }
+agent-config-check = { cmd = [".agents/scripts/link-agent-skills.sh", "--check"], default-environment = "dev" }
+verify = { depends-on = ["fmt-check", "lint", "typecheck", "agent-config-check", "test-py-with-fortran"] }
 # clean = { cmd = ["rm", "-rf", "build", "dist", "preserf.egg-info"] }

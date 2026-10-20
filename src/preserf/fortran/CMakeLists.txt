@@ -51,7 +51,7 @@ target_sources(preserf_fortran PRIVATE
     # m_preserf.F90 (uppercase) is compiled through the C preprocessor:
     # the field / read-perturb / array-metainfo overload matrix is
     # generated from `#include` templates (see
-    # docs/adr/0004-fortran-cpp-templates.md). The preprocessing flag
+    # dev/adr/0004-fortran-cpp-templates.md). The preprocessing flag
     # (`-cpp` / `-fpp` / `-Mpreprocess`, per compiler) is added below via
     # preserf_fortran_compile_flags(... PREPROCESS).
     m_preserf.F90
