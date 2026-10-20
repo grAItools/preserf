@@ -47,6 +47,13 @@ ask in plain language ("propose a change to ..."). The skills are installed
 for Claude Code (`.claude/`), Codex (`.agents/skills/`), OpenCode
 (`.opencode/`), and OMP (`.omp/`).
 
+Harness assets follow the agent-agnostic layout: `.agents/skills/` is the
+single canonical copy of the skills, and the per-harness skill directories
+are symlinks into it; per-harness command files are generated output of the
+`openspec` CLI. After `openspec init`/`openspec update`, run
+`pixi run agent-config` to restore the symlink layout (`verify` checks it).
+See [`.agents/AGENTS.md`](.agents/AGENTS.md).
+
 One-time per-machine setup (the generated workflow files are committed; the
 CLI and its profile are not):
 
@@ -54,6 +61,7 @@ CLI and its profile are not):
 npm install -g @fission-ai/openspec@latest   # Node >= 20.19 required
 openspec config profile                       # optional: add verify/onboard workflows
 openspec update                               # refresh installed skills/commands
+pixi run agent-config                         # re-link the canonical skill layout
 ```
 
 Validate specs and changes headlessly with `openspec validate --all --strict`

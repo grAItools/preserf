@@ -380,6 +380,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The per-harness OpenSpec skill copies are deduplicated: `.agents/skills/`
+  is now the single canonical copy and `.claude/skills/`, `.opencode/skills/`,
+  and `.omp/skills/` hold symlinks into it (`pixi run agent-config` restores
+  the layout after `openspec init`/`openspec update`; `verify` checks it),
+  per-harness command files remain generated `openspec` output, and `CLAUDE.md`
+  returns as an `@AGENTS.md` pointer (ADR 0011).
 - Replaced the in-repo coding harness (`.agents/` four-phase loop, per-tool
   wiring, comment-driven agent workflows, grumpy-reviewer, legacy
   `specs/` planning tree) with the lightweight OpenSpec spec-driven
