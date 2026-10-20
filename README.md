@@ -115,15 +115,19 @@ PRESERF_BACKEND=nczarr-v2 ./my_app   # write a Zarr V2 store instead of .nc
 - `pixi run fmt`: apply formatting.
 - `pixi run verify`: run the full verification gate (fmt-check + lint + typecheck + Python tests + Fortran build/ctest).
 
-## Key documentation
+## Documentation
 
+- User documentation: [docs/](docs/)
 - Living capability specs (system behavior as built): [openspec/specs/](openspec/specs/)
+
+## Development
+
 - Directive grammar and expansion contract:
-  [docs/references/directives_specification.md](docs/references/directives_specification.md)
+  [dev/references/directives_specification.md](dev/references/directives_specification.md)
 - Storage model mapping:
-  [docs/references/storage_mapping.md](docs/references/storage_mapping.md)
+  [dev/references/storage_mapping.md](dev/references/storage_mapping.md)
 - Fortran runtime helpers and compatibility details:
   [src/preserf/fortran/README.md](src/preserf/fortran/README.md)
-- Testing strategy: [docs/testing.md](docs/testing.md)
-- Code style guide: [docs/style.md](docs/style.md)
-- Architecture decision records: [docs/adr/README.md](docs/adr/README.md)
+- Testing strategy: [dev/testing.md](dev/testing.md)
+- Code style guide: [dev/style.md](dev/style.md)
+- Architecture decision records: [dev/adr/README.md](dev/adr/README.md)

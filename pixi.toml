@@ -28,7 +28,7 @@ pytest = ">=8.0"
 ruff = ">=0.8"
 # Upstream Serialbox Python distribution, used test-only to differentially
 # validate preserf's `!$SER` expansion against the reference `pp_ser`
-# preprocessor it ports. See docs/adr/0006-ppser-differential-dependency.md.
+# preprocessor it ports. See dev/adr/0006-ppser-differential-dependency.md.
 serialbox4py = ">=2.6.3"
 
 # Standalone examples under examples/, exercised by `pixi run test-examples`

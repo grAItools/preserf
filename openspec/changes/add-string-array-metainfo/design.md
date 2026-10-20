@@ -5,7 +5,7 @@
 The netCDF Fortran API provides `nf90_put_att_text` (single text) but no
 vector form; NC_STRING attributes with multiple values are writable from
 C (`nc_put_att_string`) but the Fortran bindings expose only character
-literals. `docs/references/storage_mapping.md` §1 pins the on-disk contract:
+literals. `dev/references/storage_mapping.md` §1 pins the on-disk contract:
 array string-tagged attributes (TypeID 22) are always `NC_STRING` vectors —
 `NC_CHAR` has no shape rule that round-trips a vector of strings. The Python
 support reader already decodes that encoding

@@ -20,7 +20,7 @@ leftover review notes (and must be ignored). The scope or rationale a process
 comment gestures at almost always has a durable home already — an issue, an
 ADR, the spec — that the comment fails to reference.
 
-`docs/style.md` had no comment guidance, and no linter or test inspected
+`dev/style.md` had no comment guidance, and no linter or test inspected
 comment _content_, so this prose passed review unchallenged. The open question:
 is documenting the policy enough, or does it need an automated gate? Guidance
 alone had already failed (the prose was merged under the existing review
@@ -49,7 +49,7 @@ and CI), so it cannot be merged around:
   calls prone to false positives (bare "temporary", "currently", "placeholder")
   are left to review, not the gate.
 
-The prose policy is documented in `docs/style.md` ("Comments"), restated in an
+The prose policy is documented in `dev/style.md` ("Comments"), restated in an
 auto-loaded path-scoped rule (`.claude/rules/comments.md`) so a coding agent
 sees it exactly when editing source, and folded into the `reviewer` and
 `developer` subagent instructions.

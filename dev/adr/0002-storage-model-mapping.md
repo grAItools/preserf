@@ -87,7 +87,7 @@ or padding.
 
 The concrete mapping (attribute names, dtype encoding, ordering rules) is
 documented separately in
-[`docs/references/storage_mapping.md`](../references/storage_mapping.md).
+[`dev/references/storage_mapping.md`](../references/storage_mapping.md).
 
 ## Consequences
 

@@ -2,7 +2,7 @@
 
 Fortran helper modules that pp_ser-generated `!$SER` directive code links
 against, following the group-per-savepoint layout documented in
-[`../../docs/references/storage_mapping.md`][mapping]. The helper writes
+[`../../dev/references/storage_mapping.md`][mapping]. The helper writes
 **NetCDF4 stores** (`.nc` files, the default) or **NCZarr V2 stores**
 (`.zarr` directory stores), selected by the `backend` keyword on
 `ppser_initialize`; the same schema serves both (ADR 0002).
@@ -11,7 +11,7 @@ to absolute against the CWD before building its `file://` URL, so it accepts
 the same relative directories as the NetCDF4 backend. Zarr V3 stays
 forward-compatible but deferred until netcdf-c's NCZarr V3 PR lands.
 
-[mapping]: ../../docs/references/storage_mapping.md
+[mapping]: ../../dev/references/storage_mapping.md
 
 ## Platform assumptions
 
@@ -39,7 +39,7 @@ If a host model issues `!$SER` from inside an OpenMP parallel region, guard
 it so at most one thread serializes at a time (e.g. wrap the directive in
 `!$omp critical` or `!$omp master`). In-region, multi-threaded serialization
 is out of scope for this helper; see
-[ADR 0005](../../docs/adr/0005-serialization-runtime-is-serial-only.md).
+[ADR 0005](../../dev/adr/0005-serialization-runtime-is-serial-only.md).
 
 ## Modules
 
@@ -106,7 +106,7 @@ The helper implements the full pp_ser directive surface:
   CWD resolution uses `getcwd`. These are not portable to non-POSIX
   platforms (Windows).
 
-[axis-order]: ../../docs/references/storage_mapping.md
+[axis-order]: ../../dev/references/storage_mapping.md
 
 ## Building
 

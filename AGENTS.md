@@ -71,15 +71,15 @@ per-machine global config; a fresh clone works with the core six workflows.
 ## Conventions
 
 - Tests are the spec. If you change behaviour, change a test first.
-- Code style: see [`docs/style.md`](docs/style.md). Testing strategy:
-  [`docs/testing.md`](docs/testing.md).
+- Code style: see [`dev/style.md`](dev/style.md). Testing strategy:
+  [`dev/testing.md`](dev/testing.md).
 - Errors carry context: raise `DirectiveError` with file/line, never a bare
   `ValueError` from the preprocessor.
 - Commit messages: Conventional Commits 1.0.0, applied to the PR title
   (squash-merge).
 - Changelog: log user-facing changes under `[Unreleased]` in `CHANGELOG.md`,
   one concise bullet each, leading with the file/behaviour.
-- Architecture decision records live in [`docs/adr/`](docs/adr/) (Nygard
+- Architecture decision records live in [`dev/adr/`](dev/adr/) (Nygard
   format, append-only; supersede with a new file, never edit history).
   A new architectural choice (dependency, framework, persistence, auth)
   requires an ADR as part of the change that makes it.
@@ -89,7 +89,12 @@ per-machine global config; a fresh clone works with the core six workflows.
 
 ## Where things live
 
-- Directive grammar: [`docs/references/directives_specification.md`](docs/references/directives_specification.md)
-- Storage model mapping: [`docs/references/storage_mapping.md`](docs/references/storage_mapping.md)
+Documentation is split by audience: `docs/` holds user documentation (the
+product as consumed by users); `dev/` holds development docs (everything a
+contributor or agent needs: style, testing, references, ADRs).
+
+- User documentation: [`docs/`](docs/)
+- Directive grammar: [`dev/references/directives_specification.md`](dev/references/directives_specification.md)
+- Storage model mapping: [`dev/references/storage_mapping.md`](dev/references/storage_mapping.md)
 - Fortran runtime README: [`src/preserf/fortran/README.md`](src/preserf/fortran/README.md)
 - Per-change history: `openspec/changes/archive/`

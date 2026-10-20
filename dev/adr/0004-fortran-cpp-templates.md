@@ -82,4 +82,4 @@ Concretely:
   names mitigate the loss of grep-ability for the bodies.
 - **Scope.** This decision governs the Fortran helper only; `pp_ser` and the
   Python package are unaffected. It does not introduce a second backend or
-  change the on-disk schema (`docs/references/storage_mapping.md`).
+  change the on-disk schema (`dev/references/storage_mapping.md`).

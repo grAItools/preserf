@@ -17,7 +17,7 @@ maps, a lockfile-protected reviewer, hook scripts bootstrapping the
 toolchain, and per-tool symlink farms that must stay in sync.
 
 Meanwhile the repo's knowledge was split across `docs/architecture.md`,
-`docs/style.md`, `docs/testing.md`, nine ADRs, and a `specs/` tree whose
+`dev/style.md`, `dev/testing.md`, nine ADRs, and a `specs/` tree whose
 per-feature directories recorded planning history rather than current
 behavior — nothing merged a completed feature's spec back into a living
 description of the system.
@@ -44,7 +44,7 @@ v1.14.x), the lightweight spec-driven development framework.**
   specs in `specs/`, and change folders in `changes/` (+ `archive/`).
 - Capture the system's current behavior as five capability specs
   (preprocessor, cli, fortran-runtime, storage, packaging-distribution),
-  distilled from `docs/architecture.md`, `docs/references/`, and the legacy
+  distilled from `docs/architecture.md`, `dev/references/`, and the legacy
   `specs/` tree, which is retired. Deferred work survives as active change
   folders: the 1D string-array metainfo gap (`add-string-array-metainfo`)
   and append mode (`add-append-mode`, speced in the legacy
@@ -69,8 +69,8 @@ Accepted regressions, consciously:
 - Root `opencode.json` leaves the repo; the maintainer's provider wiring
   lives in an untracked `opencode.local.json` instead.
 
-Kept: `docs/adr/` (append-only, per Nygard), `docs/references/`,
-`docs/style.md`, `docs/testing.md` (project documentation, not harness
+Kept: `dev/adr/` (append-only, per Nygard), `dev/references/`,
+`dev/style.md`, `dev/testing.md` (project documentation, not harness
 configuration), `ci.yml`, `dependabot.yml`, `.devcontainer/`, `CHANGELOG.md`,
 and the full `pixi` task surface including the `verify` gate.
 

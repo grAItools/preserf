@@ -49,7 +49,7 @@ Directives SHALL support multi-line form: a body ending in `&` continues on line
 
 ### Requirement: Directive vocabulary
 
-The preprocessor SHALL expand the full directive set: `INIT`, `CLEANUP`, `DATA`, `DATA_KBUFF`, `ACCDATA`, `MODE`, `OPTION`, `METAINFO`, `VERBATIM`, `REGISTER`, `REGISTERTRACERS`, `ZERO`, `SAVEPOINT`, `TRACER`, `ON`, `OFF`, each with the argument grammar (positionals, `key=value` pairs, trailing `IF` clause) documented in `docs/references/directives_specification.md`.
+The preprocessor SHALL expand the full directive set: `INIT`, `CLEANUP`, `DATA`, `DATA_KBUFF`, `ACCDATA`, `MODE`, `OPTION`, `METAINFO`, `VERBATIM`, `REGISTER`, `REGISTERTRACERS`, `ZERO`, `SAVEPOINT`, `TRACER`, `ON`, `OFF`, each with the argument grammar (positionals, `key=value` pairs, trailing `IF` clause) documented in `dev/references/directives_specification.md`.
 
 #### Scenario: DATA with computed values
 

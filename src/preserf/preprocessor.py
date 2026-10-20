@@ -2,7 +2,7 @@
 
 This is a typed reimplementation of Serialbox's ``pp_ser.py``. The
 directive grammar and generated code follow
-``docs/references/directives_specification.md``.
+``dev/references/directives_specification.md``.
 
 The preprocessor runs two passes over the input: an analysis pass that
 collects every serialization API call so the correct ``USE`` import can

@@ -729,7 +729,7 @@ def test_fortran_unknown_realtype_aborts(tmp_path: Path, fortran_binary: Path) -
 # catches both an axis-order transpose (wrong shape) and an element-order
 # scramble (wrong ramp). The test asserts, for each (rank, dtype), the raw
 # on-disk netCDF type and registry type_id against the TypeID -> netCDF
-# table in docs/references/storage_mapping.md §1, plus shape and values.
+# table in dev/references/storage_mapping.md §1, plus shape and values.
 # ---------------------------------------------------------------------------
 
 # (tag, primitive TypeID)

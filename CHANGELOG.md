@@ -68,7 +68,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   through `env:` only and step outputs use random-delimiter heredocs so content
   cannot forge outputs. Documented in `docs/opencode-commands.md`; the decision
   is recorded in
-  [ADR 0009](docs/adr/0009-slash-commands-over-opencode-integration.md).
+  [ADR 0009](dev/adr/0009-slash-commands-over-opencode-integration.md).
 
 ### Removed
 
@@ -76,7 +76,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`.github/actions/agent-runtime/`, `.github/workflows/repo-agent*.yml`,
   `docs/agent-workflows.md`) — superseded by the opencode-backed slash-command
   framework above. See
-  [ADR 0009](docs/adr/0009-slash-commands-over-opencode-integration.md).
+  [ADR 0009](dev/adr/0009-slash-commands-over-opencode-integration.md).
 - `.gemini/settings.json` points Gemini CLI's `context.fileName` at `AGENTS.md`
   (and `GEMINI.md`), wiring Gemini CLI to the single-source-of-truth instructions
   by reference — the file the `.agents/README.md` "adding an agent" recipe
@@ -95,7 +95,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `TODO`/`FIXME` markers — inspecting comments and docstrings only, never
   string literals. The guard scans `src/preserf`, `tests`, `tests-fortran`, and
   `examples`, covering Python, Fortran sources, and `.f90.in` build-time
-  templates. Documented in `docs/style.md` ("Comments"), an auto-loaded
+  templates. Documented in `dev/style.md` ("Comments"), an auto-loaded
   `.claude/rules/comments.md`, the `reviewer`/`developer` subagents, and
   ADR 0007.
 - Differential test pinning preserf's `!$SER` expansion against the upstream
@@ -111,7 +111,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `serialbox4py` distribution, added as a **test-only** dependency (dev feature
   in `pixi.toml`) so the test tracks the published release rather than a
   hand-maintained vendored copy — see
-  `docs/adr/0006-ppser-differential-dependency.md`.
+  `dev/adr/0006-ppser-differential-dependency.md`.
 - Golden Serialbox fixture + decode test (issue #68): a small dump produced
   by upstream Serialbox (`serialbox4py` 2.6.3) is committed under
   `tests/_support/fixtures/serialbox_golden/` (with the `generate_golden.py`
@@ -216,7 +216,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `ppser_register_tracer` that binds tracer data to a small built-in
   registry (the directive surface carries only a name/index + stype +
   integer timelevel, never the data — see
-  [ADR 0003](docs/adr/0003-tracer-storage.md)). `fs_RegisterAllTracers`
+  [ADR 0003](dev/adr/0003-tracer-storage.md)). `fs_RegisterAllTracers`
   writes one `/_tracers/<name>` descriptor per registered tracer
   (`type_id`, C-order `dims`, `stype`, `tracer_index`), mirroring
   `/_fields`; the write entry points emit each tracer as an ordinary
@@ -268,7 +268,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `m_preserf.f90` becomes `m_preserf.F90`, compiled with `-cpp` (the
   array-metainfo overloads and their write/validate helpers are
   hand-written, since they do not vary over rank) (see
-  [ADR 0004](docs/adr/0004-fortran-cpp-templates.md)). A native
+  [ADR 0004](dev/adr/0004-fortran-cpp-templates.md)). A native
   `type-matrix` ctest scenario round-trips each dtype, a 0-D scalar, a 4-D
   field, real32 perturb, and array metainfo; a `wire-matrix` scenario plus
   a parametrised `test_fortran_wire_compat.py` matrix assert the on-disk
@@ -335,7 +335,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   metadata-only `singlefile`/`archive`/`unique_id` keywords are recorded
   on the writable store as the `_preserf_singlefile` / `_preserf_archive`
   / `_preserf_unique_id` root attributes for round-trip fidelity
-  (`docs/references/storage_mapping.md` §3.1); `tests/_support/storage.py`
+  (`dev/references/storage_mapping.md` §3.1); `tests/_support/storage.py`
   reads them back onto `SerialboxDump`. Completes Slice D Phase 3.
 - End-to-end pipeline test (Slice D Phase 4): `tests-fortran/e2e/`
   carries a `!$SER`-annotated fixture that CMake expands through the
@@ -375,11 +375,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (or be guarded with `!$omp critical` / `!$omp master`). Stated in
   `src/preserf/fortran/README.md` and the `m_preserf` / `utils_preserf`
   module headers, with the OpenMP-scope decision recorded in
-  [ADR 0005](docs/adr/0005-serialization-runtime-is-serial-only.md)
+  [ADR 0005](dev/adr/0005-serialization-runtime-is-serial-only.md)
   ([#73](https://github.com/grAItools/preserf/issues/73)).
 
 ### Changed
 
+- Documentation is now split by audience: the former `docs/` tree (style,
+  testing, `adr/`, `references/`) moved to `dev/` for contributor/agent-facing
+  development documentation, and `docs/` is reserved for user documentation
+  (currently a `README.md` stating the folder's purpose); every reference
+  across `AGENTS.md`, `README.md`, `openspec/`, source docstrings, tests, and
+  the changelog was updated to the new paths. The stale
+  `.github/copilot-instructions.md` (Copilot harness config, superseded by
+  the OpenSpec migration) is removed.
 - The per-harness OpenSpec skill copies are deduplicated: `.agents/skills/`
   is now the single canonical copy and `.claude/skills/`, `.opencode/skills/`,
   and `.omp/skills/` hold symlinks into it (`pixi run agent-config` restores
@@ -496,7 +504,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   role-based subagents (`product-owner`, `architect`, `developer`,
   `reviewer`), the `/build` command, and `docs/tool-bootstrap.md`;
   adopts Conventional Commits (`commit_convention`) with squash-merge
-  PR titles, documented in [`docs/style.md`](docs/style.md#commit-messages).
+  PR titles, documented in [`dev/style.md`](dev/style.md#commit-messages).
 
 ### Fixed
 
@@ -507,7 +515,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     `timelevel` in `preserf_tracer_io.inc`) now route through a
     `require_fits_int32` guard that `error stop`s with the offending value
     named, instead of silently wrapping under `-fdefault-integer-8` (the
-    `docs/style.md` anti-pattern; matches the existing guard on dim / halo
+    `dev/style.md` anti-pattern; matches the existing guard on dim / halo
     sizes). `utils_preserf` grows its own `require_fits_int32` (mirroring the
     `m_preserf` one) since the cast there lives in a different module.
   - Read-mode metainfo validation no longer aborts a perfect round-trip of a
@@ -600,7 +608,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   before multiplying, the buffer is allocated and indexed with `int64`
   bounds, and a guard `error stop`s naming the field if even the `int64`
   product would overflow — the wire-boundary integer pattern from
-  `docs/style.md`. A `kbuff-offset` Fortran regression test pins the
+  `dev/style.md`. A `kbuff-offset` Fortran regression test pins the
   column-major layout the int64 offsets must preserve across many levels.
 - Subprogram-header detection no longer fires on identifiers that merely begin
   with `function`/`subroutine` (e.g. `functional_x = 1`), and now recognises
@@ -748,7 +756,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `README.md` (full type matrix / k-buffer / tracer / `fs_Option` surface
   instead of "v0.1 subset / out of scope"), the `m_preserf` and
   `utils_ppser` module headers, `specs/README.md` (distribution feature
-  marked shipped), and `docs/testing.md` (corrected file counts and
+  marked shipped), and `dev/testing.md` (corrected file counts and
   task list). Added `vendor/README.md` noting `pp_ser.py` is GPL
   reference-only and excluded from the distribution. Collapsed the
   duplicate `[Unreleased]` / `[0.2.0-dev]` changelog headers and fixed

@@ -4,7 +4,7 @@ preserf is a re-implementation of the upstream ``pp_ser.py`` preprocessor. To
 validate preserf against the real thing, this helper loads ``pp_ser`` from the
 installed ``serialbox4py`` distribution — a **test-only** dependency declared in
 ``pixi.toml`` — rather than vendoring a pinned copy in-tree (see
-``docs/adr/0006-ppser-differential-dependency.md``).
+``dev/adr/0006-ppser-differential-dependency.md``).
 
 ``pp_ser.py`` ships inside the ``serialbox`` package at
 ``serialbox/python/pp_ser/pp_ser.py``, but it is *not* an importable submodule:
@@ -49,7 +49,7 @@ def _load_upstream_ppser() -> ModuleType:
     if pkg_spec is None or not pkg_spec.submodule_search_locations:
         raise RuntimeError(
             "serialbox4py is not installed; it is a test-only dependency "
-            "(see docs/adr/0006-ppser-differential-dependency.md)"
+            "(see dev/adr/0006-ppser-differential-dependency.md)"
         )
     pkg_dir = Path(next(iter(pkg_spec.submodule_search_locations)))
     pp_ser_path = pkg_dir / "python" / "pp_ser" / "pp_ser.py"

@@ -17,7 +17,7 @@ The Fortran helper modules shipped as source inside the wheel: the canonical `fs
 
 ### Requirement: Field type/rank coverage
 
-`fs_write_field` and `fs_read_field` SHALL cover boolean, int32, int64, real32, and real64 in ranks 0D to 4D via generic interfaces; string data fields are deferred past v1.0 (tracked in ADR 0010 and `docs/references/storage_mapping.md`). `fs_read_field` SHALL additionally provide perturb variants for the read-perturb path.
+`fs_write_field` and `fs_read_field` SHALL cover boolean, int32, int64, real32, and real64 in ranks 0D to 4D via generic interfaces; string data fields are deferred past v1.0 (tracked in ADR 0010 and `dev/references/storage_mapping.md`). `fs_read_field` SHALL additionally provide perturb variants for the read-perturb path.
 
 #### Scenario: Generic dispatch
 

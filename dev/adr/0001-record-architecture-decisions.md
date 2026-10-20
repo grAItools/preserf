@@ -17,7 +17,7 @@ are the lightest-weight option that satisfies:
 
 ## Decision
 
-Use Michael Nygard's ADR format. One file per decision in `docs/adr/`, named
+Use Michael Nygard's ADR format. One file per decision in `dev/adr/`, named
 `NNNN-kebab-title.md` (zero-padded to 4 digits). Sections: **Status,
 Context, Decision, Consequences**. Supersession is recorded by a new ADR that
 references the old one, not by editing history.

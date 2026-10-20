@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The on-disk serialization format written by the Fortran runtime and read by the Python test support: group-per-savepoint layout, dtype mapping, backend selection, and round-trip behavior. The concrete attribute and TypeID mapping is `docs/references/storage_mapping.md`.
+The on-disk serialization format written by the Fortran runtime and read by the Python test support: group-per-savepoint layout, dtype mapping, backend selection, and round-trip behavior. The concrete attribute and TypeID mapping is `dev/references/storage_mapping.md`.
 
 ## Requirements
 
@@ -31,7 +31,7 @@ Each store SHALL contain a `/_fields` registry group and one group per savepoint
 
 ### Requirement: Type coverage
 
-Fields of boolean, int32, int64, real32, and real64 in ranks 0D to 4D SHALL round-trip through the store with their dtype preserved per the TypeID mapping in `docs/references/storage_mapping.md`.
+Fields of boolean, int32, int64, real32, and real64 in ranks 0D to 4D SHALL round-trip through the store with their dtype preserved per the TypeID mapping in `dev/references/storage_mapping.md`.
 
 #### Scenario: Cross-language round-trip
 

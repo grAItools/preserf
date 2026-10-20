@@ -113,7 +113,7 @@ When the project keeps a `CHANGELOG.md`, follow
 - Mark breaking changes (`### Removed (breaking)`, or a `!` per the commit
   convention) and add an `### Upgrade notes` block when an upgrade needs manual
   action.
-- Link the ADR when the change has one (see [`docs/adr/`](adr/)).
+- Link the ADR when the change has one (see [`dev/adr/`](adr/)).
 - On release, rename `[Unreleased]` to the version + date and add the compare
   link.
 

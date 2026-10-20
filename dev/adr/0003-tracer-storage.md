@@ -21,10 +21,10 @@ relitigating layout. This ADR settles them. It builds on ADR
 [0002](0002-storage-model-mapping.md) (group-per-savepoint layout, one
 parameterised Fortran helper writing NetCDF4 or NCZarr through `nf90_*`) and
 the concrete mapping in
-[`docs/references/storage_mapping.md`](../references/storage_mapping.md).
+[`dev/references/storage_mapping.md`](../references/storage_mapping.md).
 
 The decisive constraint comes from the directive grammar
-(`docs/references/directives_specification.md` §3.11, §3.14). pp_ser's tracer
+(`dev/references/directives_specification.md` §3.11, §3.14). pp_ser's tracer
 calls carry an **identifier** (name, index, or `%all`), an **stype**
 (`tens`/`bd`/`surf`/`sedimvel`, possibly empty), and an optional
 **timelevel** — but **no data array and no dimensions**. In Serialbox the
@@ -212,7 +212,7 @@ write. No existing attribute or layout changes meaning, so
 
 - A new `/_tracers` top-level group and `_preserf_option_*` reserved
   attributes are added to the schema, both additive and documented in
-  `docs/references/storage_mapping.md`.
+  `dev/references/storage_mapping.md`.
 - The Python reference reader (`tests/_support/storage.py` `read_dump`) gains
   a `/_tracers` discovery path; tracer **data** needs no new read path since
   it lands as ordinary savepoint variables (the optional `timelevel`
@@ -235,11 +235,11 @@ deferred string-data-field work, storage_mapping §9).
 ## References
 
 - ADR [0002](0002-storage-model-mapping.md) — storage model and layout.
-- [`docs/references/storage_mapping.md`](../references/storage_mapping.md) —
+- [`dev/references/storage_mapping.md`](../references/storage_mapping.md) —
   concrete on-disk mapping (§1 types, §1.1 axis order, §4 `/_fields`, §6
   savepoint variables).
 - Directive grammar:
-  [`docs/references/directives_specification.md`](../references/directives_specification.md)
+  [`dev/references/directives_specification.md`](../references/directives_specification.md)
   §3.8 (OPTION), §3.11 (REGISTERTRACERS), §3.14 (TRACER), DATA_KBUFF.
 - Upstream Serialbox tracer + k-buffer helper API:
   `src/serialbox-fortran/m_serialize.f90` in

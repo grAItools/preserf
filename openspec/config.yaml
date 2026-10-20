@@ -7,8 +7,8 @@ context: |
   target (shipped as source inside the wheel). The runtime writes to
   NetCDF4 stores (default) or NCZarr V2 stores, both via the same
   nf90_* code path; the layout/dtype mapping is in
-  docs/references/storage_mapping.md, the directive grammar in
-  docs/references/directives_specification.md.
+  dev/references/storage_mapping.md, the directive grammar in
+  dev/references/directives_specification.md.
 
   Layout: src/preserf/ holds the preprocessor (preprocessor.py is a
   typed port of Serialbox's pp_ser.py; cli.py is a Typer CLI) and
@@ -23,22 +23,23 @@ context: |
   build/ctest + strict pytest). Run it before claiming any task done.
 
   Conventions: tests are the spec (change a test first when behaviour
-  changes). Errors carry file/line context via DirectiveError. Durable
-  docs live in docs/ (style.md, testing.md, adr/, references/); ADRs
-  are append-only, supersede with a new file. No new runtime dependency
-  without an ADR.
+  changes). Errors carry file/line context via DirectiveError.
+  Documentation is split by audience: docs/ holds user documentation,
+  dev/ holds development docs (style.md, testing.md, adr/,
+  references/); ADRs are append-only, supersede with a new file. No
+  new runtime dependency without an ADR.
 
 rules:
   proposal:
     - Keep proposals under 200 words and always state what is out of scope
     - Net-new features and architectural choices (dependency, framework,
-      persistence, auth) require an ADR in docs/adr/ as part of the change
+      persistence, auth) require an ADR in dev/adr/ as part of the change
     - User-facing changes must log one concise bullet under [Unreleased]
       in CHANGELOG.md, leading with the file/behaviour
   specs:
     - Requirements describe externally observable behaviour with
       concrete WHEN/THEN scenarios; keep implementation detail out
-    - Cross-check behaviour claims against docs/references/
+    - Cross-check behaviour claims against dev/references/
       (directive grammar, storage mapping) and the actual source
   tasks:
     - Break tasks into phases of at most a few hours, each phase
