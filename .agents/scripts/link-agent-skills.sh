@@ -58,13 +58,13 @@ do
         "-e"
         's/\$'"${skill}"' \(Codex\) or \/'"${skill}"' \(other agents\)/NORM-'"${cmd}"'/g'
         "-e"
-        's/\$'"${skill}"'/NORM-'"${cmd}"'/g'
+        's/\$'"${skill}"'([^a-z0-9-]|$)/NORM-'"${cmd}"'\1/g'
         "-e"
-        "s|/${skill}|NORM-${cmd}|g"
+        "s#/${skill}([^a-z0-9-]|$)#NORM-${cmd}\1#g"
         "-e"
-        "s|/opsx-${cmd}|NORM-${cmd}|g"
+        "s#/opsx-${cmd}([^a-z0-9-]|$)#NORM-${cmd}\1#g"
         "-e"
-        "s|/opsx:${cmd}|NORM-${cmd}|g"
+        "s#/opsx:${cmd}([^a-z0-9-]|$)#NORM-${cmd}\1#g"
     )
 done
 
@@ -76,9 +76,13 @@ drift=0
 # non-regular entry (symlinks etc.), or when any listing/read/normalize
 # step fails — a failed snapshot must never count as a match.
 snapshot_into() {
-    local dir="$1" out="$2" listing tmp f
+    local dir="$1" out="$2" listing tmp f preflight
     : >"$out"
-    if [ -n "$(find "$dir" -mindepth 1 ! -type f -print -quit)" ]; then
+    if ! preflight="$(find "$dir" -mindepth 1 ! -type f -print -quit)"; then
+        echo "snapshot: preflight enumeration failed for $dir" >&2
+        return 1
+    fi
+    if [ -n "$preflight" ]; then
         echo "snapshot: $dir contains non-regular entries" >&2
         return 1
     fi

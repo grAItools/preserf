@@ -247,6 +247,65 @@ class TestDuplicateConversion:
         assert dup.is_dir()
         assert (dup / "references").is_symlink()  # preserved, not deleted
 
+    def test_unknown_references_stay_distinct(self, sandbox: Path) -> None:
+        """Unknown command references must not collapse to known tokens.
+
+        /opsx:verify-extra and /opsx-verify-extra are distinct unknown
+        references; prefix-matching normalization would rewrite both to
+        NORM-verify-extra, classify the duplicate as generated, and delete
+        the difference on conversion.
+        """
+        fixture = Path(__file__).parent / "fixtures" / "openspec_generated"
+        canon = sandbox / ".agents" / "skills" / "openspec-verify-change"
+        shutil.copytree(fixture / "codex" / "openspec-verify-change", canon)
+        (canon / "SKILL.md").write_text(
+            (canon / "SKILL.md").read_text()
+            + "\nRefs: /opsx:verify-extra and $openspec-verify-change-extra.\n"
+        )
+        dup = sandbox / ".claude" / "skills" / "openspec-verify-change"
+        shutil.copytree(fixture / "claude" / "openspec-verify-change", dup)
+        (dup / "SKILL.md").write_text(
+            (dup / "SKILL.md").read_text()
+            + "\nRefs: /opsx-verify-extra and $openspec-verify-change-extra.\n"
+        )
+        result = run_sync(sandbox)
+        assert result.returncode == 1
+        assert "differs" in result.stderr
+        assert dup.is_dir()  # untouched: unknown references stayed distinct
+
+    def test_preflight_failure_refuses_and_preserves(self, sandbox: Path) -> None:
+        """A failed preflight enumeration must abort, never convert.
+
+        Injects a find that fails only on the non-regular-entry preflight
+        (its invocation carries -mindepth) and delegates every other call
+        to the real find. Without the exit-status check the empty preflight
+        output read as 'no non-regular entries' and a duplicate carrying a
+        resource symlink could convert, deleting the link.
+        """
+        fixture = Path(__file__).parent / "fixtures" / "openspec_generated"
+        shutil.copytree(
+            fixture / "codex" / "openspec-verify-change",
+            sandbox / ".agents" / "skills" / "openspec-verify-change",
+        )
+        dup = sandbox / ".opencode" / "skills" / "openspec-verify-change"
+        shutil.copytree(fixture / "opencode" / "openspec-verify-change", dup)
+        (dup / "references").symlink_to("../../resources")
+
+        broken_bin = sandbox / "broken-bin"
+        broken_bin.mkdir()
+        (broken_bin / "find").write_text(
+            "#!/bin/sh\n"
+            "case \" $* \" in *' -mindepth '*) exit 2 ;; esac\n"
+            'exec /usr/bin/find "$@"\n'
+        )
+        (broken_bin / "find").chmod(0o755)
+
+        result = run_sync(sandbox, path_prefix=broken_bin)
+        assert result.returncode == 1
+        assert "snapshot" in result.stderr
+        assert dup.is_dir()
+        assert (dup / "references").is_symlink()  # preserved, not deleted
+
     def test_snapshot_failure_refuses_and_preserves(self, sandbox: Path) -> None:
         """A snapshot-generation failure must abort, never convert.
 
