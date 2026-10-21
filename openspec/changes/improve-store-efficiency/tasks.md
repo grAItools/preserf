@@ -1,0 +1,22 @@
+# Tasks
+
+## 1. Measurement prerequisites (fail first)
+
+- [ ] 1.1 Add a perf-smoke fixture writing a representative large field through both backends, asserting file size and read wall-time baselines
+- [ ] 1.2 Add a perturb-mode timing fixture large enough that per-element versus batched drawing is distinguishable
+
+## 2. Storage layout (opt-in)
+
+- [ ] 2.1 Draft `dev/adr/0012-opt-in-store-compression.md` recording the storage-layout decision
+- [ ] 2.2 Thread chunking/deflate/shuffle requests from `REGISTER`/auto-registration through `ensure_variable` (`m_preserf.F90:3296-3311`), default off
+- [ ] 2.3 Add native ctest scenarios asserting default registrations remain contiguous and compressed registrations round-trip through the Python support reader
+
+## 3. Perturb RNG batching
+
+- [ ] 3.1 Rework `preserf_apply_perturb.inc:29-66` to draw in bounded chunks (one `random_number(chunk)` per chunk) while preserving the documented formula and bounds
+- [ ] 3.2 Add a ctest scenario asserting batched drawing preserves the multiplicative bounds
+
+## 4. Verification
+
+- [ ] 4.1 Add the CHANGELOG bullet under `[Unreleased]`
+- [ ] 4.2 Run `pixi run verify` and confirm it is green
