@@ -3010,6 +3010,7 @@ contains
 
       if (serialisation_enabled == 0) return
       call reject_reserved_metainfo_key(key, extra_reserved)
+      call reject_embedded_nul(key, values)
       array_tid = ior(TID_ARRAY, TID_STRING)
 
       if (ppser_get_mode() /= 0) then
@@ -3057,6 +3058,33 @@ contains
       ncerr = nf90_put_att(grpid, NF90_GLOBAL, shadow, array_tid)
       call preserf_check_nf_with_msg(ncerr, 'put_att '//shadow)
    end subroutine put_typed_string_array_attr
+
+   !> Abort with a clear message if any element of the string-array
+   !> metainfo value contains an embedded NUL: the C string ABI the
+   !> NC_STRING vector writer targets is NUL-terminated, so an embedded
+   !> NUL is unrepresentable. Without this guard the write would
+   !> succeed and store only the truncated prefix (the reader would see
+   !> 'abc' for an 'abc'//NUL//'def' element), and read-mode replay
+   !> would abort with a confusing value mismatch instead of a clear
+   !> error naming the offending element — so reject up-front, before
+   !> any byte reaches the store.
+   subroutine reject_embedded_nul(key, values)
+      character(len=*), intent(in) :: key
+      character(len=*), intent(in) :: values(:)
+      integer :: i, p
+      do i = 1, size(values)
+         do p = 1, len(values)
+            if (values(i) (p:p) == achar(0)) then
+               write (error_unit, '(a,a,a,i0,a,i0,a,a)') &
+                  'preserf: string-array metainfo "', trim(key), &
+                  '" element ', i, ' contains an embedded NUL at position ', p, &
+                  '; the C string encoding terminates at a NUL, so the ', &
+                  'value would be silently truncated'
+               error stop 1
+            end if
+         end do
+      end do
+   end subroutine reject_embedded_nul
 
    !> Read-mode counterpart of put_typed_string_array_attr: verify the
    !> stored NC_STRING vector's element count, every value, and the
