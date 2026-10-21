@@ -316,6 +316,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `preserf` CLI (intentional break): more than one input file with neither
+  `--output` nor `--output-dir` now fails with a usage error before
+  preprocessing anything instead of silently concatenating to stdout — the
+  concatenation duplicated each file's `#define ACC_PREFIX` header; pass an
+  explicit destination.
+
 - Documentation is now split by audience: the former `docs/` tree (style, testing, `adr/`, `references/`) moved to `dev/` for contributor/agent-facing
   development documentation, and `docs/` is reserved for user documentation
   (currently a `README.md` stating the folder's purpose); every reference
@@ -486,6 +492,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   [ADR 0009](dev/adr/0009-slash-commands-over-opencode-integration.md).
 
 ### Fixed
+
+- `preserf` CLI: operating-system errors raised while collecting input
+  files (an unreadable directory during a `--recursive` walk) now surface as
+  the one-line `preserf:` diagnostic with exit 1 instead of an unhandled
+  traceback, and an explicitly named file argument with a non-Fortran
+  suffix warns on stderr while still preprocessing.
 
 - `!$SER TRACER` expansions now import the `ppser_write_tracer_*` routines
   from the serialization module (`m_serialize`) instead of `utils_ppser`,
