@@ -287,6 +287,10 @@ def main(
             raise typer.Exit(1) from exc
         except OSError as exc:
             raise _fail(str(exc)) from exc
+        except UnicodeDecodeError as exc:
+            # Undecodable input bytes fail as a one-line diagnostic instead
+            # of an unhandled traceback.
+            raise _fail(f"{source}: {exc}") from exc
         if wrote and destination is not None:
             written.append(destination)
 
