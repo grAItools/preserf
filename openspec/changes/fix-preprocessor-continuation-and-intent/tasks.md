@@ -9,11 +9,11 @@
 
 ## 2. Fixes
 
-- [ ] 2.1 Rework `_scan_subprogram`'s lookahead to consume only `&`-prefixed lines (`src/preserf/preprocessor.py:448-458`)
-- [ ] 2.2 Make `_RE_INTENT_IN`'s qualifier-to-`::` span paren-aware (`preprocessor.py:146-148`)
-- [ ] 2.3 Reorder the per-line dispatch so directive recognition precedes intent scanning, and strip trailing comments before the `::` gate (`preprocessor.py:403`, `:486`)
-- [ ] 2.4 Stop recording intent removal for values the computed-value classifier already marks write-only (`preprocessor.py:1057-1062`)
-- [ ] 2.5 Hoist the inline `re.sub(r"!.*")` patterns in the touched regions to module constants
+- [x] 2.1 Rework `_scan_subprogram`'s lookahead to consume only `&`-prefixed lines (`src/preserf/preprocessor.py:448-458`)
+- [x] 2.2 Make `_RE_INTENT_IN`'s qualifier-to-`::` span paren-aware (`preprocessor.py:146-148`)
+- [x] 2.3 Reorder the per-line dispatch so directive recognition precedes intent scanning, and strip trailing comments before the `::` gate (`preprocessor.py:403`, `:486`)
+- [x] 2.4 Stop recording intent removal for values the computed-value classifier already marks write-only (`preprocessor.py:1057-1062`)
+- [x] 2.5 Hoist the inline `re.sub(r"!.*")` patterns in the touched regions to module constants
 
 ## 3. Verification
 
