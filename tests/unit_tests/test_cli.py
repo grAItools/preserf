@@ -298,3 +298,57 @@ def test_cli_real_flag(tmp_path: Path) -> None:
     # --real sets the real kind parameter the ZERO directive emits.
     out = _run_source(tmp_path, _FLAG_SOURCE, "--real", "wp")
     assert "fld = 0.0_wp" in out
+
+
+# --- boundary-input robustness -------------------------------------------
+#
+# Degenerate input files must never surface as unhandled tracebacks: each
+# either preprocesses to a defined output or fails with the one-line
+# ``preserf:`` diagnostic (exit 1). The only exception the CLI may raise
+# on this path is its own clean exit (a ``SystemExit``).
+
+
+@pytest.mark.parametrize(
+    ("case_id", "payload", "expected_exit", "expected_text"),
+    [
+        pytest.param(
+            "empty-file",
+            b"",
+            0,
+            "#define ACC_PREFIX !$acc\n",
+            id="empty-file",
+        ),
+        pytest.param(
+            "crlf-source",
+            b"module m\r\n!$SER ON\r\nend module m\r\n",
+            0,
+            "call fs_enable_serialization()",
+            id="crlf-source",
+        ),
+        pytest.param(
+            "non-utf-8",
+            b"module m\n!$SER ON\nend module m\n\xff\xfe\n",
+            1,
+            "preserf:",
+            id="non-utf-8",
+        ),
+    ],
+)
+def test_cli_boundary_inputs(
+    tmp_path: Path,
+    case_id: str,
+    payload: bytes,
+    expected_exit: int,
+    expected_text: str,
+) -> None:
+    src = tmp_path / f"{case_id}.f90"
+    src.write_bytes(payload)
+    result = runner.invoke(app, [str(src)])
+    assert result.exit_code == expected_exit
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    captured = result.stdout if expected_exit == 0 else result.stderr
+    assert expected_text in captured
+    if case_id == "crlf-source":
+        # CRLF line endings normalize to LF: no stray carriage returns
+        # survive into the preprocessed output.
+        assert "\r" not in result.stdout
