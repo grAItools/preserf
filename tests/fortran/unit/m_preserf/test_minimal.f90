@@ -2442,8 +2442,8 @@ program test_minimal
              ! for a field the store has registered, must abort with the
              ! friendly "opened read-only" lifecycle message (mirroring the
              ! REGISTER sibling's guard) rather than a raw netCDF
-             ! permission error from the first define/put on the
-             ! read-only handle.
+             ! permission error from the first write on the read-only
+             ! handle.
              block
                 real(real64) :: u(3)
                 integer :: i
@@ -2456,6 +2456,31 @@ program test_minimal
                 call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u)
              end block
              call abort_unexpected('write-readonly-handle')
+          else if (scenario == 'write-logical-readonly-handle') then
+             ! The LOGICAL fs_write_field overload must abort with the same
+             ! friendly read-only lifecycle message the numeric template
+             ! does: logical fields land on disk through their own template
+             ! (preserf_write_field_logical.inc), so the read-only guard
+             ! has to live there too. Write a logical field, re-open the
+             ! store read-only, and write the field again — the read-only
+             ! handle must abort with the friendly message, not a raw
+             ! netCDF error from the int8 buffer's put_var.
+             block
+                logical :: lf(3)
+                lf = [.true., .false., .true.]
+                ! Build the store with a registered logical field.
+                call ppser_initialize(out_dir, 'flwrd', 'w')
+                call fs_register_field(ppser_serializer, 'flags', 'bool', 1, &
+                                            3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+                call fs_create_savepoint('step', ppser_savepoint)
+                call fs_write_field(ppser_serializer, ppser_savepoint, 'flags', lf)
+                call ppser_finalize()
+                ! Re-open read-only and write the field again.
+                call ppser_initialize(out_dir, 'flwrd', 'r')
+                call fs_create_savepoint('step', ppser_savepoint)
+                call fs_write_field(ppser_serializer, ppser_savepoint, 'flags', lf)
+             end block
+             call abort_unexpected('write-logical-readonly-handle')
           else if (scenario == 'read-python-store') then
             ! Issue #68: reverse-direction wire-compat — Python writes a
             ! preserf store (tests/_support/storage.py write_dump), then the

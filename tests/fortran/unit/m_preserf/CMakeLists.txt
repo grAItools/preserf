@@ -405,6 +405,13 @@ preserf_scenario_test(NAME kbuff_read_bad_registry SCENARIO kbuff-read-bad-regis
 preserf_scenario_test(NAME write_readonly_handle SCENARIO write-readonly-handle
     PASS "in write mode but the serializer was opened read-only")
 
+# The LOGICAL fs_write_field overload must abort with the same friendly
+# read-only lifecycle message the numeric template does: logical fields land
+# on disk through their own template (preserf_write_field_logical.inc), so the
+# read-only guard has to live there too.
+preserf_scenario_test(NAME write_logical_readonly_handle SCENARIO write-logical-readonly-handle
+    PASS "in write mode but the serializer was opened read-only")
+
 # -----------------------------------------------------------------------------
 # Int8 (64-bit default-integer) variant build: the fs_Option boundary-guard
 # scenario.
