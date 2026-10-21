@@ -8,9 +8,9 @@
 
 ## 2. Fixes
 
-- [ ] 2.1 Make both `require_fits_int32` copies check both bounds (`m_preserf.F90:2445-2455`, `utils_preserf.f90:260-271`)
-- [ ] 2.2 Route the k-buffer read path through registry validation before `kbuff_load_full` (`preserf_write_kbuff.inc:30-40`)
-- [ ] 2.3 Add the read-only-handle abort to the write template (`preserf_write_field.inc:16-27`)
+- [x] 2.1 Make both `require_fits_int32` copies check both bounds (`m_preserf.F90:2445-2455`, `utils_preserf.f90:260-271`)
+- [x] 2.2 Route the k-buffer read path through registry validation before `kbuff_load_full` (`preserf_write_kbuff.inc:30-40`)
+- [x] 2.3 Add the read-only-handle abort to the write template (`preserf_write_field.inc:16-27`)
 
 ## 3. Documentation
 
