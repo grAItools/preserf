@@ -1,5 +1,6 @@
 """Command-line interface for the preserf preprocessor."""
 
+import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -73,6 +74,20 @@ def _is_fortran(path: Path) -> bool:
     return path.suffix.lower() in _FORTRAN_SUFFIXES
 
 
+def _require_readable_tree(root: Path) -> None:
+    """Abort with a named path when any directory under ``root`` is unreadable.
+
+    ``rglob`` silently prunes directories it cannot list, so an unreadable
+    subtree would otherwise drop its files without any diagnostic.
+    """
+
+    def _raise(err: OSError) -> None:
+        raise err
+
+    for _dirpath, _dirnames, _filenames in os.walk(root, onerror=_raise):
+        pass
+
+
 def _collect(sources: list[Path], recursive: bool) -> list[Path]:
     """Resolve CLI inputs to a flat list of Fortran source files.
 
@@ -83,6 +98,7 @@ def _collect(sources: list[Path], recursive: bool) -> list[Path]:
         if path.is_dir():
             if not recursive:
                 raise ValueError(f"{path} is a directory (use --recursive)")
+            _require_readable_tree(path)
             files.extend(
                 sorted(p for p in path.rglob("*") if p.is_file() and _is_fortran(p))
             )
@@ -290,6 +306,7 @@ def main(
 
     try:
         files = _collect(sources, recursive)
+        dir_roots = [root for root in sources if root.is_dir()]
     except (ValueError, OSError) as exc:
         raise _fail(str(exc)) from exc
 
@@ -299,7 +316,6 @@ def main(
     if output is None and output_dir is None and len(files) > 1:
         raise _fail("multiple inputs require --output or --output-dir")
 
-    dir_roots = [root for root in sources if root.is_dir()]
     written: list[Path] = []
     for source in files:
         destination = _output_path(source, output, output_dir, recursive, dir_roots)

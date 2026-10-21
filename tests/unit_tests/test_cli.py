@@ -209,6 +209,61 @@ def test_walk_oserror_is_one_line_diagnostic(
     assert str(src) in result.stderr
 
 
+def test_unreadable_subdirectory_is_one_line_diagnostic(tmp_path: Path) -> None:
+    # rglob silently prunes a directory it cannot list, dropping its files
+    # without any diagnostic; collection must abort naming the failing path.
+    root = tmp_path / "src"
+    root.mkdir()
+    (root / "ok.f90").write_text(_SOURCE)
+    locked = root / "locked"
+    locked.mkdir()
+    (locked / "secret.f90").write_text(_SOURCE)
+    locked.chmod(0)
+    try:
+        result = runner.invoke(app, [str(root), "-r", "-d", str(tmp_path / "out")])
+        assert result.exit_code == 1
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        assert "Traceback" not in result.stderr
+        assert len(result.stderr.splitlines()) == 1
+        assert str(locked) in result.stderr
+    finally:
+        locked.chmod(0o755)
+
+
+def test_root_stat_permission_loss_is_one_line_diagnostic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Permission lost after collection: the hoisted root stat must route
+    # through the one-line failure path, not escape as a traceback outside
+    # every error handler.
+    root = tmp_path / "src"
+    root.mkdir()
+    (root / "a.f90").write_text(_SOURCE)
+    sub = root / "sub"
+    sub.mkdir()
+    (sub / "b.f90").write_text(_SOURCE)
+
+    real_collect = preserf.cli._collect
+
+    def _collect_then_revoke(sources: list[Path], recursive: bool) -> list[Path]:
+        files = real_collect(sources, recursive)
+        root.chmod(0)  # permission lost after collection
+        return files
+
+    monkeypatch.setattr(preserf.cli, "_collect", _collect_then_revoke)
+    try:
+        result = runner.invoke(
+            app, [str(root), str(sub), "-r", "-d", str(tmp_path / "out")]
+        )
+        assert result.exit_code == 1
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        assert "Traceback" not in result.stderr
+        assert len(result.stderr.splitlines()) == 1
+        assert str(sub) in result.stderr
+    finally:
+        root.chmod(0o755)
+
+
 def test_recursive_mirrors_tree(tmp_path: Path) -> None:
 
 
