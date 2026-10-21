@@ -20,4 +20,4 @@
 ## 4. Verification
 
 - [x] 4.1 Add the CHANGELOG bullet under `[Unreleased]`
-- [ ] 4.2 Run `pixi run verify` and confirm it is green
+- [x] 4.2 Run `pixi run verify` and confirm it is green
