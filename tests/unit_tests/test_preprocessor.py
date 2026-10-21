@@ -926,6 +926,32 @@ def test_intent_in_stripped_with_quoted_bang_in_dimension() -> None:
     assert 'real, dimension(len("!")) :: u' in out
 
 
+def test_intent_in_stripped_with_quoted_paren_in_dimension() -> None:
+    # A parenthesis inside a quoted string literal does not participate
+    # in depth counting: `dimension(len("("))` must not break the
+    # qualifier-to-`::` gate.
+    src = (
+        'subroutine s()\nreal, intent(in), dimension(len("(")) :: u\n'
+        "!$SER DATA x=u\nend subroutine s\n"
+    )
+    out = expand(src)
+    assert "#else" in out
+    assert 'real, dimension(len("(")) :: u' in out
+
+
+def test_use_block_precedes_continued_declaration_after_header() -> None:
+    # A `&`-continued DECLARATION after the completed header must not be
+    # consumed by the header lookahead: the USE block lands between the
+    # closing continuation line and the declaration (USE must precede
+    # data declarations in legal Fortran).
+    src = (
+        "subroutine s(a, &\n & b)\nreal :: a, &\n b\n!$SER DATA x=a\nend subroutine s\n"
+    )
+    out = expand(src)
+    assert out.index(" & b)") < out.index("USE m_serialize")
+    assert out.index("USE m_serialize") < out.index("real :: a")
+
+
 def test_intent_scan_is_linear_on_nested_dimension_expressions() -> None:
     # The intent gate must not blow up exponentially on long additive
     # dimension expressions (an ambiguous regex alternation hung on 24

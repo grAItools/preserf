@@ -267,21 +267,38 @@ def _strip_comments(text: str) -> str:
 def _find_sep(text: str) -> int:
     """Index of the first top-level ``::`` separator in ``text``, or -1.
 
-    "Top level" means paren depth zero: colons nested inside parentheses
-    -- an assumed-shape lower bound like ``dimension(lbound(a,1):)`` or a
-    kind spec -- belong to the attribute list and never terminate the
-    qualifier span, so either attribute order strips the same.
+    "Top level" means paren depth zero, and quoted string literals are
+    skipped entirely: a parenthesis or colon inside ``'...'`` /
+    ``"..."`` (an assumed-shape lower bound like
+    ``dimension(lbound(a,1):)`` or a kind spec such as ``len("(")``)
+    does not participate in depth counting or separator detection.
     """
     depth = 0
-    for i in range(len(text) - 1):
+    i = 0
+    n = len(text)
+    while i < n:
         ch = text[i]
+        if ch == "'" or ch == '"':
+            # Skip the quoted literal; a doubled quote is an escape.
+            quote = ch
+            i += 1
+            while i < n:
+                if text[i] == quote:
+                    if i + 1 < n and text[i + 1] == quote:
+                        i += 2
+                        continue
+                    break
+                i += 1
+            i += 1
+            continue
         if ch == "(":
             depth += 1
         elif ch == ")":
             if depth > 0:
                 depth -= 1
-        elif ch == ":" and depth == 0 and text[i + 1] == ":":
+        elif ch == ":" and depth == 0 and text[i + 1 : i + 2] == ":":
             return i
+        i += 1
     return -1
 
 
@@ -538,6 +555,13 @@ class Preprocessor:
         ):
             self._line += self._lines[lookahead]
             lookahead += 1
+            if not _continues(self._line):
+                # The header statement closed on this line (e.g. a
+                # leading-`&` final continuation): stop consuming --
+                # anything after is body, not part of the signature,
+                # and a subsequent `&`-continued declaration must not be
+                # swallowed into the header run.
+                break
         self._skip_lines = lookahead - self._lineno
         if not _continues(self._line):
             self._emit_use_stmt()
