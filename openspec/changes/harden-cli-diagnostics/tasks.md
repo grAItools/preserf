@@ -8,10 +8,10 @@
 
 ## 2. Fixes
 
-- [ ] 2.1 Broaden the collection handler to `except (ValueError, OSError)` in `src/preserf/cli.py:265-268`
-- [ ] 2.2 Reject multi-source runs without an explicit destination before processing
-- [ ] 2.3 Apply `_is_fortran` to explicit file arguments and warn on mismatch
-- [ ] 2.4 Use bare `print` for `--version`; collapse the dead `if wrote and destination is not None:` condition in `main()` (`cli.py:290`); hoist the root `is_dir` stat out of `_output_path`'s per-file loop
+- [x] 2.1 Broaden the collection handler to `except (ValueError, OSError)` in `src/preserf/cli.py:265-268`
+- [x] 2.2 Reject multi-source runs without an explicit destination before processing
+- [x] 2.3 Apply `_is_fortran` to explicit file arguments and warn on mismatch
+- [x] 2.4 Use bare `print` for `--version`; collapse the dead `if wrote and destination is not None:` condition in `main()` (`cli.py:290`); hoist the root `is_dir` stat out of `_output_path`'s per-file loop
 
 ## 3. Verification
 
