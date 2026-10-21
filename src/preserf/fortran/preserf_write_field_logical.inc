@@ -17,6 +17,19 @@ subroutine PRESERF_SUB(s, sp, fieldname, data)
    call require_savepoint(sp, 'fs_write_field')
    call require_savepoint_owner(s, sp, 'fs_write_field')
    call validate_field_shape(s, fieldname, shape(data), TID_BOOLEAN, 'write')
+   ! The write entry points on a read-only serializer abort with the same
+   ! friendly lifecycle message the REGISTER sibling's guard produces,
+   ! rather than a raw netCDF permission error from the first define/put
+   ! on the read-only handle. Placed after validate_field_shape so the
+   ! unregistered-field abort (which the read-mode write scenarios pin)
+   ! keeps its message, and before the buffer conversion / put so a
+   ! registered logical field on a read-only handle never reaches netCDF.
+   if (.not. s%writable) then
+      write (error_unit, '(a,a,a)') &
+         'preserf: DATA of field "', trim(fieldname), &
+         '" in write mode but the serializer was opened read-only'
+      error stop 1
+   end if
    call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
    call ensure_variable(sp%grpid, fieldname, NF90_BYTE, dimids, varid)
    buf = merge(1_int8, 0_int8, data)
