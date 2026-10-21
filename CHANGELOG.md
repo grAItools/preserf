@@ -258,7 +258,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   writes a `real64` field, reads it back with scale `0.1` asserting every
   element stays within `[orig*0.9, orig*1.1]` with non-zero overall
   deviation, and confirms scale `0.0` reads back unperturbed.
-- Read-mode create-or-resolve-and-validate (Slice A-1): `fs_register_field`,
+- Read-mode create-or-resolve-and-validate: `fs_register_field`,
   `fs_create_savepoint`, and the scalar `fs_add_savepoint_metainfo` /
   `fs_add_serializer_metainfo` overloads now resolve and validate the
   existing store entry when `ppser_get_mode()` is read (1) or read-perturb

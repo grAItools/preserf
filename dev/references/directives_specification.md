@@ -472,6 +472,9 @@ If the mode argument matches one of these predefined names (case-insensitive),
 its numeric value is substituted. Otherwise the argument is passed through
 verbatim (assumed to be a Fortran variable or expression).
 
+> **preserf note**: preserf resolves the predefined mode names
+> case-insensitively, where upstream `pp_ser` matches them case-sensitively.
+
 **Generated code**:
 
 ```fortran
@@ -601,14 +604,11 @@ the serializer.
 | `integer`    | `'int'`          | `ppser_intlength`  |
 | `real`       | `ppser_realtype` | `ppser_reallength` |
 
-Any other type value (e.g., a variable like `fs_realtype`) is passed through
-as the type string directly and is used as-is for both the type and length
-parameters.
-
 When the type is `integer` or `real`, `dirs[1]` is replaced by the two-element
-list `[type_string, length_var]`, while for any other value the single value
-is kept, so only the type is provided and the length/size parameters come from
-the subsequent positional arguments.
+list `[type_string, length_var]`. Any other type value (e.g., a variable like
+`fs_realtype`) is rejected with a `DirectiveError` naming the type (`Data
+type "<type>" not understood. Valid types are: ...`); no expanded call is
+emitted.
 
 **Dimension Shortcuts**: If the third positional argument (after type
 expansion) matches one of the predefined shortcut codes, it is expanded into
