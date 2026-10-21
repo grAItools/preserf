@@ -110,6 +110,18 @@ def test_directive_error_returns_1(tmp_path: Path) -> None:
     assert "Unknown directive" in result.stderr
 
 
+def test_malformed_continuation_names_file_and_line(tmp_path: Path) -> None:
+    # A malformed directive continuation surfaces through the CLI with the
+    # originating file and line named, pointing at the offending site.
+    src = tmp_path / "bad.f90"
+    src.write_text("module m\n!$SER DATA u=u &\nx = 1\nend module m\n")
+    result = runner.invoke(app, [str(src)])
+    assert result.exit_code == 1
+    assert "Incorrect line continuation" in result.stderr
+    assert str(src) in result.stderr
+    assert "line 3" in result.stderr
+
+
 def test_missing_file_returns_1(tmp_path: Path) -> None:
     result = runner.invoke(app, [str(tmp_path / "missing.f90")])
     assert result.exit_code == 1
@@ -125,17 +137,33 @@ def test_output_with_multiple_inputs_rejected(tmp_path: Path) -> None:
     assert "single input" in result.stderr
 
 
-def test_multiple_sources_without_destination_rejected(tmp_path: Path) -> None:
+def test_multiple_sources_without_destination_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # Concatenating several preprocessed files onto stdout interleaves their
     # per-file headers; more than one input requires an explicit destination.
+    # The rejection must fire before any preprocessing call is made, not
+    # merely before output is written.
     a = tmp_path / "a.f90"
     b = tmp_path / "b.f90"
     a.write_text(_SOURCE)
     b.write_text(_SOURCE)
+
+    preprocessed: list[str] = []
+
+    class _RecordingPreprocessor:
+        def __init__(self, filename: str, text: str, options: object) -> None:
+            preprocessed.append(filename)
+
+        def process(self) -> str:
+            return ""
+
+    monkeypatch.setattr(preserf.cli, "Preprocessor", _RecordingPreprocessor)
     result = runner.invoke(app, [str(a), str(b)])
     assert result.exit_code == 1
     assert "multiple inputs" in result.stderr
     assert result.stdout == ""
+    assert preprocessed == []
 
 
 def test_output_with_recursive_dir_rejected(tmp_path: Path) -> None:
@@ -179,6 +207,9 @@ def test_walk_oserror_is_one_line_diagnostic(
     assert "Traceback" not in result.stderr
     assert len(result.stderr.splitlines()) == 1
     assert str(src) in result.stderr
+
+
+def test_recursive_mirrors_tree(tmp_path: Path) -> None:
 
 
 def test_recursive_mirrors_tree(tmp_path: Path) -> None:
