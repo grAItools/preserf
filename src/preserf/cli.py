@@ -34,7 +34,9 @@ app = typer.Typer(
 
 def _fail(message: str) -> typer.Exit:
     """Print a one-line error to stderr; the returned Exit is raised."""
-    _err.print(f"[bold red]preserf:[/] {escape(message)}")
+    # soft_wrap keeps the diagnostic on one physical line (the terminal
+    # may still fold it visually, but no newline is ever emitted).
+    _err.print(f"[bold red]preserf:[/] {escape(message)}", soft_wrap=True)
     return typer.Exit(1)
 
 
@@ -115,8 +117,16 @@ def _process_file(
     if destination is None:
         sys.stdout.write(result)
         return False
-    if ignore_identical and destination.is_file() and destination.read_text() == result:
-        return False
+    if ignore_identical and destination.is_file():
+        try:
+            existing = destination.read_text()
+        except UnicodeDecodeError as exc:
+            # The comparison target — not the input — is undecodable, so
+            # the diagnostic must name it; route it through the OSError
+            # arm, which prints the message verbatim.
+            raise OSError(f"{destination}: {exc}") from exc
+        if existing == result:
+            return False
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(result)
     return True
