@@ -701,6 +701,42 @@ def test_use_block_after_completed_header_across_comment() -> None:
     assert out.index("              b)") < out.index("USE m_serialize")
 
 
+def test_use_block_precedes_implicit_none_after_leading_amp_continuation() -> None:
+    # A leading-`&` final continuation closes the header inside the
+    # lookahead's consumed run: the USE block must be injected right
+    # after the completed signature, BEFORE any subsequent statement
+    # (USE must precede IMPLICIT NONE in legal Fortran).
+    src = (
+        "subroutine s(a, &\n"
+        " & b)\n"
+        "! done\n"
+        "implicit none\n"
+        "real :: a,b\n"
+        "!$SER DATA x=a\n"
+        "end subroutine s\n"
+    )
+    out = expand(src)
+    assert out.index(" & b)") < out.index("USE m_serialize")
+    assert out.index("USE m_serialize") < out.index("implicit none")
+
+
+def test_use_block_after_intermediate_continuation_across_comment() -> None:
+    # A comment between the header and an *intermediate* continuation
+    # (itself `&`-ended) must not make the USE block fire early: the
+    # injection waits for the line that completes the statement.
+    src = (
+        "subroutine s(a, &\n"
+        "! keep\n"
+        " b, &\n"
+        " c)\n"
+        "real :: a,b,c\n"
+        "!$SER DATA x=a\n"
+        "end subroutine s\n"
+    )
+    out = expand(src)
+    assert out.index(" c)") < out.index("USE m_serialize")
+
+
 def test_identifier_starting_with_keyword_does_not_inject_use() -> None:
     # `functional_x` starts with `function` but is an assignment, not a header,
     # so the USE block must not be injected mid-body.
@@ -852,13 +888,71 @@ def test_intent_in_removed_with_spaces_inside_parens() -> None:
     ],
 )
 def test_intent_in_stripped_for_either_attribute_order(declaration: str) -> None:
-    # The qualifier-to-`::` span is paren-aware, so `intent(in)` coming
-    # before `dimension(:)` strips the qualifier exactly as the reverse
+    # The qualifier-to-`::` span is paren-aware, so `intent(in)` before
+    # `dimension(:)` strips the qualifier exactly as the reverse
     # attribute order does.
     src = f"subroutine s()\n{declaration}\n!$SER DATA x=vn\nend subroutine s\n"
     out = expand(src)
     assert "#else" in out
     assert "integer, dimension(:) :: vn" in out
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        "real, intent(in), dimension(lbound(a,1):) :: vn",
+        "real, dimension(lbound(a,1):), intent(in) :: vn",
+    ],
+)
+def test_intent_in_stripped_for_colon_inside_dimension_bounds(declaration: str) -> None:
+    # A colon inside a function call in the dimension spec (an
+    # assumed-shape lower bound) is inside parentheses: it must not
+    # terminate the qualifier-to-`::` span, in either attribute order.
+    src = f"subroutine s()\n{declaration}\n!$SER DATA x=vn\nend subroutine s\n"
+    out = expand(src)
+    assert "#else" in out
+    assert "real, dimension(lbound(a,1):) :: vn" in out
+
+
+def test_intent_in_stripped_with_quoted_bang_in_dimension() -> None:
+    # A `!` inside a quoted string literal is not a comment delimiter:
+    # the declaration must still get its intent-strip block.
+    src = (
+        'subroutine s()\nreal, intent(in), dimension(len("!")) :: u\n'
+        "!$SER DATA x=u\nend subroutine s\n"
+    )
+    out = expand(src)
+    assert "#else" in out
+    assert 'real, dimension(len("!")) :: u' in out
+
+
+def test_intent_scan_is_linear_on_nested_dimension_expressions() -> None:
+    # The intent gate must not blow up exponentially on long additive
+    # dimension expressions (an ambiguous regex alternation hung on 24
+    # terms); the expansion must complete and stay correct.
+    body = "+".join(["f()"] * 24)
+    src = (
+        "subroutine s()\n"
+        f"real, intent(in), dimension({body}) :: vn\n"
+        "!$SER DATA x=vn\nend subroutine s\n"
+    )
+    out = expand(src)
+    assert "#else" in out
+    assert "fs_write_field" in out
+
+
+def test_comment_mentioning_intent_never_wraps_intent_free_declaration() -> None:
+    # A declaration without INTENT(IN) whose trailing comment mentions
+    # `intent(in) :: <field>` must not be wrapped in a redundant
+    # #ifdef/#else intent-strip block.
+    src = (
+        "subroutine s(u)\n"
+        "real :: u ! intent(in) :: u\n"
+        "!$SER DATA x=u\n"
+        "end subroutine s\n"
+    )
+    out = expand(src)
+    assert out.count("real :: u ! intent(in) :: u") == 1
 
 
 def test_directive_comment_mentioning_intent_does_not_wrap_directive() -> None:

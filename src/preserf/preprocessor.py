@@ -143,25 +143,11 @@ _SUBPROG_HEAD = (
 _RE_SUBPROG = re.compile(_SUBPROG_HEAD, re.IGNORECASE)
 _RE_SUBPROG_CONT = re.compile(_SUBPROG_HEAD + r"([^!]*)&", re.IGNORECASE)
 _RE_CONTINUED = re.compile(r"^([^!]*)&")
-# Paren-aware span from the INTENT(IN) qualifier to the ``::`` separator:
-# colons nested inside balanced parentheses (``dimension(:)``, kind
-# specs) belong to the attribute list and must not terminate the span,
-# so a legal order like ``integer, intent(in), dimension(:) ::`` strips
-# the qualifier exactly as ``integer, dimension(:), intent(in) ::``.
-_INTENT_SPAN = r"(?:\([^()]*\)|[^:])*"
-_RE_INTENT_IN = re.compile(
-    r".*intent\s*\(\s*in\s*\)" + _INTENT_SPAN + r"::\s*([^!]*)\s*.*",
-    re.IGNORECASE,
-)
-_RE_INTENT_IN_CONT = re.compile(
-    r".*intent\s*\(\s*in\s*\)" + _INTENT_SPAN + r"::\s*([^!]*)\s*.*&",
-    re.IGNORECASE,
-)
-# Greedy trailing-comment strip (from the first ``!`` to the end of the
-# line): hoisted module constant for the inline ``re.sub(r"!.*")``
-# patterns -- used on declaration fragments before name extraction and
-# to gate the INTENT(IN) scanner on comment-free text.
-_RE_COMMENT = re.compile(r"!.*")
+# Bare INTENT(IN) qualifier detector: linear, unambiguous -- the
+# qualifier-to-`::` span and the separator itself are handled
+# procedurally (depth- and quote-aware) in _scan_intent_in so legal
+# attribute orders never depend on regex backtracking.
+_RE_INTENT_QUALIFIER = re.compile(r"intent\s*\(\s*in\s*\)", re.IGNORECASE)
 _RE_INTENT_IN_SUB = re.compile(r",\s*intent\s*\(\s*in\s*\)", re.IGNORECASE)
 _RE_TRACER = re.compile(
     r"^([a-zA-Z_0-9]+|\$[a-zA-Z_0-9()]+(?:-[a-zA-Z_0-9()]+)?|%all)"
@@ -266,6 +252,46 @@ def _is_code_line(line: str) -> bool:
     """
     stripped = line.lstrip()
     return bool(stripped) and not stripped.startswith("!")
+
+
+def _strip_comments(text: str) -> str:
+    """Strip trailing comments from every line of ``text`` (quote-aware).
+
+    A ``!`` inside a single- or double-quoted string is not a comment
+    delimiter (``dimension(len("!"))`` survives intact); each line is
+    stripped independently so a multi-line chunk keeps its structure.
+    """
+    return "\n".join(_strip_trailing_comment(line) for line in text.split("\n"))
+
+
+def _find_sep(text: str) -> int:
+    """Index of the first top-level ``::`` separator in ``text``, or -1.
+
+    "Top level" means paren depth zero: colons nested inside parentheses
+    -- an assumed-shape lower bound like ``dimension(lbound(a,1):)`` or a
+    kind spec -- belong to the attribute list and never terminate the
+    qualifier span, so either attribute order strips the same.
+    """
+    depth = 0
+    for i in range(len(text) - 1):
+        ch = text[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            if depth > 0:
+                depth -= 1
+        elif ch == ":" and depth == 0 and text[i + 1] == ":":
+            return i
+    return -1
+
+
+def _continues(line: str) -> bool:
+    """Whether ``line`` continues onto the next (a trailing ``&``).
+
+    The check is comment-stripped and quote-aware, so a ``&`` inside a
+    trailing comment or a string literal does not mark a continuation.
+    """
+    return _strip_comments(line).rstrip().endswith("&")
 
 
 def _ser_continuation(line: str) -> str | None:
@@ -427,10 +453,15 @@ class Preprocessor:
 
     def _lex(self, *, final: bool = False) -> None:
         # A deferred USE injection (a `&`-continued standalone subprogram
-        # header) fires on the first code line dispatched after the
-        # header; comments and blank lines between the continuation lines
-        # keep flowing through the normal per-line dispatch untouched.
-        completes_header = self._pending_use_stmt and _is_code_line(self._line)
+        # header) fires on the code line that completes the statement:
+        # comments, blanks and intermediate continuation lines keep
+        # flowing through the normal per-line dispatch untouched, and the
+        # block lands after the completed signature, never inside it.
+        completes_header = (
+            self._pending_use_stmt
+            and _is_code_line(self._line)
+            and not _continues(self._line)
+        )
         self._scan_module()
         self._scan_subprogram()
         self._scan_endmodule()
@@ -496,8 +527,10 @@ class Preprocessor:
         # Continued header: consume only the `&`-prefixed continuation
         # lines here; any other line (comment, blank) ends this run and
         # flows through the normal per-line dispatch untouched. The USE
-        # injection is deferred to the first code line after the header
-        # so it lands after the completed signature, never inside it.
+        # injection lands after the completed signature -- right here
+        # when the consumed run already closed the statement (e.g. a
+        # leading-`&` final continuation), otherwise on the code line
+        # that completes it later.
         self._pending_use_stmt = True
         lookahead = self._lineno  # 0-based index of the line after current
         while lookahead < len(self._lines) and _RE_CONTINUED.search(
@@ -506,6 +539,9 @@ class Preprocessor:
             self._line += self._lines[lookahead]
             lookahead += 1
         self._skip_lines = lookahead - self._lineno
+        if not _continues(self._line):
+            self._emit_use_stmt()
+            self._pending_use_stmt = False
 
     def _scan_endmodule(self) -> None:
         m = _RE_ENDMODULE.search(self._line)
@@ -525,30 +561,35 @@ class Preprocessor:
         self._use_stmt_in_module = False
 
     def _scan_intent_in(self) -> None:
-        """Strip ``INTENT(IN)`` from declarations of fields read back by DATA.
+        """Strip ``INTENT IN`` from declarations of fields read back by DATA.
 
-        Read mode assigns into the field variables, so their ``INTENT(IN)``
+        Read mode assigns into the field variables, so their ``INTENT IN``
         qualifier must be removed when serialization is active. The
         declaration's first line is wrapped in an ``#ifdef``/``#else`` pair
         carrying the qualifier-free and original forms; when guards are
         disabled the qualifier is dropped unconditionally instead.
         """
-        # Strip trailing comments before the ``::`` gate so comment text
-        # mentioning ``intent(in) :: <field>`` can never satisfy it: an
-        # annotated directive line must not be wrapped spuriously.
-        if not self.intentin_to_remove or "::" not in _RE_COMMENT.sub("", self._line):
+        if not self.intentin_to_remove:
             return
-        if not _RE_INTENT_IN.search(self._line):
+        # Quote-aware comment stripping first: a ``!`` inside a string
+        # literal (``dimension(len("!"))``) is not a comment delimiter,
+        # and comment text mentioning ``intent(in) :: <field>`` can
+        # never satisfy the gate. The separator is found depth-aware so
+        # a colon inside parentheses (an assumed-shape lower bound like
+        # ``dimension(lbound(a,1):)``) does not terminate the span.
+        code = _strip_comments(self._line)
+        sep = _find_sep(code)
+        if sep < 0 or not _RE_INTENT_QUALIFIER.search(code[:sep]):
             return
 
-        rhs = _RE_COMMENT.sub("", self._line.split("::", 1)[1])
+        rhs = code[sep + 2 :]
         declared = self._declared_names(rhs)
-        if _RE_INTENT_IN_CONT.search(self._line):
+        if _continues(self._line):
             # Continued declaration: gather names off the continuation lines.
             idx = self._lineno
             while idx < len(self._lines):
                 physical = self._lines[idx]
-                declared |= self._declared_names(_RE_COMMENT.sub("", physical))
+                declared |= self._declared_names(_strip_comments(physical))
                 if "&" not in physical:
                     break
                 idx += 1
