@@ -347,7 +347,7 @@ Reserved housekeeping attributes on a savepoint group:
 | `_preserf_savepoint_index` | `NF90_INT` | the integer N matching `sp_NNNNNN`            |
 | `_preserf_field_ids`       | (see §7)   | optional Serialbox `fieldID` round-trip table |
 
-**Read-mode resolution (as of Slice A-1).** A read run resolves savepoints
+**Read-mode resolution.** A read run resolves savepoints
 **positionally**: the Nth `!$SER SAVEPOINT` directive resolves `sp_00000(N-1)`
 and cross-checks the runtime name against the group's `name` attribute,
 aborting on a mismatch. Reads therefore assume the generated source replays
