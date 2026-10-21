@@ -1027,6 +1027,9 @@ contains
    ! ========================================================================
 
    ! Per-slice-rank fs_write_kbuff overloads (real64 slices of rank 1-3).
+   ! PRESERF_TID names the slice dtype's Serialbox TypeID for the
+   ! registry validation the read branch performs (preserf_write_kbuff.inc).
+#define PRESERF_TID TID_FLOAT64
 #define PRESERF_SUB fs_write_kbuff_r8_1d
 #define PRESERF_DIMS , dimension(:)
 #include "preserf_write_kbuff.inc"
@@ -1042,6 +1045,7 @@ contains
 #include "preserf_write_kbuff.inc"
 #undef PRESERF_DIMS
 #undef PRESERF_SUB
+#undef PRESERF_TID
 
    !> Abort if (k, k_size) is out of range for a fs_write_kbuff call.
    subroutine kbuff_check_k(k, k_size)
@@ -2430,22 +2434,25 @@ contains
       error stop 1
    end subroutine active_dims_inconsistent
 
-   !> Abort if `value` (a default-kind integer) exceeds the int32
-   !> upper bound. storage_mapping.md §1 pins the on-disk `dims` and
-   !> halo attributes to NC_INT (int32 on the wire), so widening the
+   !> Abort if `value` (a default-kind integer) does not fit int32.
+   !> storage_mapping.md §1 pins the on-disk `dims` and halo
+   !> attributes to NC_INT (int32 on the wire), so widening the
    !> on-disk type is not an option. Under a -fdefault-integer-8 build
-   !> the dummy arg can hold values past huge(0_int32) and a bare
-   !> int(value, int32) would silently truncate; this guard turns that
-   !> into a clean error_stop. Only the upper bound is checked: every
-   !> current caller (active_dims_c_order, put_halo_attr) rejects
-   !> negative inputs with its own context-specific error message
-   !> before reaching here, so a redundant lower-bound check would
-   !> only ever fire as dead code. Carry-over from PR #4 review
+   !> the dummy arg can hold values past huge(0_int32) in either
+   !> direction and a bare int(value, int32) would silently truncate;
+   !> this guard turns that into a clean error_stop. Both bounds are
+   !> checked: fs_Option passes a user-supplied verbosity straight
+   !> through, so a below-the-lower-bound value (for example -2**40
+   !> under a 64-bit default-integer build) must abort with this
+   !> message rather than wrap onto the wire attribute. Mirrors the
+   !> same-named guard in utils_preserf (each module keeps a private
+   !> copy for separate compilation). Carry-over from PR #4 review
    !> (fortran-helper-roadmap.md §4).
    subroutine require_fits_int32(value, label)
       integer, intent(in) :: value
       character(len=*), intent(in) :: label
-      if (int(value, int64) > int(huge(0_int32), int64)) then
+      if (int(value, int64) > int(huge(0_int32), int64) .or. &
+          int(value, int64) < int(-huge(0_int32) - 1, int64)) then
          write (error_unit, '(a,a,a,i0,a,i0)') &
             'preserf: ', trim(label), &
             ' exceeds int32 capacity; got ', value, &

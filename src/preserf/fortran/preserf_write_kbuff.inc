@@ -31,6 +31,12 @@ subroutine PRESERF_SUB(s, sp, fieldname, data, k, k_size, mode)
       ! Read / read-perturb load from the REFERENCE serializer, matching the
       ! DATA read path; resolve_savepoint_grpid re-resolves the savepoint
       ! group under the reference (a no-op when it aliases the primary).
+      ! Consult the /_fields registry before loading, mirroring the field
+      ! read path (preserf_read_field.inc runs validate_field_shape before
+      ! any variable work), so a store whose registry and k-buffer variable
+      ! disagree on shape is rejected loudly on both read paths.
+      call validate_field_shape(ppser_serializer_ref, fieldname, &
+                                [shape(data), k_size], PRESERF_TID, 'read')
       ss = size(data)
       idx = kbuff_load(resolve_savepoint_grpid(ppser_serializer_ref, sp), &
                        fieldname, shape(data), ss, k, k_size)

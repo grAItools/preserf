@@ -2407,11 +2407,81 @@ program test_minimal
                         error stop 'explicit-ref: KBUFF read returned primary data'
                   end do
                end do
-               call ppser_finalize()
-               write (*, '(a)') 'preserf-fortran: explicit-ref-tracer-kbuff OK'
-               stop
-            end block
-         else if (scenario == 'read-python-store') then
+                call ppser_finalize()
+                write (*, '(a)') 'preserf-fortran: explicit-ref-tracer-kbuff OK'
+                stop
+             end block
+          else if (scenario == 'kbuff-read-bad-registry') then
+             ! The k-buffer read path must consult the /_fields registry
+             ! before loading, mirroring the field read path (which runs
+             ! validate_field_shape first). Hand-build a store whose
+             ! /_fields/t registry records C-order dims [5,2,3] (Fortran
+             ! shape [3,2,5] — a trailing-axis disagreement with the call's
+             ! full shape [3,2,4]) but whose savepoints/sp_000000/t variable
+             ! carries the Fortran shape [3,2,4] that agrees with the call,
+             ! so the only check that can reject the store is the registry
+             ! consultation the fix adds on the kbuff read path. The
+             ! registration declares the STORE's dims (3,2,5) so the
+             ! read-mode registration validation itself passes and the
+             ! disagreement is exposed by the kbuff read's own shape.
+             call build_kbuff_registry_mismatch_store(trim(out_dir)//'/fkbbr.nc')
+             block
+                real(real64) :: tslice(3, 2)
+                tslice = 0.0_real64
+                call ppser_initialize(out_dir, 'fkbbr', 'r')
+                call fs_register_field(ppser_serializer, 't', 'double', &
+                                          ppser_reallength, 3, 2, 5, 0, &
+                                          0, 0, 0, 0, 0, 0, 0, 0)
+                call fs_create_savepoint('step', ppser_savepoint)
+                call fs_write_kbuff(ppser_serializer, ppser_savepoint, 't', &
+                                        tslice, k=1, k_size=4, mode=ppser_get_mode())
+             end block
+             call abort_unexpected('kbuff-read-bad-registry')
+          else if (scenario == 'write-readonly-handle') then
+             ! A direct fs_write_field on a serializer opened read-only,
+             ! for a field the store has registered, must abort with the
+             ! friendly "opened read-only" lifecycle message (mirroring the
+             ! REGISTER sibling's guard) rather than a raw netCDF
+             ! permission error from the first write on the read-only
+             ! handle.
+             block
+                real(real64) :: u(3)
+                integer :: i
+                do i = 1, 3
+                   u(i) = real(i, real64)
+                end do
+                call write_store(out_dir, 'fwrdo', 0.0_real64)
+                call ppser_initialize(out_dir, 'fwrdo', 'r')
+                call fs_create_savepoint('step', ppser_savepoint)
+                call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u)
+             end block
+             call abort_unexpected('write-readonly-handle')
+          else if (scenario == 'write-logical-readonly-handle') then
+             ! The LOGICAL fs_write_field overload must abort with the same
+             ! friendly read-only lifecycle message the numeric template
+             ! does: logical fields land on disk through their own template
+             ! (preserf_write_field_logical.inc), so the read-only guard
+             ! has to live there too. Write a logical field, re-open the
+             ! store read-only, and write the field again — the read-only
+             ! handle must abort with the friendly message, not a raw
+             ! netCDF error from the int8 buffer's put_var.
+             block
+                logical :: lf(3)
+                lf = [.true., .false., .true.]
+                ! Build the store with a registered logical field.
+                call ppser_initialize(out_dir, 'flwrd', 'w')
+                call fs_register_field(ppser_serializer, 'flags', 'bool', 1, &
+                                            3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+                call fs_create_savepoint('step', ppser_savepoint)
+                call fs_write_field(ppser_serializer, ppser_savepoint, 'flags', lf)
+                call ppser_finalize()
+                ! Re-open read-only and write the field again.
+                call ppser_initialize(out_dir, 'flwrd', 'r')
+                call fs_create_savepoint('step', ppser_savepoint)
+                call fs_write_field(ppser_serializer, ppser_savepoint, 'flags', lf)
+             end block
+             call abort_unexpected('write-logical-readonly-handle')
+          else if (scenario == 'read-python-store') then
             ! Issue #68: reverse-direction wire-compat — Python writes a
             ! preserf store (tests/_support/storage.py write_dump), then the
             ! Fortran helper opens it READ-ONLY and reads the fields back.
@@ -3112,9 +3182,60 @@ contains
       call nc_must(nf90_def_dim(spid, 't_dim2', 4, di), 'def_dim t_dim2')
       call nc_must(nf90_def_var(spid, 't', NF90_DOUBLE, [di, dj, dk], tvid), &
                    'def_var sp_000000/t (float64, larger extent)')
-      call nc_must(nf90_put_var(spid, tvid, vals), 'put_var sp_000000/t')
-      call nc_must(nf90_close(ncid), 'nf90_close')
-   end subroutine build_kbuff_extent_mismatch_store
+       call nc_must(nf90_put_var(spid, tvid, vals), 'put_var sp_000000/t')
+       call nc_must(nf90_close(ncid), 'nf90_close')
+    end subroutine build_kbuff_extent_mismatch_store
+
+    !> Registry-mismatch counterpart for the k-buffer read path: a
+    !> schema-valid store whose `/_fields/t` registry records type_id
+    !> FLOAT64 and C-order dims [5,2,3] (Fortran shape [3,2,5] — a
+    !> trailing-axis disagreement with the call's full shape [3,2,4]) but
+    !> whose savepoints/sp_000000/t variable is FLOAT64 with exactly the
+    !> Fortran shape [3,2,4] the call's slice_shape + k_size produce. The
+    !> on-disk variable therefore agrees with the call, so the only check
+    !> that can reject the store is the /_fields registry consultation the
+    !> kbuff read path performs before kbuff_load_full (mirroring
+    !> validate_field_shape on the field read path).
+    subroutine build_kbuff_registry_mismatch_store(path)
+       use netcdf
+       character(len=*), intent(in) :: path
+       integer :: ncid, fgid, vid, spsid, spid, di, dj, dk, tvid
+       integer(int32) :: schema, tid_f64, idx0, reg_dims(3)
+       real(real64) :: vals(3, 2, 4)
+
+       schema = 1_int32        ! PRESERF_SCHEMA_VERSION
+       tid_f64 = 5_int32       ! TID_FLOAT64
+       idx0 = 0_int32
+       ! Registry dims are C-order (slowest-first): the trailing (slowest)
+       ! axis says 5 where the call's full Fortran shape [3,2,4] says 4, so
+       ! validate_field_shape's per-axis comparison is the rejection.
+       reg_dims = [5_int32, 2_int32, 3_int32]
+       vals = 1.0_real64
+
+       call nc_must(nf90_create(path, NF90_NETCDF4, ncid), 'nf90_create')
+       call nc_must(nf90_put_att(ncid, NF90_GLOBAL, '_preserf_schema_version', &
+                                 schema), 'put_att _preserf_schema_version')
+       call nc_must(nf90_def_grp(ncid, '_fields', fgid), 'def_grp _fields')
+       call nc_must(nf90_def_var(fgid, 't', NF90_INT, vid), 'def_var /_fields/t')
+       call nc_must(nf90_put_att(fgid, vid, 'type_id', tid_f64), 'put_att type_id')
+       call nc_must(nf90_put_att(fgid, vid, 'dims', reg_dims), 'put_att dims')
+       call nc_must(nf90_def_grp(ncid, 'savepoints', spsid), 'def_grp savepoints')
+       call nc_must(nf90_def_grp(spsid, 'sp_000000', spid), 'def_grp sp_000000')
+       call nc_must(nf90_put_att(spid, NF90_GLOBAL, '_preserf_savepoint_index', &
+                                 idx0), 'put_att _preserf_savepoint_index')
+       call nc_must(nf90_put_att(spid, NF90_GLOBAL, 'name', 'step'), 'put_att name')
+       ! Define dims in Fortran order (fastest-first) so the on-disk
+       ! variable shape exactly matches the call's full shape [3,2,4] —
+       ! the variable/table check inside kbuff_load_full passes, isolating
+       ! the registry rejection to the pre-load consultation.
+       call nc_must(nf90_def_dim(spid, 't_dim0', 4, dk), 'def_dim t_dim0')
+       call nc_must(nf90_def_dim(spid, 't_dim1', 2, dj), 'def_dim t_dim1')
+       call nc_must(nf90_def_dim(spid, 't_dim2', 3, di), 'def_dim t_dim2')
+       call nc_must(nf90_def_var(spid, 't', NF90_DOUBLE, [di, dj, dk], tvid), &
+                    'def_var sp_000000/t (float64, registry-mismatched)')
+       call nc_must(nf90_put_var(spid, tvid, vals), 'put_var sp_000000/t')
+       call nc_must(nf90_close(ncid), 'nf90_close')
+    end subroutine build_kbuff_registry_mismatch_store
 
    !> Abort the test build if a raw netCDF call in
    !> build_xtype_mismatch_store failed. Unchecked errors there could

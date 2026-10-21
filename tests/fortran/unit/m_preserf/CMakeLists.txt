@@ -390,3 +390,122 @@ preserf_scenario_test(NAME nan_metainfo_roundtrip SCENARIO nan-metainfo-roundtri
 # holds wrong values; the read must recover the reference values).
 preserf_scenario_test(NAME explicit_ref_tracer_kbuff SCENARIO explicit-ref-tracer-kbuff
     PASS "preserf-fortran: explicit-ref-tracer-kbuff OK")
+
+# The k-buffer read path must consult the /_fields registry before
+# kbuff_load_full (mirroring the field read path's validate_field_shape), so
+# a store whose registry and k-buffer variable disagree on shape is rejected
+# loudly on both read paths.
+preserf_scenario_test(NAME kbuff_read_bad_registry SCENARIO kbuff-read-bad-registry
+    PASS "runtime shape disagrees with registered dims")
+
+# A direct fs_write_field on a serializer opened read-only, for a field the
+# store has registered, must abort with the friendly read-only lifecycle
+# message (mirroring the REGISTER sibling's guard) rather than a raw netCDF
+# permission error from the first write on the read-only handle.
+preserf_scenario_test(NAME write_readonly_handle SCENARIO write-readonly-handle
+    PASS "in write mode but the serializer was opened read-only")
+
+# The LOGICAL fs_write_field overload must abort with the same friendly
+# read-only lifecycle message the numeric template does: logical fields land
+# on disk through their own template (preserf_write_field_logical.inc), so the
+# read-only guard has to live there too.
+preserf_scenario_test(NAME write_logical_readonly_handle SCENARIO write-logical-readonly-handle
+    PASS "in write mode but the serializer was opened read-only")
+
+# -----------------------------------------------------------------------------
+# Int8 (64-bit default-integer) variant build: the fs_Option boundary-guard
+# scenario.
+#
+# Under the normal int4 build no default-kind value can exceed
+# huge(0_int32), so fs_Option's int32 guard is unreachable there (the
+# repo documented that when the wire-cast guards landed; see the
+# CHANGELOG entry for the #81 wire-cast guard change). The int8 variant
+# compiles the same runtime sources with -fdefault-integer-8 so a
+# verbosity below the int32 lower bound (for example -2**40) is
+# representable and reaches the guard — the exact silent int64-to-int32
+# wrap path onto the wire attribute the guard exists to reject.
+#
+# The conda-forge netcdf-fortran is compiled with 4-byte default
+# integers, so the runtime sources cannot compile against its netcdf.mod
+# with the flag set (default-kind ID dummies mismatch the recorded
+# INTEGER(4) interfaces). netcdf_stub_i8.f90 provides the same names with
+# 8-byte default-integer dummies instead; its .mod shadows the conda one
+# for this build only. The stub's routines are no-ops returning
+# NF90_NOERR: the scenario aborts inside the guard before any netcdf call,
+# so no real store is needed.
+#
+# The stub's assumed-rank value dummies (class(*), dimension(..)) need
+# Fortran 2018, so this build uses -std=f2018 (the library proper stays
+# -std=f2008). The i8 flag mapping is GNU-only (-fdefault-integer-8);
+# the other supported compiler families have different spellings and
+# untested assumed-rank support, so the variant is skipped (mirroring
+# the e2e CLI-skip pattern: skip rather than hard-fail configure).
+if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
+    set(_PRESERF_I8_DIR ${CMAKE_CURRENT_BINARY_DIR}/int8-variant)
+
+    # The stub netcdf module: its netcdf.mod is the ONLY one on the i8
+    # library's include path, so `use netcdf` resolves to it there.
+    add_library(preserf_netcdf_stub_i8 OBJECT netcdf_stub_i8.f90)
+    set_target_properties(preserf_netcdf_stub_i8 PROPERTIES
+        Fortran_MODULE_DIRECTORY ${_PRESERF_I8_DIR}/stub-mods
+        POSITION_INDEPENDENT_CODE ON
+    )
+    target_compile_options(preserf_netcdf_stub_i8 PRIVATE
+        -std=f2018 -ffree-line-length-none -fdefault-integer-8)
+
+    # The int8 library: the SAME runtime sources compiled with the flag
+    # (plus its own stamped preserf_version module, whose module dir is
+    # separate from the normal library's so the two netcdf.mod files never
+    # collide).
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/preserf/fortran/preserf_version.f90.in
+        ${_PRESERF_I8_DIR}/preserf_version.f90 @ONLY)
+    add_library(preserf_fortran_i8 STATIC
+        ${_PRESERF_I8_DIR}/preserf_version.f90
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/preserf/fortran/utils_preserf.f90
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/preserf/fortran/m_preserf.F90
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/preserf/fortran/m_serialize.f90
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../../src/preserf/fortran/utils_ppser.f90
+    )
+    set_target_properties(preserf_fortran_i8 PROPERTIES
+        Fortran_MODULE_DIRECTORY ${_PRESERF_I8_DIR}/lib-mods
+        POSITION_INDEPENDENT_CODE ON
+    )
+    target_include_directories(preserf_fortran_i8 PRIVATE
+        ${_PRESERF_I8_DIR}/stub-mods)
+    target_compile_options(preserf_fortran_i8 PRIVATE
+        -std=f2018 -ffree-line-length-none -fdefault-integer-8 -cpp)
+    # Absorb the stub's object code so the library carries the no-op
+    # netcdf symbols its compiled calls reference.
+    target_link_libraries(preserf_fortran_i8 PRIVATE preserf_netcdf_stub_i8)
+
+    # The scenario executable.
+    add_executable(preserf_fortran_test_i8 test_option_i8.f90)
+    set_target_properties(preserf_fortran_test_i8 PROPERTIES
+        Fortran_MODULE_DIRECTORY ${_PRESERF_I8_DIR}/test-mods
+    )
+    target_include_directories(preserf_fortran_test_i8 PRIVATE
+        ${_PRESERF_I8_DIR}/lib-mods)
+    target_compile_options(preserf_fortran_test_i8 PRIVATE
+        -std=f2018 -ffree-line-length-none -fdefault-integer-8)
+    target_link_libraries(preserf_fortran_test_i8 PRIVATE preserf_fortran_i8)
+
+    # The scenario run: like every other scenario it gets its own output
+    # directory via a ctest fixture, asserts the guard's abort message via
+    # PASS_REGULAR_EXPRESSION, and fails (via the non-matching FAILED line
+    # the program prints on a clean exit) if the guard silently accepts.
+    set(_PRESERF_I8_SCENARIO_DIR "${_PRESERF_TEST_OUTPUT_ROOT}/option-bad-verbosity-i8")
+    add_test(NAME preserf_fortran_option_bad_verbosity_i8_setup
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_PRESERF_I8_SCENARIO_DIR})
+    set_tests_properties(preserf_fortran_option_bad_verbosity_i8_setup PROPERTIES
+        FIXTURES_SETUP preserf_fortran_option_bad_verbosity_i8_dir)
+    add_test(NAME preserf_fortran_option_bad_verbosity_i8
+        COMMAND $<TARGET_FILE:preserf_fortran_test_i8> "${_PRESERF_I8_SCENARIO_DIR}")
+    set_tests_properties(preserf_fortran_option_bad_verbosity_i8 PROPERTIES
+        FIXTURES_REQUIRED preserf_fortran_option_bad_verbosity_i8_dir
+        PASS_REGULAR_EXPRESSION "exceeds int32 capacity"
+        TIMEOUT 60)
+else()
+    message(STATUS
+        "preserf: int8 variant build skipped (needs -fdefault-integer-8 and "
+        "F2018 assumed-rank support; GNU only)")
+endif()

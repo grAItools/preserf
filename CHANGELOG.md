@@ -493,6 +493,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `src/preserf/fortran` (runtime): both private `require_fits_int32`
+  guards now check both bounds, so a below-the-lower-bound value (for
+  example a `fs_Option` verbosity of −2⁴⁰ under a 64-bit default-integer
+  build) aborts with the shared guard's message instead of silently
+  wrapping onto the wire attribute; the k-buffer read path consults the
+  `/_fields` registry before loading (mirroring the field read path), so
+  a store whose registry and variable disagree is rejected loudly on
+  both read paths; and `fs_write_field` on a read-only serializer aborts
+  with the friendly lifecycle message instead of a raw netCDF permission
+  error.
+
 - `preserf` CLI: operating-system errors raised while collecting input
   files (an unreadable directory during a `--recursive` walk) now surface as
   the one-line `preserf:` diagnostic with exit 1 instead of an unhandled

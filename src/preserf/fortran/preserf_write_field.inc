@@ -21,6 +21,19 @@ subroutine PRESERF_SUB(s, sp, fieldname, data)
    ! the same body covers 0-D through 4-D: validate, create the
    ! dims/variable, and write.
    call validate_field_shape(s, fieldname, shape(data), PRESERF_TID, 'write')
+   ! The write entry points on a read-only serializer abort with the same
+   ! friendly lifecycle message the REGISTER sibling's guard produces,
+   ! rather than a raw netCDF permission error from the first define/put
+   ! on the read-only handle. Placed after validate_field_shape so the
+   ! unregistered-field abort (which the read-mode write scenarios pin)
+   ! keeps its message, and before the first define so a registered
+   ! field on a read-only handle never reaches netCDF.
+   if (.not. s%writable) then
+      write (error_unit, '(a,a,a)') &
+         'preserf: DATA of field "', trim(fieldname), &
+         '" in write mode but the serializer was opened read-only'
+      error stop 1
+   end if
    call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
    call ensure_variable(sp%grpid, fieldname, PRESERF_NCTYPE, dimids, varid)
    ncerr = nf90_put_var(sp%grpid, varid, data)
