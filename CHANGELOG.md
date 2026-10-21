@@ -491,6 +491,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   from the serialization module (`m_serialize`) instead of `utils_ppser`,
   which only re-exports `utils_preserf` — the generated Fortran previously
   did not compile against the bundled runtime.
+- `src/preserf/preprocessor.py`: the standalone-subprogram lookahead now
+  consumes only `&`-prefixed lines and lands the injected `USE` block after
+  the completed header, so comments or blank lines between the continuation
+  lines no longer drop the continuation or displace the `USE` block into the
+  middle of the signature (or past `implicit none`).
+- `src/preserf/preprocessor.py`: `INTENT(IN)` stripping is attribute-order
+  independent and quote/depth-aware — `integer, intent(in), dimension(:) ::`
+  and `dimension(lbound(a,1):)` colons strip exactly as the reverse order,
+  and a quoted `!` (e.g. `len("!")`) no longer breaks the gate.
+- `src/preserf/preprocessor.py`: directive recognition precedes intent
+  scanning, so a trailing comment mentioning `intent(in) :: <field>` no
+  longer wraps a `!$SER DATA` directive in a spurious `#ifdef`/`#else`
+  block, and computed (write-only) `DATA` values are exempt from
+  intent-removal recording so their declarations are left untouched.
 - `INTENT(IN)` stripping for read-mode fields now matches declarations
   case-insensitively (a directive value `x` and a declaration of `X` name
   the same Fortran entity) and tolerates whitespace inside the qualifier

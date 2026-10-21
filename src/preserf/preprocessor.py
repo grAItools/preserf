@@ -143,12 +143,11 @@ _SUBPROG_HEAD = (
 _RE_SUBPROG = re.compile(_SUBPROG_HEAD, re.IGNORECASE)
 _RE_SUBPROG_CONT = re.compile(_SUBPROG_HEAD + r"([^!]*)&", re.IGNORECASE)
 _RE_CONTINUED = re.compile(r"^([^!]*)&")
-_RE_INTENT_IN = re.compile(
-    r".*intent\s*\(\s*in\s*\)[^:]*::\s*([^!]*)\s*.*", re.IGNORECASE
-)
-_RE_INTENT_IN_CONT = re.compile(
-    r".*intent\s*\(\s*in\s*\)[^:]*::\s*([^!]*)\s*.*&", re.IGNORECASE
-)
+# Bare INTENT(IN) qualifier detector: linear, unambiguous -- the
+# qualifier-to-`::` span and the separator itself are handled
+# procedurally (depth- and quote-aware) in _scan_intent_in so legal
+# attribute orders never depend on regex backtracking.
+_RE_INTENT_QUALIFIER = re.compile(r"intent\s*\(\s*in\s*\)", re.IGNORECASE)
 _RE_INTENT_IN_SUB = re.compile(r",\s*intent\s*\(\s*in\s*\)", re.IGNORECASE)
 _RE_TRACER = re.compile(
     r"^([a-zA-Z_0-9]+|\$[a-zA-Z_0-9()]+(?:-[a-zA-Z_0-9()]+)?|%all)"
@@ -244,6 +243,134 @@ def _strip_subscript(text: str) -> str:
     return text if idx < 0 else text[:idx]
 
 
+def _is_code_line(line: str) -> bool:
+    """Whether ``line`` is Fortran code rather than a comment or blank.
+
+    A blank line or a line whose first nonblank character is ``!`` is not
+    code: it cannot complete a continued statement, so a deferred USE
+    injection must keep waiting for a genuine code line.
+    """
+    stripped = line.lstrip()
+    return bool(stripped) and not stripped.startswith("!")
+
+
+def _strip_comments(text: str) -> str:
+    """Strip trailing comments from every line of ``text`` (quote-aware).
+
+    A ``!`` inside a single- or double-quoted string is not a comment
+    delimiter (``dimension(len("!"))`` survives intact); each line is
+    stripped independently so a multi-line chunk keeps its structure.
+    """
+    return "\n".join(_strip_trailing_comment(line) for line in text.split("\n"))
+
+
+def _find_sep(text: str) -> int:
+    """Index of the first top-level ``::`` separator in ``text``, or -1.
+
+    "Top level" means paren depth zero, and quoted string literals are
+    skipped entirely: a parenthesis or colon inside ``'...'`` /
+    ``"..."`` (an assumed-shape lower bound like
+    ``dimension(lbound(a,1):)`` or a kind spec such as ``len("(")``)
+    does not participate in depth counting or separator detection.
+    """
+    depth = 0
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "'" or ch == '"':
+            # Skip the quoted literal; a doubled quote is an escape.
+            quote = ch
+            i += 1
+            while i < n:
+                if text[i] == quote:
+                    if i + 1 < n and text[i + 1] == quote:
+                        i += 2
+                        continue
+                    break
+                i += 1
+            i += 1
+            continue
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            if depth > 0:
+                depth -= 1
+        elif ch == ":" and depth == 0 and text[i + 1 : i + 2] == ":":
+            return i
+        i += 1
+    return -1
+
+
+def _continues(line: str) -> bool:
+    """Whether ``line`` continues onto the next (a trailing ``&``).
+
+    The check is comment-stripped and quote-aware, so a ``&`` inside a
+    trailing comment or a string literal does not mark a continuation.
+    """
+    return _strip_comments(line).rstrip().endswith("&")
+
+
+def _string_spans(text: str) -> list[tuple[int, int]]:
+    """Spans ``(start, end)`` of quoted Fortran string literals in ``text``.
+
+    A doubled quote inside a literal is an escape, not a terminator. The
+    spans mark the opaque data regions the preprocessor's regex
+    machinery (qualifier detection, intent substitution) must never
+    match or modify.
+    """
+    spans: list[tuple[int, int]] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "'" or ch == '"':
+            start = i
+            i += 1
+            while i < n:
+                if text[i] == ch:
+                    if i + 1 < n and text[i + 1] == ch:
+                        i += 2
+                        continue
+                    break
+                i += 1
+            spans.append((start, min(i + 1, n)))
+        i += 1
+    return spans
+
+
+def _mask_strings(text: str) -> str:
+    """Blank out quoted string literals, keeping length and positions.
+
+    Fortran literals are opaque data: an ``intent(in)`` occurrence
+    inside ``'...'`` / ``"..."`` is TEXT, not a qualifier, so the
+    qualifier gate must search a masked copy where literal content
+    cannot match.
+    """
+    chars = list(text)
+    for start, end in _string_spans(text):
+        for k in range(start, end):
+            chars[k] = "\x00"
+    return "".join(chars)
+
+
+def _sub_outside_strings(text: str, pattern: re.Pattern[str], repl: str) -> str:
+    """Apply ``pattern.sub(repl, ...)`` only to code outside string literals.
+
+    The substitution must never modify content inside a literal, so
+    each quoted span is carried through verbatim and only the
+    intervening code runs are rewritten.
+    """
+    out: list[str] = []
+    pos = 0
+    for start, end in _string_spans(text):
+        out.append(pattern.sub(repl, text[pos:start]))
+        out.append(text[start:end])
+        pos = end
+    out.append(pattern.sub(repl, text[pos:]))
+    return "".join(out)
+
+
 def _ser_continuation(line: str) -> str | None:
     """Return the accumulated directive text if ``line`` continues, else ``None``.
 
@@ -317,6 +444,10 @@ class Preprocessor:
         self._output: list[str] = []
         self._use_stmt_in_module = False
         self._skip_lines = 0
+        # True between a `&`-continued standalone subprogram header and
+        # the code line that completes it: the USE injection is deferred
+        # so intervening comments/blanks flow through untouched.
+        self._pending_use_stmt = False
 
         # Fields named by DATA/ACCDATA/DATA_KBUFF whose INTENT(IN) must be
         # stripped so read-mode can assign into them. Populated during the
@@ -347,6 +478,7 @@ class Preprocessor:
         self._output = []
         self._skip_lines = 0
         self._use_stmt_in_module = False
+        self._pending_use_stmt = False
 
     def _parse(self, *, generate: bool) -> None:
         if self.options.acc_prefix:
@@ -397,12 +529,28 @@ class Preprocessor:
             self._output.append(self._line)
 
     def _lex(self, *, final: bool = False) -> None:
+        # A deferred USE injection (a `&`-continued standalone subprogram
+        # header) fires on the code line that completes the statement:
+        # comments, blanks and intermediate continuation lines keep
+        # flowing through the normal per-line dispatch untouched, and the
+        # block lands after the completed signature, never inside it.
+        completes_header = (
+            self._pending_use_stmt
+            and _is_code_line(self._line)
+            and not _continues(self._line)
+        )
         self._scan_module()
         self._scan_subprogram()
         self._scan_endmodule()
+
+        # Directive recognition precedes intent scanning: a ``!$SER``
+        # line must expand before the declaration scanner can wrap it,
+        # and a trailing comment mentioning ``intent(in) ::`` must never
+        # satisfy the scanner's ``::`` gate.
+        scanned = self._scan_ser()
         self._scan_intent_in()
 
-        if self._scan_ser():
+        if scanned:
             if self.options.ifdef and not self._in_ser:
                 self._line = f"#ifdef {self.options.ifdef}\n" + self._line
                 self._in_ser = True
@@ -410,7 +558,17 @@ class Preprocessor:
             self._line = "#endif\n" + self._line
             self._in_ser = False
 
+        if completes_header:
+            self._emit_use_stmt()
+            self._pending_use_stmt = False
+
         if final:
+            if self._pending_use_stmt:
+                # A `&`-continued header that never completed (dangling
+                # at end of file): flush the deferred injection so the
+                # USE block is not lost.
+                self._emit_use_stmt()
+                self._pending_use_stmt = False
             if self._in_ser:
                 raise self._error(
                     msg=f"Unterminated #ifdef {self.options.ifdef} encountered"
@@ -443,19 +601,31 @@ class Preprocessor:
         if not _RE_SUBPROG_CONT.search(self._line):
             self._emit_use_stmt()
             return
-        # Continued header: pull in continuation lines so the USE block
-        # lands after the full signature.
+        # Continued header: consume only the `&`-prefixed continuation
+        # lines here; any other line (comment, blank) ends this run and
+        # flows through the normal per-line dispatch untouched. The USE
+        # injection lands after the completed signature -- right here
+        # when the consumed run already closed the statement (e.g. a
+        # leading-`&` final continuation), otherwise on the code line
+        # that completes it later.
+        self._pending_use_stmt = True
         lookahead = self._lineno  # 0-based index of the line after current
         while lookahead < len(self._lines) and _RE_CONTINUED.search(
             self._lines[lookahead]
         ):
             self._line += self._lines[lookahead]
             lookahead += 1
-        if lookahead < len(self._lines):
-            self._line += self._lines[lookahead]
-            lookahead += 1
+            if not _continues(self._line):
+                # The header statement closed on this line (e.g. a
+                # leading-`&` final continuation): stop consuming --
+                # anything after is body, not part of the signature,
+                # and a subsequent `&`-continued declaration must not be
+                # swallowed into the header run.
+                break
         self._skip_lines = lookahead - self._lineno
-        self._emit_use_stmt()
+        if not _continues(self._line):
+            self._emit_use_stmt()
+            self._pending_use_stmt = False
 
     def _scan_endmodule(self) -> None:
         m = _RE_ENDMODULE.search(self._line)
@@ -475,27 +645,39 @@ class Preprocessor:
         self._use_stmt_in_module = False
 
     def _scan_intent_in(self) -> None:
-        """Strip ``INTENT(IN)`` from declarations of fields read back by DATA.
+        """Strip ``INTENT IN`` from declarations of fields read back by DATA.
 
-        Read mode assigns into the field variables, so their ``INTENT(IN)``
+        Read mode assigns into the field variables, so their ``INTENT IN``
         qualifier must be removed when serialization is active. The
         declaration's first line is wrapped in an ``#ifdef``/``#else`` pair
         carrying the qualifier-free and original forms; when guards are
         disabled the qualifier is dropped unconditionally instead.
         """
-        if not self.intentin_to_remove or "::" not in self._line:
+        if not self.intentin_to_remove:
             return
-        if not _RE_INTENT_IN.search(self._line):
+        # Quote-aware comment stripping first: a ``!`` inside a string
+        # literal (``dimension(len("!"))``) is not a comment delimiter,
+        # and comment text mentioning ``intent(in) :: <field>`` can
+        # never satisfy the gate. The separator is found depth-aware so
+        # a colon inside parentheses (an assumed-shape lower bound like
+        # ``dimension(lbound(a,1):)``) does not terminate the span.
+        code = _strip_comments(self._line)
+        sep = _find_sep(code)
+        # The qualifier gate searches a masked copy of the attribute
+        # list: an ``intent(in)`` occurrence inside a quoted string
+        # literal is TEXT (data), not a qualifier, so the declaration
+        # must be left alone -- the literal must remain unchanged.
+        if sep < 0 or not _RE_INTENT_QUALIFIER.search(_mask_strings(code[:sep])):
             return
 
-        rhs = re.sub(r"!.*", "", self._line.split("::", 1)[1])
+        rhs = code[sep + 2 :]
         declared = self._declared_names(rhs)
-        if _RE_INTENT_IN_CONT.search(self._line):
+        if _continues(self._line):
             # Continued declaration: gather names off the continuation lines.
             idx = self._lineno
             while idx < len(self._lines):
                 physical = self._lines[idx]
-                declared |= self._declared_names(re.sub(r"!.*", "", physical))
+                declared |= self._declared_names(_strip_comments(physical))
                 if "&" not in physical:
                     break
                 idx += 1
@@ -509,7 +691,9 @@ class Preprocessor:
         ]
         if not matched:
             return
-        stripped = _RE_INTENT_IN_SUB.sub("", self._line)
+        # The substitution never touches content inside string literals
+        # (a literal is opaque data): only the code runs are rewritten.
+        stripped = _sub_outside_strings(self._line, _RE_INTENT_IN_SUB, "")
         if not self.options.ifdef:
             # Guards disabled: serialization is always active, so drop the
             # INTENT(IN) qualifier unconditionally rather than emitting an
@@ -1057,6 +1241,12 @@ class Preprocessor:
     def _track_intentin(self, values: list[str]) -> None:
         """Record DATA value variables whose INTENT(IN) must later be stripped."""
         for value in values:
+            if _is_computed(value):
+                # Computed (write-only) values are never assigned in
+                # read mode, so their INTENT(IN) never needs stripping;
+                # recording them needlessly strips the qualifier in the
+                # serialize branch of inputs that compile either way.
+                continue
             base = _strip_subscript(value.replace(" ", ""))
             if base not in self.intentin_to_remove:
                 self.intentin_to_remove.append(base)
