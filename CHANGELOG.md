@@ -531,6 +531,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `reviewer`), the `/build` command, and `docs/tool-bootstrap.md`;
   adopts Conventional Commits (`commit_convention`) with squash-merge
   PR titles, documented in [`dev/style.md`](dev/style.md#commit-messages).
+- `pyproject.toml` deselects the `packaging`-marked wheel/sdist
+  construction tests from the default pytest run
+  (`-m 'not consumer and not packaging'`, mirroring `consumer`);
+  `pixi run test-packaging` re-selects them and is wired into `verify`
+  and `test-all` so the artifact builds stay gated end to end.
+- `preserf` CLI: non-UTF-8 input bytes — and an undecodable
+  `--ignore-identical` comparison target — now fail with a one-line
+  `preserf:` diagnostic naming the offending file instead of an
+  unhandled traceback.
+- `tests/unit_tests/test_cli.py`: parametrized boundary tests pin the
+  defined outcomes for empty, CRLF-terminated, and non-UTF-8 input
+  files (line-structure preservation included).
+- `dev/testing.md` and the wire-compat docstring: stale sub-second
+  fast-loop claims corrected to the measured numbers.
 
 ### Fixed
 

@@ -9,7 +9,10 @@
   test). On a cold tree the
   Fortran configure+build adds ~15s; warm runs settle at <6s.
 - **Fast loop:** `pixi run test-py` (or `pixi run test-py-unit` for the
-  Python unit slice only) — currently completes in <1s and must stay <60s.
+  Python unit slice only) — currently completes in ~2.5s and must stay
+  <60s. Wheel/sdist artifact construction is deselected from this run
+  (`packaging` marker) and runs in the dedicated
+  `pixi run test-packaging` lane, which `verify` gates.
 - **Cross-language slice:** `pixi run test-py-integration` — requires the
   Fortran binary to be built first (`pixi run build-fortran`). Skips
   cleanly without it by default; CI forces a hard failure via the env
@@ -25,9 +28,15 @@
   `find_package`. Deselected from `verify` (slow) but run in CI as a
   separate step with `PRESERF_REQUIRE_FORTRAN=1`. Also included in
   `test-all`.
+- **Packaging slice:** `pixi run test-packaging` — builds the real
+  wheel/sdist via `python -m build` and asserts the Fortran runtime and
+  CMake helper ship in both. Deselected from the default `test-py` run
+  (slow) but wired into `verify`, so the artifact-build tests stay gated
+  end to end despite the deselection.
 - **Everything-at-once (slow, not in `verify`):** `pixi run test-all` —
-  `test-py-with-fortran` + `test-examples` + `test-consumer`. Pixi's
-  `depends-on` siblings may run in parallel, so `test-all` deliberately
+  `test-py-with-fortran` + `test-examples` + `test-consumer` +
+  `test-packaging`. Pixi's `depends-on` siblings may run in parallel, so
+  `test-all` deliberately
   chains through `test-py-with-fortran` (which itself depends on
   `test-fortran`) rather than listing the build/ctest/pytest tasks as
   parallel siblings — otherwise pytest could start before the Fortran
@@ -59,8 +68,10 @@ into three layers:
     `build/preserf-fortran/unit/m_preserf/` plus the per-config subdirs
     that multi-config CMake generators produce.
   - `test_preprocessor_e2e.py` — end-to-end preprocessor pipeline test.
-  - `test_packaging_distribution.py` — asserts the wheel ships the
-    Fortran runtime sources and CMake helper.
+  - `test_packaging_distribution.py` — asserts the wheel and sdist ship
+    the Fortran runtime sources and CMake helper. The artifact-build
+    tests are `packaging`-marked, deselected from the default run, and
+    gated by `pixi run test-packaging` (wired into `verify`).
   - `test_external_consumer.py` / `test_install_find_package.py` —
     `@pytest.mark.consumer` tests that compile a real project against the
     bundled runtime; deselected from `verify` but run by `test-consumer`

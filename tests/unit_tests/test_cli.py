@@ -298,3 +298,81 @@ def test_cli_real_flag(tmp_path: Path) -> None:
     # --real sets the real kind parameter the ZERO directive emits.
     out = _run_source(tmp_path, _FLAG_SOURCE, "--real", "wp")
     assert "fld = 0.0_wp" in out
+
+
+# --- boundary-input robustness -------------------------------------------
+#
+# Degenerate input files must never surface as unhandled tracebacks: each
+# either preprocesses to a defined output or fails with the one-line
+# ``preserf:`` diagnostic (exit 1). The only exception the CLI may raise
+# on this path is its own clean exit (a ``SystemExit``).
+
+
+@pytest.mark.parametrize(
+    ("case_id", "payload", "expected_exit", "expected_text"),
+    [
+        pytest.param(
+            "empty-file",
+            b"",
+            0,
+            "#define ACC_PREFIX !$acc\n",
+            id="empty-file",
+        ),
+        pytest.param(
+            "crlf-source",
+            b"module m\r\n!$SER ON\r\nend module m\r\n",
+            0,
+            "call fs_enable_serialization()",
+            id="crlf-source",
+        ),
+        pytest.param(
+            "non-utf-8",
+            b"module m\n!$SER ON\nend module m\n\xff\xfe\n",
+            1,
+            "preserf:",
+            id="non-utf-8",
+        ),
+    ],
+)
+def test_cli_boundary_inputs(
+    tmp_path: Path,
+    case_id: str,
+    payload: bytes,
+    expected_exit: int,
+    expected_text: str,
+) -> None:
+    src = tmp_path / f"{case_id}.f90"
+    src.write_bytes(payload)
+    result = runner.invoke(app, [str(src)])
+    assert result.exit_code == expected_exit
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    captured = result.stdout if expected_exit == 0 else result.stderr
+    assert expected_text in captured
+    if expected_exit != 0:
+        # The diagnostic is exactly one physical line: no wrap, no
+        # second diagnostic line.
+        assert len(result.stderr.splitlines()) == 1
+    if case_id == "crlf-source":
+        # Directive line structure survives intact: each source line and
+        # the expanded directive call land on their own physical output
+        # line, and CRLF normalizes to LF (no stray carriage returns).
+        lines = result.stdout.splitlines()
+        assert "module m" in lines
+        assert "call fs_enable_serialization()" in lines
+        assert "end module m" in lines
+        assert "\r" not in result.stdout
+
+
+def test_ignore_identical_names_undecodable_destination(tmp_path: Path) -> None:
+    # A corrupt existing output (non-UTF-8 bytes) compared under
+    # --ignore-identical must be blamed on itself in the one-line
+    # diagnostic, not on the valid input.
+    src = tmp_path / "in.f90"
+    src.write_text(_SOURCE)
+    dst = tmp_path / "out.f90"
+    dst.write_bytes(b"\xff\xff")
+    result = runner.invoke(app, [str(src), "-o", str(dst), "-i"])
+    assert result.exit_code == 1
+    assert str(dst) in result.stderr
+    assert str(src) not in result.stderr
+    assert len(result.stderr.splitlines()) == 1

@@ -90,11 +90,14 @@ warn_unused_configs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# The external-consumer test compiles and runs a real project against the
-# bundled runtime — too slow for the fast `verify` gate. Deselect it by
-# default; `pixi run test-consumer` (part of `test-all`) re-selects it with
-# `-m consumer`, which overrides this default expression.
-addopts = "-m 'not consumer'"
+# Slow, artifact-constructing suites are deselected from the default run:
+# the external-consumer test compiles and runs a real project against the
+# bundled runtime, and the packaging tests build real wheel/sdist
+# artifacts via `python -m build`. `pixi run test-consumer` /
+# `pixi run test-packaging` re-select them with `-m consumer` /
+# `-m packaging`, overriding this default expression.
+addopts = "-m 'not consumer and not packaging'"
 markers = [
   "consumer: end-to-end build of an external project against the bundled runtime (slow)",
+  "packaging: wheel/sdist artifact construction via python -m build (slow)",
 ]
