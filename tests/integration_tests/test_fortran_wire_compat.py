@@ -643,8 +643,7 @@ def test_fortran_string_array_metainfo_python_reads(
     try:
         tags_attr = raw.getncattr("tags")
         assert not isinstance(tags_attr, str), (
-            "tags must be an NC_STRING vector (a sequence of strings), "
-            "not NC_CHAR text"
+            "tags must be an NC_STRING vector (a sequence of strings), not NC_CHAR text"
         )
         assert [str(v) for v in tags_attr] == ["atmosphere", "ocean", "land"]
         assert int(raw.getncattr("tags__preserf_type_id")) == 0x10 | 6
