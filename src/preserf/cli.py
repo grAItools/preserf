@@ -125,12 +125,14 @@ def _output_path(
 
 def _process_file(
     source: Path, destination: Path | None, options: Options, ignore_identical: bool
-) -> bool:
-    """Preprocess ``source``; return True if a file was (re)written."""
+) -> Path | None:
+    """Preprocess ``source``; return the destination written, or ``None``
+    when the result went to stdout or was skipped as identical.
+    """
     result = Preprocessor(str(source), source.read_text(), options).process()
     if destination is None:
         sys.stdout.write(result)
-        return False
+        return None
     if ignore_identical and destination.is_file():
         try:
             existing = destination.read_text()
@@ -140,10 +142,10 @@ def _process_file(
             # arm, which prints the message verbatim.
             raise OSError(f"{destination}: {exc}") from exc
         if existing == result:
-            return False
+            return None
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(result)
-    return True
+    return destination
 
 
 @app.command()
@@ -320,7 +322,7 @@ def main(
             # of an unhandled traceback.
             raise _fail(f"{source}: {exc}") from exc
         if wrote:
-            written.append(destination)
+            written.append(wrote)
 
     for dest in written:
         _err.print(f"[green]wrote[/] {escape(str(dest))}")
