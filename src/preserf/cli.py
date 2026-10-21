@@ -1,5 +1,6 @@
 """Command-line interface for the preserf preprocessor."""
 
+import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -40,9 +41,16 @@ def _fail(message: str) -> typer.Exit:
     return typer.Exit(1)
 
 
+def _warn(message: str) -> None:
+    """Print a one-line warning to stderr; processing continues."""
+    _err.print(f"[bold yellow]preserf:[/] {escape(message)}", soft_wrap=True)
+
+
 def _version_callback(value: bool) -> None:
     if value:
-        Console().print(f"preserf {__version__}")
+        # Same bare-print rationale as the path callbacks below: no
+        # width-based wrapping, so command substitution stays clean.
+        print(f"preserf {__version__}")
         raise typer.Exit()
 
 
@@ -66,6 +74,20 @@ def _is_fortran(path: Path) -> bool:
     return path.suffix.lower() in _FORTRAN_SUFFIXES
 
 
+def _require_readable_tree(root: Path) -> None:
+    """Abort with a named path when any directory under ``root`` is unreadable.
+
+    ``rglob`` silently prunes directories it cannot list, so an unreadable
+    subtree would otherwise drop its files without any diagnostic.
+    """
+
+    def _raise(err: OSError) -> None:
+        raise err
+
+    for _dirpath, _dirnames, _filenames in os.walk(root, onerror=_raise):
+        pass
+
+
 def _collect(sources: list[Path], recursive: bool) -> list[Path]:
     """Resolve CLI inputs to a flat list of Fortran source files.
 
@@ -76,10 +98,13 @@ def _collect(sources: list[Path], recursive: bool) -> list[Path]:
         if path.is_dir():
             if not recursive:
                 raise ValueError(f"{path} is a directory (use --recursive)")
+            _require_readable_tree(path)
             files.extend(
                 sorted(p for p in path.rglob("*") if p.is_file() and _is_fortran(p))
             )
         else:
+            if not _is_fortran(path):
+                _warn(f"{path} does not look like Fortran source")
             files.append(path)
     # Overlapping inputs (a directory and a subdirectory of it, symlinks,
     # ".." segments) can name the same file; de-duplicate by resolved
@@ -97,26 +122,33 @@ def _output_path(
     recursive: bool,
     roots: list[Path],
 ) -> Path | None:
-    """Destination for ``source``, or ``None`` to write to stdout."""
+    """Destination for ``source``, or ``None`` to write to stdout.
+
+    ``roots`` holds the input directory roots, already filtered to
+    directories by the caller; a non-directory argument can never be an
+    ancestor of a collected file.
+    """
     if output is not None:
         return output
     if output_dir is None:
         return None
     if recursive:
         for root in roots:
-            if root.is_dir() and root in source.parents:
+            if root in source.parents:
                 return output_dir / source.relative_to(root)
     return output_dir / source.name
 
 
 def _process_file(
     source: Path, destination: Path | None, options: Options, ignore_identical: bool
-) -> bool:
-    """Preprocess ``source``; return True if a file was (re)written."""
+) -> Path | None:
+    """Preprocess ``source``; return the destination written, or ``None``
+    when the result went to stdout or was skipped as identical.
+    """
     result = Preprocessor(str(source), source.read_text(), options).process()
     if destination is None:
         sys.stdout.write(result)
-        return False
+        return None
     if ignore_identical and destination.is_file():
         try:
             existing = destination.read_text()
@@ -126,10 +158,10 @@ def _process_file(
             # arm, which prints the message verbatim.
             raise OSError(f"{destination}: {exc}") from exc
         if existing == result:
-            return False
+            return None
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(result)
-    return True
+    return destination
 
 
 @app.command()
@@ -274,15 +306,19 @@ def main(
 
     try:
         files = _collect(sources, recursive)
-    except ValueError as exc:
+        dir_roots = [root for root in sources if root.is_dir()]
+    except (ValueError, OSError) as exc:
         raise _fail(str(exc)) from exc
 
     if output is not None and len(files) > 1:
         raise _fail("--output requires a single input file")
 
+    if output is None and output_dir is None and len(files) > 1:
+        raise _fail("multiple inputs require --output or --output-dir")
+
     written: list[Path] = []
     for source in files:
-        destination = _output_path(source, output, output_dir, recursive, sources)
+        destination = _output_path(source, output, output_dir, recursive, dir_roots)
         try:
             wrote = _process_file(source, destination, options, ignore_identical)
         except DirectiveError as exc:
@@ -301,8 +337,8 @@ def main(
             # Undecodable input bytes fail as a one-line diagnostic instead
             # of an unhandled traceback.
             raise _fail(f"{source}: {exc}") from exc
-        if wrote and destination is not None:
-            written.append(destination)
+        if wrote:
+            written.append(wrote)
 
     for dest in written:
         _err.print(f"[green]wrote[/] {escape(str(dest))}")
