@@ -468,7 +468,7 @@ regular field arguments; they are appended as named parameters to each call.
 | `CPU`          | `0`           |
 | `GPU`          | `1`           |
 
-If the mode argument matches one of these predefined names (case-sensitive),
+If the mode argument matches one of these predefined names (case-insensitive),
 its numeric value is substituted. Otherwise the argument is passed through
 verbatim (assumed to be a Fortran variable or expression).
 
@@ -605,10 +605,10 @@ Any other type value (e.g., a variable like `fs_realtype`) is passed through
 as the type string directly and is used as-is for both the type and length
 parameters.
 
-Wait — looking more carefully at the code: when the type is `integer` or
-`real`, `dirs[1]` is replaced by a **two-element** list `[type_string, length_var]`.
-For other values, the single value is kept, meaning only the type is provided
-and the length/size parameters come from the subsequent positional arguments.
+When the type is `integer` or `real`, `dirs[1]` is replaced by the two-element
+list `[type_string, length_var]`, while for any other value the single value
+is kept, so only the type is provided and the length/size parameters come from
+the subsequent positional arguments.
 
 **Dimension Shortcuts**: If the third positional argument (after type
 expansion) matches one of the predefined shortcut codes, it is expanded into
@@ -633,8 +633,8 @@ expansion) matches one of the predefined shortcut codes, it is expanded into
 | `IJK`     | `ie je ke 0 nboundlines nboundlines nboundlines nboundlines 0 0 0 0`  |
 | `IJK1`    | `ie je ke1 0 nboundlines nboundlines nboundlines nboundlines 0 1 0 0` |
 
-Shortcut matching regex: `^($|[IJK][IJK1-9]*)` (case-insensitive after
-uppercasing).
+Shortcut matching is an exact table lookup: the token is upper-cased and
+must exactly match one of the predefined shortcut codes listed above.
 
 If the third argument is not a recognized shortcut, all dimension arguments
 are passed through verbatim.
@@ -991,6 +991,10 @@ output:
 | `output_file` | `-o`                 | `''`          | Explicit output file path (single file mode).                                     |
 | `recursive`   | `-r`                 | `False`       | Recursively process source directories, mirroring the tree.                       |
 
+> **preserf note**: the `verbose` and `identical` rows above are upstream-only —
+> preserf has no verbose option, and identical-output skipping is an opt-in CLI
+> flag (`--ignore-identical`) rather than a preprocessor option.
+
 ---
 
 ## 7. Error Conditions
@@ -1015,6 +1019,10 @@ The preprocessor reports errors and terminates for the following conditions:
 | Mismatched end module/program name         | `Was expecting "end module/program <name>"`               |
 | Unexpected end module/program              | `Unexpected "end module/program" statement`               |
 | Incorrect line continuation                | `Incorrect line continuation encountered`                 |
+
+> **preserf note**: the "Malformed key=value (more than one `=`)" error is never
+> raised — preserf's argument splitter splits on the first `=` only, so a token
+> like `a=b=c` parses as the key `a` with value `b=c`.
 
 ---
 

@@ -10,7 +10,9 @@ preserf is a Python re-implementation ("port") of the upstream Serialbox
 `pp_ser.py` preprocessor. To keep the port honest, the differential test in
 `tests/unit_tests/test_pp_ser_differential.py` runs the real upstream `pp_ser`
 on the same `!$SER` corpus and compares the normalized sequence of generated
-runtime calls (see `specs/2026-06-pp_ser-differential/`).
+runtime calls (see `specs/2026-06-pp_ser-differential/` — the legacy
+pre-OpenSpec spec tree, which no longer exists; the living requirement now
+lives in `openspec/specs/preprocessor/spec.md`).
 
 That test needs a copy of upstream `pp_ser` to run. Two options were on the
 table:
