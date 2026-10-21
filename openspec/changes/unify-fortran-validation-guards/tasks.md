@@ -2,9 +2,9 @@
 
 ## 1. Native tests (fail first)
 
-- [ ] 1.1 Add a ctest scenario where `fs_Option` with a verbosity below the int32 lower bound (for example −2⁴⁰ under a 64-bit default-integer build) aborts with the shared guard's message
-- [ ] 1.2 Add a ctest scenario where a registry-mismatched store is rejected on the k-buffer read path, mirroring the field path's message
-- [ ] 1.3 Add a ctest scenario asserting the friendly read-only message for `fs_write_field` on a read-only handle
+- [x] 1.1 Add a ctest scenario where `fs_Option` with a verbosity below the int32 lower bound (for example −2⁴⁰ under a 64-bit default-integer build) aborts with the shared guard's message
+- [x] 1.2 Add a ctest scenario where a registry-mismatched store is rejected on the k-buffer read path, mirroring the field path's message
+- [x] 1.3 Add a ctest scenario asserting the friendly read-only message for `fs_write_field` on a read-only handle
 
 ## 2. Fixes
 
