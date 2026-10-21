@@ -794,6 +794,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   closes a latent truncation on very large dim sizes / halo extents
   ([#16](https://github.com/grAItools/preserf/pull/16)).
 
+### Fixed
+
+- `src/preserf/preprocessor.py`: three miscompilations of legal free-form
+  Fortran are closed. The standalone-subprogram lookahead now consumes only
+  `&`-prefixed lines and defers the injected `USE` block to the first code
+  line after the header, so comments or blank lines between the continuation
+  lines no longer drop the continuation or displace the `USE` block into the
+  middle of the signature. The `INTENT(IN)` qualifier-to-`::` span is
+  paren-aware, so `integer, intent(in), dimension(:) :: vn` strips the
+  qualifier exactly as the reverse attribute order does. Directive
+  recognition precedes intent scanning (with trailing comments stripped
+  before the `::` gate), so a `!$SER DATA` directive whose trailing comment
+  mentions `intent(in) :: <field>` now expands instead of being wrapped in a
+  spurious `#ifdef`/`#else` block, and computed (write-only) `DATA` values
+  are exempt from intent-removal recording so their declarations are left
+  untouched.
+
 ## [0.1.0] — 2026-05
 
 Initial usable preview: storage mapping decision + minimal Fortran helper
