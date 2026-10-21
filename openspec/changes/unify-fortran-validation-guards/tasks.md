@@ -14,10 +14,10 @@
 
 ## 3. Documentation
 
-- [ ] 3.1 Reword the README's explicit-ref known-limitation bullet to state the native coverage (`src/preserf/fortran/README.md:99-101`)
-- [ ] 3.2 Correct the e2e fixture header comment: the omission is a choice, not a linking constraint (`tests/fortran/e2e/e2e_fixture.f90.in:12-13`)
+- [x] 3.1 Reword the README's explicit-ref known-limitation bullet to state the native coverage (`src/preserf/fortran/README.md:99-101`)
+- [x] 3.2 Correct the e2e fixture header comment: the omission is a choice, not a linking constraint (`tests/fortran/e2e/e2e_fixture.f90.in:12-13`)
 
 ## 4. Verification
 
-- [ ] 4.1 Add the CHANGELOG bullet under `[Unreleased]`
+- [x] 4.1 Add the CHANGELOG bullet under `[Unreleased]`
 - [ ] 4.2 Run `pixi run verify` and confirm it is green

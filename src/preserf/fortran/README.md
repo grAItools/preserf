@@ -96,9 +96,12 @@ The helper implements the full pp_ser directive surface:
   4.5.x wrapper makes awkward. Tracked in the
   [`add-append-mode`](../../../openspec/changes/add-append-mode/) OpenSpec
   change.
-- **Explicit `directory_ref` / `prefix_ref` test coverage is incomplete.**
-  The integration test exercises only the implicit same-store reference
-  path. The explicit-ref branch is untested end-to-end.
+- **Explicit `directory_ref` / `prefix_ref` coverage is native.** The
+  `read-ref` and `explicit-ref-tracer-kbuff` ctest scenarios exercise
+  the explicit-reference branch end to end (asserting that DATA,
+  TRACER, and KBUFF reads resolve against the reference store); the
+  Python integration test complements them with the implicit
+  same-store reference path.
 - **Thread safety:** the module-level serializer state is not thread-safe.
   `!$SER` directives must execute from serial regions only (or be guarded
   with `!$omp critical` / `!$omp master`).
