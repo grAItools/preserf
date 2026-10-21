@@ -683,6 +683,24 @@ def test_use_statement_after_standalone_subroutine() -> None:
     assert out.index("subroutine s()") < out.index("USE m_serialize")
 
 
+def test_use_block_after_completed_header_across_comment() -> None:
+    # A comment between a `&`-continued standalone subprogram header and
+    # its continuation is legal free-form Fortran: every continuation
+    # line survives preprocessing and the USE block lands after the
+    # completed header, never inside it.
+    src = (
+        "subroutine foo(a, &\n"
+        "! intervening comment\n"
+        "              b)\n"
+        "!$SER DATA x=x\n"
+        "end subroutine foo\n"
+    )
+    out = expand(src)
+    assert "! intervening comment" in out
+    assert "              b)" in out
+    assert out.index("              b)") < out.index("USE m_serialize")
+
+
 def test_identifier_starting_with_keyword_does_not_inject_use() -> None:
     # `functional_x` starts with `function` but is an assignment, not a header,
     # so the USE block must not be injected mid-body.
@@ -824,6 +842,55 @@ def test_intent_in_removed_with_spaces_inside_parens() -> None:
     out = expand(src)
     assert "#else" in out
     assert "real :: u" in out
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        "integer, intent(in), dimension(:) :: vn",
+        "integer, dimension(:), intent(in) :: vn",
+    ],
+)
+def test_intent_in_stripped_for_either_attribute_order(declaration: str) -> None:
+    # The qualifier-to-`::` span is paren-aware, so `intent(in)` coming
+    # before `dimension(:)` strips the qualifier exactly as the reverse
+    # attribute order does.
+    src = f"subroutine s()\n{declaration}\n!$SER DATA x=vn\nend subroutine s\n"
+    out = expand(src)
+    assert "#else" in out
+    assert "integer, dimension(:) :: vn" in out
+
+
+def test_directive_comment_mentioning_intent_does_not_wrap_directive() -> None:
+    # A `!$SER DATA` directive whose trailing comment mentions
+    # `intent(in) :: <field>` must still expand: directive recognition
+    # precedes intent scanning, so no spurious #ifdef/#else block wraps
+    # the directive.
+    src = (
+        "subroutine s(u)\n"
+        "real, intent(in) :: u\n"
+        "!$SER DATA x=u ! intent(in) :: u\n"
+        "end subroutine s\n"
+    )
+    out = expand(src)
+    assert "SELECT CASE ( ppser_get_mode() )" in out
+    # Only the declaration's intent-strip block may carry an #else.
+    assert out.count("#else") == 1
+
+
+def test_computed_data_value_exempt_from_intent_removal() -> None:
+    # A computed (write-only) DATA value is never assigned in read mode,
+    # so the declaration of its base variable is left untouched: no
+    # intent-strip block is emitted for it.
+    src = (
+        "subroutine s(a)\n"
+        "real, intent(in) :: vn(:)\n"
+        "!$SER DATA x=vn(:)*a\n"
+        "end subroutine s\n"
+    )
+    out = expand(src)
+    assert "real, intent(in) :: vn(:)" in out
+    assert "#else" not in out
 
 
 # --- error rendering -------------------------------------------------------
