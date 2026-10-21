@@ -403,9 +403,16 @@ preserf_scenario_test(NAME kbuff_read_bad_registry SCENARIO kbuff-read-bad-regis
 # (storage_mapping.md §1 — array string metainfo is ALWAYS NC_STRING, never
 # NC_CHAR), and round-trips through the read-mode validation; the Python
 # cross-language test additionally decodes the store via
-# tests/_support/storage.py and asserts both surface as lists of strings.
+# test/_support/storage.py and asserts both surface as lists of strings.
 preserf_scenario_test(NAME string_meta SCENARIO string-meta
     PASS "preserf-fortran: string-meta OK")
+
+# String-array metainfo negative: an element containing an embedded NUL
+# character must abort with the clear "contains an embedded NUL" message
+# instead of silently truncating the stored value at the C string boundary.
+preserf_scenario_test(NAME string_meta_nul SCENARIO string-meta-nul
+    PASS "contains an embedded NUL")
+
 
 
 # A direct fs_write_field on a serializer opened read-only, for a field the

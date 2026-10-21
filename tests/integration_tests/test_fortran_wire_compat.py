@@ -648,6 +648,14 @@ def test_fortran_string_array_metainfo_python_reads(
         assert [str(v) for v in tags_attr] == ["atmosphere", "ocean", "land"]
         assert int(raw.getncattr("tags__preserf_type_id")) == 0x10 | 6
 
+        # One-element string arrays: netCDF4-python unpacks a single-value
+        # NC_STRING attribute to a plain str, so the raw read surfaces the
+        # element itself; the shadow still carries the ARRAY-string TypeID
+        # (this pins the singleton decode the element-wise reader must
+        # handle — see the read_dump assertions below).
+        assert raw.getncattr("tags_solo") == "solo"
+        assert int(raw.getncattr("tags_solo__preserf_type_id")) == 0x10 | 6
+
         sp_grp = raw.groups["savepoints"].groups["sp_000000"]
         labels_attr = sp_grp.getncattr("labels")
         assert not isinstance(labels_attr, str), (
@@ -656,6 +664,8 @@ def test_fortran_string_array_metainfo_python_reads(
         )
         assert [str(v) for v in labels_attr] == ["alpha", "beta", "gamma"]
         assert int(sp_grp.getncattr("labels__preserf_type_id")) == 0x10 | 6
+        assert sp_grp.getncattr("labels_solo") == "only"
+        assert int(sp_grp.getncattr("labels_solo__preserf_type_id")) == 0x10 | 6
     finally:
         raw.close()
 
@@ -666,16 +676,58 @@ def test_fortran_string_array_metainfo_python_reads(
     assert gm["tags"].type_id == TypeID.ArrayOfString
     assert gm["tags"].value == ["atmosphere", "ocean", "land"]
 
+    # A one-element string array must still decode as a ONE-element list
+    # (netCDF4-python unpacks the single-value attribute to a plain str;
+    # iterating it would wrongly surface the string's characters).
+    assert gm["tags_solo"].type_id == TypeID.ArrayOfString
+    assert gm["tags_solo"].value == ["solo"]
+
     # Savepoint-level metainfo decodes as a list of strings too.
     sp = dump.savepoints[0]
     assert sp.name == "step"
     assert sp.meta_info["labels"].type_id == TypeID.ArrayOfString
     assert sp.meta_info["labels"].value == ["alpha", "beta", "gamma"]
+    assert sp.meta_info["labels_solo"].type_id == TypeID.ArrayOfString
+    assert sp.meta_info["labels_solo"].value == ["only"]
 
     # The data field still round-trips alongside the string metainfo.
     assert dump.field_map["u"].type_id == TypeID.Float64
     np.testing.assert_array_equal(
         dump.field_data["u"][sp.fields["u"]], np.array([1.0, 2.0, 3.0])
+    )
+
+
+def test_fortran_string_array_metainfo_rejects_embedded_nul(
+    tmp_path: Path, fortran_binary: Path
+) -> None:
+    """A string-array metainfo element with an embedded NUL aborts loudly.
+
+    The C string ABI the NC_STRING vector writer targets is
+    NUL-terminated, so an element like ``'abc'//achar(0)//'def'`` is
+    unrepresentable: without a guard the write would succeed and store
+    only the truncated prefix, the Python reader would decode ``'abc'``,
+    and read-mode replay would abort with a confusing value mismatch.
+    The ``string-meta-nul`` scenario drives the guard; this asserts the
+    binary aborts with the clear message naming the offending element.
+    """
+    out_dir = tmp_path / "fortran_out"
+    out_dir.mkdir()
+
+    result = subprocess.run(
+        [str(fortran_binary), str(out_dir), "string-meta-nul"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode != 0, (
+        "binary should have aborted on an embedded-NUL string\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    combined = result.stdout + result.stderr
+    assert "contains an embedded NUL" in combined, (
+        "abort should name the embedded-NUL guard\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
 
 
