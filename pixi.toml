@@ -84,7 +84,7 @@ test-consumer = { cmd = ["pytest", "-m", "consumer"], default-environment = "dev
 # `verify` so the artifact-build tests stay gated end to end despite the
 # deselection.
 test-packaging = { cmd = ["pytest", "-m", "packaging"], default-environment = "dev" }
-test-all = { depends-on = ["test-py-with-fortran", "test-examples", "test-consumer"] }
+test-all = { depends-on = ["test-py-with-fortran", "test-examples", "test-consumer", "test-packaging"] }
 typecheck = { cmd = ["mypy", "src"], default-environment = "dev" }
 # Agent-agnostic layout: canonical OpenSpec skills in .agents/skills/, symlinked
 # into the per-harness dirs (.claude, .opencode, .omp). The check mode is part of

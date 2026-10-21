@@ -34,8 +34,9 @@
   (slow) but wired into `verify`, so the artifact-build tests stay gated
   end to end despite the deselection.
 - **Everything-at-once (slow, not in `verify`):** `pixi run test-all` —
-  `test-py-with-fortran` + `test-examples` + `test-consumer`. Pixi's
-  `depends-on` siblings may run in parallel, so `test-all` deliberately
+  `test-py-with-fortran` + `test-examples` + `test-consumer` +
+  `test-packaging`. Pixi's `depends-on` siblings may run in parallel, so
+  `test-all` deliberately
   chains through `test-py-with-fortran` (which itself depends on
   `test-fortran`) rather than listing the build/ctest/pytest tasks as
   parallel siblings — otherwise pytest could start before the Fortran
