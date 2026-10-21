@@ -76,9 +76,14 @@ test-py = { cmd = ["pytest"], default-environment = "dev" }
 # Fortran binary exists.
 test-py-with-fortran = { cmd = ["pytest"], default-environment = "dev", env = { PRESERF_REQUIRE_FORTRAN = "1" }, depends-on = ["test-fortran"] }
 test-examples = { cmd = ["bash", "examples/run-all.sh"], default-environment = "examples" }
-# External-consumer end-to-end build (deselected from `verify` by the
-# `-m 'not consumer'` default in pyproject; `-m consumer` here overrides it).
+# External-consumer end-to-end build (deselected from `verify`'s pytest run by the
+# `-m 'not consumer and not packaging'` default in pyproject; `-m consumer` here overrides it).
 test-consumer = { cmd = ["pytest", "-m", "consumer"], default-environment = "dev", env = { PRESERF_REQUIRE_FORTRAN = "1" } }
+# Wheel/sdist artifact construction (deselected from the default run by the
+# same pyproject default; `-m packaging` here overrides it). Wired into
+# `verify` so the artifact-build tests stay gated end to end despite the
+# deselection.
+test-packaging = { cmd = ["pytest", "-m", "packaging"], default-environment = "dev" }
 test-all = { depends-on = ["test-py-with-fortran", "test-examples", "test-consumer"] }
 typecheck = { cmd = ["mypy", "src"], default-environment = "dev" }
 # Agent-agnostic layout: canonical OpenSpec skills in .agents/skills/, symlinked
@@ -87,5 +92,5 @@ typecheck = { cmd = ["mypy", "src"], default-environment = "dev" }
 # the gate instead of silently forking the copies. See .agents/AGENTS.md.
 agent-config = { cmd = [".agents/scripts/link-agent-skills.sh"], default-environment = "dev" }
 agent-config-check = { cmd = [".agents/scripts/link-agent-skills.sh", "--check"], default-environment = "dev" }
-verify = { depends-on = ["fmt-check", "lint", "typecheck", "agent-config-check", "test-py-with-fortran"] }
+verify = { depends-on = ["fmt-check", "lint", "typecheck", "agent-config-check", "test-py-with-fortran", "test-packaging"] }
 # clean = { cmd = ["rm", "-rf", "build", "dist", "preserf.egg-info"] }

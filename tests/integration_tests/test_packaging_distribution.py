@@ -1,10 +1,11 @@
 """Packaging test: the built wheel **and** sdist ship the Fortran runtime,
-and the discovery API/CLI resolve to it.
+and the discovery API/CLI resolves to it.
 
 This guards the spec's central regression — that no install path ships the
-runtime — so it lives in the fast ``verify`` gate (pure Python, no Fortran
-toolchain). It builds real artifacts with ``python -m build`` and inspects
-their contents; ``--no-isolation`` keeps it offline by reusing the dev env's
+runtime — so it is gated end to end in ``verify`` via the dedicated
+``pixi run test-packaging`` lane (pure Python, no Fortran toolchain). It
+builds real artifacts with ``python -m build`` and inspects their contents;
+``--no-isolation`` keeps it offline by reusing the dev env's
 ``hatchling`` rather than downloading the build backend.
 
 The sdist matters as much as the wheel: ``pip install preserf`` falls back to
@@ -109,6 +110,7 @@ def _sdist_names(sdist: Path) -> set[str]:
     return names
 
 
+@pytest.mark.packaging
 def test_wheel_bundles_fortran_runtime(tmp_path: Path) -> None:
     names = _wheel_names(_build_wheel(tmp_path))
     for expected in _EXPECTED_RUNTIME_FILES:
@@ -119,6 +121,7 @@ def test_wheel_bundles_fortran_runtime(tmp_path: Path) -> None:
     ), f"no .inc templates in wheel: {sorted(names)}"
 
 
+@pytest.mark.packaging
 def test_sdist_bundles_fortran_runtime(tmp_path: Path) -> None:
     names = _sdist_names(_build_sdist(tmp_path))
     for expected in _EXPECTED_RUNTIME_FILES:
@@ -129,6 +132,7 @@ def test_sdist_bundles_fortran_runtime(tmp_path: Path) -> None:
     ), f"no .inc templates in sdist: {sorted(names)}"
 
 
+@pytest.mark.packaging
 @pytest.mark.skipif(
     importlib.util.find_spec("twine") is None,
     reason="twine not installed; metadata validation is best-effort",
