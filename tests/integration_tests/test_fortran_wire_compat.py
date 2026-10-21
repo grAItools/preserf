@@ -612,6 +612,74 @@ def test_fortran_writes_option_python_reads(
     assert dump.option_verbosity == 2
 
 
+def test_fortran_string_array_metainfo_python_reads(
+    tmp_path: Path, fortran_binary: Path
+) -> None:
+    """1D string-array metainfo round-trips as an NC_STRING vector.
+
+    The ``string-meta`` scenario in ``test_minimal.f90`` attaches one 1D
+    character-array metainfo to the serializer root group (``tags``) and one
+    to a savepoint (``labels``). Per storage_mapping.md §1 the on-disk
+    encoding for array string metainfo is *always* an NC_STRING vector
+    attribute (never an NC_CHAR concatenation), shadow-tagged with the
+    array-string TypeID (``0x10 | 6 = 22``). This asserts the Python
+    reference reader surfaces both as lists of strings, mirroring the
+    encoding the Python writer itself produces.
+    """
+    out_dir = tmp_path / "fortran_out"
+    out_dir.mkdir()
+
+    run_scenario(fortran_binary, out_dir, "string-meta")
+
+    nc_path = out_dir / "fstrmeta.nc"
+
+    # Direct attribute checks on the raw netCDF root: the array string
+    # attribute must be an NC_STRING *vector* (a sequence of strings, not
+    # one concatenated NC_CHAR text) and carry the array-string TypeID in
+    # its __preserf_type_id shadow tag.
+    import netCDF4  # local import; netCDF4 is a dev-only dependency
+
+    raw = netCDF4.Dataset(str(nc_path), "r")
+    try:
+        tags_attr = raw.getncattr("tags")
+        assert not isinstance(tags_attr, str), (
+            "tags must be an NC_STRING vector (a sequence of strings), "
+            "not NC_CHAR text"
+        )
+        assert [str(v) for v in tags_attr] == ["atmosphere", "ocean", "land"]
+        assert int(raw.getncattr("tags__preserf_type_id")) == 0x10 | 6
+
+        sp_grp = raw.groups["savepoints"].groups["sp_000000"]
+        labels_attr = sp_grp.getncattr("labels")
+        assert not isinstance(labels_attr, str), (
+            "labels must be an NC_STRING vector (a sequence of strings), "
+            "not NC_CHAR text"
+        )
+        assert [str(v) for v in labels_attr] == ["alpha", "beta", "gamma"]
+        assert int(sp_grp.getncattr("labels__preserf_type_id")) == 0x10 | 6
+    finally:
+        raw.close()
+
+    dump = read_dump(str(nc_path))
+
+    # Serializer-level (root group) metainfo decodes as a list of strings.
+    gm = dump.global_meta_info
+    assert gm["tags"].type_id == TypeID.ArrayOfString
+    assert gm["tags"].value == ["atmosphere", "ocean", "land"]
+
+    # Savepoint-level metainfo decodes as a list of strings too.
+    sp = dump.savepoints[0]
+    assert sp.name == "step"
+    assert sp.meta_info["labels"].type_id == TypeID.ArrayOfString
+    assert sp.meta_info["labels"].value == ["alpha", "beta", "gamma"]
+
+    # The data field still round-trips alongside the string metainfo.
+    assert dump.field_map["u"].type_id == TypeID.Float64
+    np.testing.assert_array_equal(
+        dump.field_data["u"][sp.fields["u"]], np.array([1.0, 2.0, 3.0])
+    )
+
+
 def test_fortran_bad_reference_path_keeps_target(
     tmp_path: Path, fortran_binary: Path
 ) -> None:
