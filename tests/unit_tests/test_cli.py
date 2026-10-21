@@ -115,7 +115,11 @@ def test_malformed_continuation_names_file_and_line(tmp_path: Path) -> None:
     # originating file and line named, pointing at the offending site.
     src = tmp_path / "bad.f90"
     src.write_text("module m\n!$SER DATA u=u &\nx = 1\nend module m\n")
-    result = runner.invoke(app, [str(src)])
+    # Pin the render width so the full path stays on one physical line in
+    # the error panel regardless of the host's tmp-path length (macOS CI
+    # uses ~130-char /private/var/folders paths that wrap at the default
+    # 80-column console and break the contiguity assertion below).
+    result = runner.invoke(app, [str(src)], env={"COLUMNS": "240"})
     assert result.exit_code == 1
     assert "Incorrect line continuation" in result.stderr
     assert str(src) in result.stderr
