@@ -531,20 +531,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `reviewer`), the `/build` command, and `docs/tool-bootstrap.md`;
   adopts Conventional Commits (`commit_convention`) with squash-merge
   PR titles, documented in [`dev/style.md`](dev/style.md#commit-messages).
-- The default pytest slice no longer constructs distribution artifacts:
-  `pyproject.toml` declares a `packaging` marker (mirroring `consumer`)
-  and deselects it from the default run
-  (`-m 'not consumer and not packaging'`), the wheel/sdist
-  construction tests in `tests/integration_tests/test_packaging_distribution.py`
-  carry the marker, and a dedicated `pixi run test-packaging` lane
-  (`pytest -m packaging`) re-selects them, wired into `verify`'s
-  depends-on so the artifact builds stay gated end to end. Parametrized
-  CLI boundary tests (`tests/unit_tests/test_cli.py`) pin the defined
-  outcomes for empty, CRLF-terminated, and non-UTF-8 input files (the
-  last now failing with a one-line `preserf:` diagnostic instead of an
-  unhandled traceback), and the stale sub-second speed claims in
-  `dev/testing.md` and the wire-compat docstring are corrected to the
-  measured numbers.
+- `pyproject.toml` deselects the `packaging`-marked wheel/sdist
+  construction tests from the default pytest run
+  (`-m 'not consumer and not packaging'`, mirroring `consumer`);
+  `pixi run test-packaging` re-selects them and is wired into `verify`
+  and `test-all` so the artifact builds stay gated end to end.
+- `preserf` CLI: non-UTF-8 input bytes — and an undecodable
+  `--ignore-identical` comparison target — now fail with a one-line
+  `preserf:` diagnostic naming the offending file instead of an
+  unhandled traceback.
+- `tests/unit_tests/test_cli.py`: parametrized boundary tests pin the
+  defined outcomes for empty, CRLF-terminated, and non-UTF-8 input
+  files (line-structure preservation included).
+- `dev/testing.md` and the wire-compat docstring: stale sub-second
+  fast-loop claims corrected to the measured numbers.
 
 ### Fixed
 
