@@ -38,6 +38,15 @@ The preprocessor SHALL track `MODULE`/`PROGRAM` scoping units: a `USE` block is 
 - **WHEN** two standalone subprograms outside any module each contain a directive
 - **THEN** each gets its own `USE` block; suppression applies only within `MODULE`/`PROGRAM` scope
 
+### Requirement: Continuation comment tolerance
+
+Comments and blank lines between the continuation lines of a standalone subprogram header SHALL be preserved and SHALL NOT displace the injected `USE` block or cause continuation lines to be dropped.
+
+#### Scenario: Comment between continuation lines
+
+- **WHEN** a comment or blank line appears between a `&`-continued standalone subprogram header and its remaining continuation lines
+- **THEN** every continuation line survives preprocessing unchanged and the `USE` block is injected after the completed header
+
 ### Requirement: Line continuation
 
 Directives SHALL support multi-line form: a body ending in `&` continues on lines prefixed `!$SER&`; an unterminated continuation or a non-prefixed continuation line SHALL raise an error. A `&` inside a trailing comment SHALL NOT count as a continuation.
@@ -72,12 +81,27 @@ The `REGISTER` directive SHALL accept the dimension shortcuts (`I`, `J`, `K`, `I
 
 ### Requirement: Read-mode intent stripping
 
-For fields named by `DATA`/`ACCDATA`/`DATA_KBUFF` in a scope where the declaration carries `INTENT(IN)`, the generated declarations SHALL strip the intent in read modes so read-mode code can assign into them.
+For fields named by `DATA`/`ACCDATA`/`DATA_KBUFF` in a scope where the declaration carries `INTENT(IN)`, the generated declarations SHALL strip the intent in read modes so read-mode code can assign into them. Stripping SHALL be independent of declaration attribute order, and SHALL NOT be triggered by `!$SER` directive lines or by `intent(in)` text appearing in comments. Values the computed-value classification already marks write-only SHALL be exempt from intent-removal recording.
 
 #### Scenario: Read mode assignment
 
 - **WHEN** the serializer runs in read mode and the directive references an `intent(in)` local
 - **THEN** the emitted declaration change allows assignment of the deserialized value
+
+#### Scenario: Attribute order independence
+
+- **WHEN** a declaration spells the qualifier as `integer, intent(in), dimension(:) :: vn`
+- **THEN** the qualifier is stripped exactly as for `integer, dimension(:), intent(in) :: vn`
+
+#### Scenario: Directive comments never trigger stripping
+
+- **WHEN** a `!$SER DATA` directive carries a trailing comment mentioning `intent(in) :: <field>` for a field named by the directive
+- **THEN** the directive expands normally and no `#ifdef/#else` block is emitted around it
+
+#### Scenario: Computed values are exempt
+
+- **WHEN** a `DATA` value is classified computed (write-only) by the top-level arithmetic and merge-intrinsic rules
+- **THEN** no intent-removal entry is recorded for it, so its declaration is left untouched
 
 ### Requirement: Errors carry context
 
