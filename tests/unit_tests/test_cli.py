@@ -265,9 +265,6 @@ def test_root_stat_permission_loss_is_one_line_diagnostic(
 
 
 def test_recursive_mirrors_tree(tmp_path: Path) -> None:
-
-
-def test_recursive_mirrors_tree(tmp_path: Path) -> None:
     nested = tmp_path / "src" / "sub"
     nested.mkdir(parents=True)
     (nested / "deep.f90").write_text(_SOURCE)
