@@ -2314,6 +2314,78 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: nan-metainfo-roundtrip OK'
                stop
             end block
+         else if (scenario == 'string-meta') then
+            ! String-array metainfo (storage_mapping.md §1: array string
+            ! metainfo is ALWAYS an NC_STRING vector — never NC_CHAR).
+            ! Write a store carrying one 1D character-array metainfo on
+            ! the serializer root group (`tags`) and one on a savepoint
+            ! (`labels`), plus a ONE-ELEMENT array of each (a singleton
+            ! NC_STRING vector pins the reader's one-element decode:
+            ! netCDF4-python unpacks it to a plain str, which the
+            ! element-wise decode must not iterate as characters), then
+            ! re-open the store read-only and replay all four calls so
+            ! the read-mode validation confirms the stored values (and
+            ! their __preserf_type_id shadows) round-trip. The Python
+            ! cross-language test additionally decodes the store via
+            ! tests/_support/storage.py and asserts all surface as lists
+            ! of strings.
+            block
+               real(real64) :: u(3)
+               integer :: i
+               do i = 1, 3
+                  u(i) = real(i, real64)
+               end do
+               call ppser_initialize(out_dir, 'fstrmeta', 'w')
+               call fs_add_serializer_metainfo(ppser_serializer, 'tags', &
+                    [character(len=10) :: 'atmosphere', 'ocean', 'land'])
+               call fs_add_serializer_metainfo(ppser_serializer, 'tags_solo', &
+                    [character(len=4) :: 'solo'])
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                       ppser_reallength, 3, 0, 0, 0, &
+                                       0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_add_savepoint_metainfo(ppser_savepoint, 'labels', &
+                    [character(len=5) :: 'alpha', 'beta', 'gamma'])
+               call fs_add_savepoint_metainfo(ppser_savepoint, 'labels_solo', &
+                    [character(len=4) :: 'only'])
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', u)
+               call ppser_finalize()
+               ! Re-open the store read-only and replay all four
+               ! string-array metainfo calls: the read-mode branch must
+               ! validate the stored values instead of writing them (a
+               ! read-only put would abort on the handle).
+               call ppser_initialize(out_dir, 'fstrmeta', 'r')
+               call fs_add_serializer_metainfo(ppser_serializer, 'tags', &
+                    [character(len=10) :: 'atmosphere', 'ocean', 'land'])
+               call fs_add_serializer_metainfo(ppser_serializer, 'tags_solo', &
+                    [character(len=4) :: 'solo'])
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                       ppser_reallength, 3, 0, 0, 0, &
+                                       0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_add_savepoint_metainfo(ppser_savepoint, 'labels', &
+                    [character(len=5) :: 'alpha', 'beta', 'gamma'])
+               call fs_add_savepoint_metainfo(ppser_savepoint, 'labels_solo', &
+                    [character(len=4) :: 'only'])
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: string-meta OK'
+               stop
+            end block
+         else if (scenario == 'string-meta-nul') then
+            ! Negative: a string-array metainfo element containing an
+            ! embedded NUL must abort with a clear message instead of
+            ! silently truncating the stored value at the C string
+            ! boundary (the write would exit 0, the reader would see
+            ! only the prefix, and read-mode replay would abort with a
+            ! value mismatch). Python's
+            ! test_fortran_string_array_metainfo_rejects_embedded_nul
+            ! drives this scenario and asserts the abort message.
+            call ppser_initialize(out_dir, 'fnulmeta', 'w')
+            call fs_add_serializer_metainfo(ppser_serializer, 'bad', &
+                 [character(len=7) :: 'abc'//achar(0)//'def', 'ghi'])
+            ! Unreachable: the embedded-NUL guard must abort first.
+            error stop &
+               'preserf-test_minimal: embedded-NUL string was accepted'
          else if (scenario == 'explicit-ref-tracer-kbuff') then
             ! Issue #81 item 4: with an explicit directory_ref / prefix_ref,
             ! DATA, TRACER, and KBUFF reads must ALL resolve against the

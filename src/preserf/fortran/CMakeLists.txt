@@ -25,6 +25,11 @@ project(preserf_fortran
 #
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(NETCDF_FORTRAN REQUIRED IMPORTED_TARGET netcdf-fortran)
+# netcdf-c: the C-interop NC_STRING-vector metainfo writer (m_preserf's
+# iso_c_binding interface block) calls nc_put_att_string / nc_get_att_string
+# / nc_free_string directly, so the runtime links against netcdf-c itself
+# and not just transitively through netcdf-fortran.
+pkg_check_modules(NETCDF REQUIRED IMPORTED_TARGET netcdf)
 
 # Single source of truth for the per-compiler preprocessing / F2008 / warning
 # flags (GNU + Intel/IntelLLVM + NVHPC/PGI; FATAL_ERROR on anything else, so a
@@ -95,7 +100,7 @@ target_include_directories(preserf_fortran PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/modules>
 )
 
-target_link_libraries(preserf_fortran PUBLIC PkgConfig::NETCDF_FORTRAN)
+target_link_libraries(preserf_fortran PUBLIC PkgConfig::NETCDF_FORTRAN PkgConfig::NETCDF)
 
 # Namespaced alias so in-tree consumers (add_subdirectory) can link the same
 # `preserf::preserf_fortran` name that `find_package` exposes for the installed

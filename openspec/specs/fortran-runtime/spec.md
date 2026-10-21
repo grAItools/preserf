@@ -40,21 +40,20 @@ Every user-supplied integer that lands in a wire attribute SHALL be range-checke
 
 ### Requirement: Metainfo coverage
 
-`fs_add_savepoint_metainfo` and `fs_add_serializer_metainfo` SHALL accept logical, int32, int64, real32, real64, and string scalars, plus 1D arrays of every kind except string arrays.
+`fs_add_savepoint_metainfo` and `fs_add_serializer_metainfo` SHALL accept
+logical, int32, int64, real32, real64, and string scalars, plus 1D arrays of
+every kind, including strings.
 
 #### Scenario: Scalar and array metainfo
 
 - **WHEN** metainfo of any supported kind is attached to a savepoint or the serializer
 - **THEN** it is written to the store and round-trips through the Python support reader
 
-### Requirement: String-array metainfo deferral
+#### Scenario: String-array metainfo
 
-1D string-array metainfo SHALL NOT be provided by the runtime; the netCDF Fortran API has no vector-of-strings attribute path, so callers must store strings as scalars or one attribute per element. The deferred work is tracked in the `add-string-array-metainfo` change.
-
-#### Scenario: String-array limitation
-
-- **WHEN** a 1D string metainfo is requested
-- **THEN** the runtime does not provide the routine
+- **WHEN** a 1D string metainfo is attached
+- **THEN** each element round-trips through the store and the Python support
+  reader surfaces it as a list of strings
 
 ### Requirement: Lifecycle and module state
 

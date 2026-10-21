@@ -21,6 +21,7 @@
 !> The `dimension(..)` form needs Fortran 2018, so this file compiles
 !> with `-std=f2018` (the library proper stays `-std=f2008`).
 module netcdf
+   use, intrinsic :: iso_c_binding, only: c_char, c_int, c_ptr, c_size_t
    implicit none
    integer, parameter :: NF90_NOERR = 0
    integer, parameter :: NF90_GLOBAL = 0
@@ -181,9 +182,45 @@ contains
       if (present(xtype)) xtype = NF90_INT
       nf90_inquire_attribute = NF90_NOERR
    end function nf90_inquire_attribute
-   function nf90_strerror(ncerr)
-      integer, intent(in) :: ncerr
-      character(len=80) :: nf90_strerror
-      nf90_strerror = 'stub'
-   end function nf90_strerror
+    function nf90_strerror(ncerr)
+       integer, intent(in) :: ncerr
+       character(len=80) :: nf90_strerror
+       nf90_strerror = 'stub'
+    end function nf90_strerror
+
+    ! C-interop stand-ins for the netcdf-c vector-of-strings attribute
+    ! functions m_preserf's iso_c_binding interface block references (the
+    ! NC_STRING-vector metainfo writer). The int8 variant build never
+    ! calls them (its scenario aborts inside fs_Option's guard before
+    ! any netcdf call), but the linker must find the symbols: the linux
+    ! ld prunes their uncalled relocations via --gc-sections, whereas
+    ! the macOS linker keeps every relocation from a pulled archive
+    ! member and would fail with undefined references. Carrying no-op
+    ! definitions with the same binding names resolves them on BOTH
+    ! platforms without adding real netcdf-c to the variant's link line
+    ! (the stub is deliberately netcdf-free).
+    function stub_put_att_string(ncid, varid, name, nelems, op) &
+       bind(C, name='nc_put_att_string') result(cerr)
+       integer(c_int), value, intent(in) :: ncid, varid
+       character(kind=c_char), intent(in) :: name(*)
+       integer(c_size_t), value, intent(in) :: nelems
+       type(c_ptr), intent(in) :: op(*)
+       integer(c_int) :: cerr
+       cerr = 0_c_int
+    end function stub_put_att_string
+    function stub_get_att_string(ncid, varid, name, ip) &
+       bind(C, name='nc_get_att_string') result(cerr)
+       integer(c_int), value, intent(in) :: ncid, varid
+       character(kind=c_char), intent(in) :: name(*)
+       type(c_ptr), intent(out) :: ip(*)
+       integer(c_int) :: cerr
+       cerr = 0_c_int
+    end function stub_get_att_string
+    function stub_free_string(nelems, data) &
+       bind(C, name='nc_free_string') result(cerr)
+       integer(c_size_t), value, intent(in) :: nelems
+       type(c_ptr), intent(in) :: data(*)
+       integer(c_int) :: cerr
+       cerr = 0_c_int
+    end function stub_free_string
 end module netcdf

@@ -8,6 +8,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `fs_add_savepoint_metainfo` / `fs_add_serializer_metainfo`
+  (src/preserf/fortran/m_preserf.F90) now accept 1D string-array metainfo:
+  the values round-trip through the store and the Python reader as lists
+  of strings, including one-element arrays.
+- String-array metainfo elements containing an embedded NUL character are
+  rejected with a clear abort naming the offending element instead of
+  being silently truncated at the C string boundary.
+
 - Custom slash-command framework on the opencode GitHub integration: a reusable
   engine (`.github/workflows/opencode-cmd-engine.yml`, `workflow_call`)
   centralizes comment parsing, the `^shortcut` model map, the 👀/😕

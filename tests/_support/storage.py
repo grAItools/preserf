@@ -131,7 +131,14 @@ def _read_typed_attr(
     prim = primitive_of(tid)
     if prim == TypeID.String:
         if is_array_type(tid):
-            value: Any = [str(v) for v in raw]
+            # netCDF4-python unpacks a one-element NC_STRING vector
+            # attribute to a plain str; wrap it or the element-wise decode
+            # below would iterate the string's characters instead of
+            # surfacing a one-element list of strings.
+            if isinstance(raw, str):
+                value: Any = [raw]
+            else:
+                value = [str(v) for v in raw]
         else:
             value = str(raw)
     elif is_array_type(tid):

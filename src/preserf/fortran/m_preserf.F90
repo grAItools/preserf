@@ -25,6 +25,9 @@
 module m_preserf
    use, intrinsic :: iso_fortran_env, only: int8, int32, int64, real32, real64, &
                                                                                error_unit
+   use, intrinsic :: iso_c_binding, only: c_char, c_int, c_ptr, c_size_t, &
+                                                                             c_associated, c_f_pointer, c_loc, &
+                                                                             c_null_char
    use, intrinsic :: ieee_arithmetic, only: ieee_is_nan
    use netcdf
    use utils_preserf, only: t_serializer, t_savepoint, &
@@ -54,8 +57,15 @@ module m_preserf
    integer(int32), parameter :: TID_STRING = 6
    ! Array bit (Serialbox MetainfoValue::Array): the array TypeID of a
    ! scalar TypeID `t` is `TID_ARRAY .or. t` (e.g. ArrayOfInt32 = 18).
-   ! Matches `tests/_support/serialbox.py::TypeID.Array` (0x10).
+   ! Matches `tests/_support/serialbox.py::typeid.Array` (0x10).
    integer(int32), parameter :: TID_ARRAY = 16
+
+   ! netcdf-c's NC_GLOBAL marker (the C varid that means "attach the
+   ! attribute to the group itself"). netcdf-fortran's NF90_GLOBAL uses
+   ! its own F77-shim convention (0), so the C-interop string-array path
+   ! below — which bypasses the shim and calls nc_put_att_string /
+   ! nc_get_att_string directly — needs the C value explicitly.
+   integer(c_int), parameter :: NC_GLOBAL_C = -1
 
    ! `serialisation_enabled` is owned by utils_preserf (so that
    ! ppser_initialize can reset it on a fresh session); imported via
@@ -103,6 +113,49 @@ module m_preserf
    ! keyword, `verbosity`; the preprocessor rejects any other OPTION key.
    public :: fs_Option
 
+   ! -----------------------------------------------------------------------
+   ! C-interop: netcdf-c vector-of-strings attribute functions.
+   !
+   ! netcdf-fortran's nf90_put_att has no vector-of-strings binding (its
+   ! character argument always lands through nc_put_att_text as NC_CHAR),
+   ! so the NC_STRING vector contract that storage_mapping.md §1 pins for
+   ! array string metainfo (always NC_STRING, never NC_CHAR) is reached by
+   ! calling netcdf-c directly. Kept in this isolated interface block so
+   ! the rest of the runtime keeps its pure-nf90 surface; only the
+   ! string-array metainfo writer below ever calls these.
+   ! -----------------------------------------------------------------------
+   interface
+      function nc_c_put_att_string(ncid, varid, name, nelems, op) &
+         result(cerr) bind(C, name='nc_put_att_string')
+         import :: c_char, c_int, c_ptr, c_size_t
+         integer(c_int), value, intent(in) :: ncid, varid
+         character(kind=c_char), intent(in) :: name(*)
+         integer(c_size_t), value, intent(in) :: nelems
+         type(c_ptr), intent(in) :: op(*)
+         integer(c_int) :: cerr
+      end function nc_c_put_att_string
+      function nc_c_get_att_string(ncid, varid, name, ip) &
+         result(cerr) bind(C, name='nc_get_att_string')
+         import :: c_char, c_int, c_ptr
+         integer(c_int), value, intent(in) :: ncid, varid
+         character(kind=c_char), intent(in) :: name(*)
+         type(c_ptr), intent(out) :: ip(*)
+         integer(c_int) :: cerr
+      end function nc_c_get_att_string
+      function nc_c_free_string(nelems, data) &
+         result(cerr) bind(C, name='nc_free_string')
+         import :: c_int, c_ptr, c_size_t
+         integer(c_size_t), value, intent(in) :: nelems
+         type(c_ptr), intent(in) :: data(*)
+         integer(c_int) :: cerr
+      end function nc_c_free_string
+      function c_strlen(s) result(n) bind(C, name='strlen')
+         import :: c_ptr, c_size_t
+         type(c_ptr), value, intent(in) :: s
+         integer(c_size_t) :: n
+      end function c_strlen
+   end interface
+
    interface fs_add_savepoint_metainfo
       module procedure fs_add_savepoint_metainfo_l
       module procedure fs_add_savepoint_metainfo_i4
@@ -116,6 +169,7 @@ module m_preserf
       module procedure fs_add_savepoint_metainfo_i8_1d
       module procedure fs_add_savepoint_metainfo_r4_1d
       module procedure fs_add_savepoint_metainfo_r8_1d
+      module procedure fs_add_savepoint_metainfo_s_1d
    end interface
    public :: fs_add_savepoint_metainfo
 
@@ -132,6 +186,7 @@ module m_preserf
       module procedure fs_add_serializer_metainfo_i8_1d
       module procedure fs_add_serializer_metainfo_r4_1d
       module procedure fs_add_serializer_metainfo_r8_1d
+      module procedure fs_add_serializer_metainfo_s_1d
    end interface
    public :: fs_add_serializer_metainfo
 
@@ -1546,6 +1601,20 @@ contains
                                 extra_reserved='name')
    end subroutine
 
+   !> String-array counterpart of the numeric _1d overloads: a 1D
+   !> character array lands as an NC_STRING vector attribute via the
+   !> C-interop writer (see put_typed_string_array_attr below), tagged
+   !> with the array-string TypeID so readers decode a list of strings.
+   subroutine fs_add_savepoint_metainfo_s_1d(sp, key, value)
+      type(t_savepoint), intent(in) :: sp
+      character(len=*), intent(in) :: key
+      character(len=*), intent(in) :: value(:)
+      if (serialisation_enabled == 0) return
+      call require_savepoint(sp, 'fs_add_savepoint_metainfo')
+      call put_typed_string_array_attr(sp%grpid, key, value, &
+                                       extra_reserved='name')
+   end subroutine
+
    ! ========================================================================
    ! METAINFO — 1D-array overloads (serializer / root group)
    ! ========================================================================
@@ -1599,6 +1668,17 @@ contains
       call require_open(s, 'fs_add_serializer_metainfo')
       call put_typed_array_attr(s%ncid, key, NF90_DOUBLE, &
                                 r64_val=value, base_tid=TID_FLOAT64)
+   end subroutine
+
+   !> String-array counterpart for the root group: same NC_STRING vector
+   !> encoding as the savepoint overload above.
+   subroutine fs_add_serializer_metainfo_s_1d(s, key, value)
+      type(t_serializer), intent(in) :: s
+      character(len=*), intent(in) :: key
+      character(len=*), intent(in) :: value(:)
+      if (serialisation_enabled == 0) return
+      call require_open(s, 'fs_add_serializer_metainfo')
+      call put_typed_string_array_attr(s%ncid, key, value)
    end subroutine
 
    ! ========================================================================
@@ -2896,6 +2976,205 @@ contains
          error stop 1
       end select
    end subroutine check_typed_array_attr
+
+   ! ========================================================================
+   ! METAINFO — string-array writer (C-interop path)
+   !
+   ! The NC_STRING vector contract for array string metainfo
+   ! (storage_mapping.md §1) has no nf90_* writer: netcdf-fortran's
+   ! character argument always lands as NC_CHAR text. These routines
+   ! reach netcdf-c's nc_put_att_string / nc_get_att_string directly
+   ! through the iso_c_binding interface block in the module header,
+   ! which is the ONLY place the runtime depends on those symbols —
+   ! everything else keeps its pure-nf90 surface.
+   ! ========================================================================
+
+   !> Write a 1D string-array metainfo value as an NC_STRING vector
+   !> attribute `<key>` plus its `<key>__preserf_type_id` shadow tag
+   !> carrying the array-string TypeID (TID_ARRAY .or. TID_STRING),
+   !> mirroring put_typed_array_attr for the kinds nf90 can express.
+   !> In read mode it validates the stored attribute instead.
+   subroutine put_typed_string_array_attr(grpid, key, values, extra_reserved)
+      integer, intent(in) :: grpid
+      character(len=*), intent(in) :: key
+      character(len=*), intent(in) :: values(:)
+      character(len=*), intent(in), optional :: extra_reserved
+
+      integer :: n, i, j, maxlen, offs
+      integer(c_int) :: cerr
+      integer(int32) :: array_tid
+      integer :: ncerr
+      character(len=:), allocatable :: shadow
+      character(kind=c_char), allocatable, target :: cbuf(:), ckey(:)
+      type(c_ptr), allocatable :: ptrs(:)
+
+      if (serialisation_enabled == 0) return
+      call reject_reserved_metainfo_key(key, extra_reserved)
+      call reject_embedded_nul(key, values)
+      array_tid = ior(TID_ARRAY, TID_STRING)
+
+      if (ppser_get_mode() /= 0) then
+         call check_typed_string_array_attr(grpid, key, values, array_tid)
+         return
+      end if
+
+      ! Flatten the (trimmed) strings into one c_char buffer and a
+      ! parallel pointer array; each element is NUL-terminated so
+      ! nc_put_att_string sees one C string per element. Character
+      ! kinds are converted explicitly via their code points (the
+      ! same idiom utils_preserf's resolve_abs_dir uses) so nothing
+      ! relies on c_char equalling the default character kind.
+      n = size(values)
+      maxlen = 1
+      do i = 1, n
+         maxlen = max(maxlen, len_trim(values(i)) + 1)
+      end do
+      allocate (cbuf(n*maxlen), ptrs(n))
+      offs = 1
+      do i = 1, n
+         ptrs(i) = c_loc(cbuf(offs))
+         do j = 1, len_trim(values(i))
+            cbuf(offs + j - 1) = char(ichar(values(i) (j:j)), kind=c_char)
+         end do
+         cbuf(offs + len_trim(values(i))) = c_null_char
+         offs = offs + maxlen
+      end do
+      allocate (ckey(len_trim(key) + 1))
+      do i = 1, len_trim(key)
+         ckey(i) = char(ichar(key(i:i)), kind=c_char)
+      end do
+      ckey(len_trim(key) + 1) = c_null_char
+
+      cerr = nc_c_put_att_string(int(grpid, c_int), NC_GLOBAL_C, ckey, &
+                                 int(n, c_size_t), ptrs)
+      if (cerr /= 0_c_int) then
+         write (error_unit, '(a,a,a,a)') &
+            'preserf: netCDF error in put_att ', trim(key), ': ', &
+            trim(nf90_strerror(int(cerr)))
+         error stop 1
+      end if
+
+      shadow = trim(key)//'__preserf_type_id'
+      ncerr = nf90_put_att(grpid, NF90_GLOBAL, shadow, array_tid)
+      call preserf_check_nf_with_msg(ncerr, 'put_att '//shadow)
+   end subroutine put_typed_string_array_attr
+
+   !> Abort with a clear message if any element of the string-array
+   !> metainfo value contains an embedded NUL: the C string ABI the
+   !> NC_STRING vector writer targets is NUL-terminated, so an embedded
+   !> NUL is unrepresentable. Without this guard the write would
+   !> succeed and store only the truncated prefix (the reader would see
+   !> 'abc' for an 'abc'//NUL//'def' element), and read-mode replay
+   !> would abort with a confusing value mismatch instead of a clear
+   !> error naming the offending element — so reject up-front, before
+   !> any byte reaches the store.
+   subroutine reject_embedded_nul(key, values)
+      character(len=*), intent(in) :: key
+      character(len=*), intent(in) :: values(:)
+      integer :: i, p
+      do i = 1, size(values)
+         do p = 1, len(values)
+            if (values(i) (p:p) == achar(0)) then
+               write (error_unit, '(a,a,a,i0,a,i0,a,a)') &
+                  'preserf: string-array metainfo "', trim(key), &
+                  '" element ', i, ' contains an embedded NUL at position ', p, &
+                  '; the C string encoding terminates at a NUL, so the ', &
+                  'value would be silently truncated'
+               error stop 1
+            end if
+         end do
+      end do
+   end subroutine reject_embedded_nul
+
+   !> Read-mode counterpart of put_typed_string_array_attr: verify the
+   !> stored NC_STRING vector's element count, every value, and the
+   !> `<key>__preserf_type_id` shadow tag match the runtime metainfo
+   !> arguments; abort on any mismatch (or if the attribute is absent).
+   subroutine check_typed_string_array_attr(grpid, key, values, array_tid)
+      integer, intent(in) :: grpid
+      character(len=*), intent(in) :: key
+      character(len=*), intent(in) :: values(:)
+      integer(int32), intent(in) :: array_tid
+
+      integer :: ncerr, alen, i, k
+      integer(c_int) :: cerr
+      integer(c_size_t) :: slen
+      integer(int32) :: stored_tid
+      character(len=:), allocatable :: shadow, stored
+      character(kind=c_char), allocatable, target :: ckey(:)
+      type(c_ptr), allocatable :: ip(:)
+      character(kind=c_char), pointer :: chars(:)
+      character(len=1) :: ch
+
+      shadow = trim(key)//'__preserf_type_id'
+      ncerr = nf90_get_att(grpid, NF90_GLOBAL, shadow, stored_tid)
+      if (ncerr == NF90_ENOTATT) call metainfo_absent(key)
+      call preserf_check_nf_with_msg(ncerr, 'get_att '//shadow)
+      if (stored_tid /= array_tid) then
+         write (error_unit, '(a,a,a,i0,a,i0)') &
+            'preserf: read-mode metainfo "', trim(key), &
+            '" type-id mismatch: store has ', stored_tid, &
+            ', run expects ', array_tid
+         error stop 1
+      end if
+
+      ncerr = nf90_inquire_attribute(grpid, NF90_GLOBAL, key, len=alen)
+      if (ncerr == NF90_ENOTATT) call metainfo_absent(key)
+      call preserf_check_nf_with_msg(ncerr, 'inquire_attribute '//key)
+      if (alen /= size(values)) then
+         write (error_unit, '(a,a,a,i0,a,i0)') &
+            'preserf: read-mode metainfo "', trim(key), &
+            '" element-count mismatch: store has ', alen, &
+            ', run expects ', size(values)
+         error stop 1
+      end if
+
+      allocate (ckey(len_trim(key) + 1))
+      do i = 1, len_trim(key)
+         ckey(i) = char(ichar(key(i:i)), kind=c_char)
+      end do
+      ckey(len_trim(key) + 1) = c_null_char
+
+      ! nc_get_att_string hands back a library-allocated array of C
+      ! string pointers; copy each into a default-kind Fortran string
+      ! (staged through a len=1 scalar, mirroring the nvfortran-safe
+      ! concat idiom in utils_preserf's resolve_abs_dir) and compare
+      ! with the trimmed runtime value, then free the C copies via
+      ! nc_free_string so the read leaks nothing.
+      allocate (ip(alen))
+      cerr = nc_c_get_att_string(int(grpid, c_int), NC_GLOBAL_C, ckey, ip)
+      if (cerr /= 0_c_int) then
+         write (error_unit, '(a,a,a,a)') &
+            'preserf: netCDF error in get_att ', trim(key), ': ', &
+            trim(nf90_strerror(int(cerr)))
+         error stop 1
+      end if
+      do i = 1, alen
+         if (.not. c_associated(ip(i))) then
+            write (error_unit, '(a,a,a,i0)') &
+               'preserf: read-mode metainfo "', trim(key), &
+               '" has a NULL string at index ', i
+            error stop 1
+         end if
+         slen = c_strlen(ip(i))
+         call c_f_pointer(ip(i), chars, [slen])
+         stored = ''
+         do k = 1, int(slen)
+            ch = char(ichar(chars(k)))
+            stored = stored//ch
+         end do
+         if (strings_differ(stored, trim(values(i)))) then
+            call metainfo_value_mismatch(key)
+         end if
+      end do
+      cerr = nc_c_free_string(int(alen, c_size_t), ip)
+      if (cerr /= 0_c_int) then
+         write (error_unit, '(a,a,a,a)') &
+            'preserf: netCDF error in free_string ', trim(key), ': ', &
+            trim(nf90_strerror(int(cerr)))
+         error stop 1
+      end if
+   end subroutine check_typed_string_array_attr
 
    subroutine metainfo_absent(key)
       character(len=*), intent(in) :: key
