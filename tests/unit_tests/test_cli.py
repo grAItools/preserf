@@ -1,5 +1,6 @@
 """Tests for the preserf CLI."""
 
+from collections.abc import Iterator
 from importlib import metadata
 from pathlib import Path
 
@@ -124,6 +125,19 @@ def test_output_with_multiple_inputs_rejected(tmp_path: Path) -> None:
     assert "single input" in result.stderr
 
 
+def test_multiple_sources_without_destination_rejected(tmp_path: Path) -> None:
+    # Concatenating several preprocessed files onto stdout interleaves their
+    # per-file headers; more than one input requires an explicit destination.
+    a = tmp_path / "a.f90"
+    b = tmp_path / "b.f90"
+    a.write_text(_SOURCE)
+    b.write_text(_SOURCE)
+    result = runner.invoke(app, [str(a), str(b)])
+    assert result.exit_code == 1
+    assert "multiple inputs" in result.stderr
+    assert result.stdout == ""
+
+
 def test_output_with_recursive_dir_rejected(tmp_path: Path) -> None:
     # `-o` together with `-d` (which `-r` requires) is now rejected up front as
     # mutually exclusive, before reaching the single-input check.
@@ -143,6 +157,28 @@ def test_recursive_requires_output_dir(tmp_path: Path) -> None:
     result = runner.invoke(app, [str(tmp_path), "-r"])
     assert result.exit_code == 1
     assert "requires --output-dir" in result.stderr
+
+
+def test_walk_oserror_is_one_line_diagnostic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # An operating-system failure while walking an input directory must
+    # surface through the same one-line ``preserf:`` diagnostic as every
+    # other user-reachable failure, never as a raw traceback.
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.f90").write_text(_SOURCE)
+
+    def _raise(self: Path, pattern: str) -> Iterator[Path]:
+        raise OSError(13, "Permission denied", str(self))
+
+    monkeypatch.setattr(Path, "rglob", _raise)
+    result = runner.invoke(app, [str(src), "-r", "-d", str(tmp_path / "out")])
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "Traceback" not in result.stderr
+    assert len(result.stderr.splitlines()) == 1
+    assert str(src) in result.stderr
 
 
 def test_recursive_mirrors_tree(tmp_path: Path) -> None:
@@ -184,6 +220,18 @@ def test_collect_deduplicates_overlapping_dirs(tmp_path: Path) -> None:
     (sub / "a.f90").write_text(_SOURCE)
     files = _collect([tmp_path / "src", sub], recursive=True)
     assert len(files) == 1
+
+
+def test_non_fortran_argument_warns_and_still_processes(tmp_path: Path) -> None:
+    # An explicitly named file argument with a non-Fortran suffix warns on
+    # stderr (include conventions and typos both exist) but still
+    # preprocesses, mirroring the suffix filter recursion applies.
+    src = tmp_path / "in.txt"
+    src.write_text(_SOURCE)
+    result = runner.invoke(app, [str(src)])
+    assert result.exit_code == 0
+    assert "does not look like Fortran" in result.stderr
+    assert "call fs_enable_serialization()" in result.stdout
 
 
 def test_collect_deduplicates_via_resolved_identity(tmp_path: Path) -> None:

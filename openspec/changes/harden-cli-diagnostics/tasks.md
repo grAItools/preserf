@@ -2,9 +2,9 @@
 
 ## 1. Tests (fail first)
 
-- [ ] 1.1 Add a CLI test that monkeypatches `rglob` to raise `OSError` and asserts the one-line diagnostic and non-zero exit (no traceback)
-- [ ] 1.2 Add a CLI test that two sources with neither `--output` nor `--output-dir` fail with a usage error
-- [ ] 1.3 Add a CLI test that an explicit non-Fortran argument emits a stderr warning and still preprocesses
+- [x] 1.1 Add a CLI test that monkeypatches `rglob` to raise `OSError` and asserts the one-line diagnostic and non-zero exit (no traceback)
+- [x] 1.2 Add a CLI test that two sources with neither `--output` nor `--output-dir` fail with a usage error
+- [x] 1.3 Add a CLI test that an explicit non-Fortran argument emits a stderr warning and still preprocesses
 
 ## 2. Fixes
 
