@@ -41,6 +41,16 @@ LIBDIR := $(PREFIX)/lib
 # Discover its flags the same way the library's own build did.
 NETCDF_LIBS := $(shell $(PKG_CONFIG) --libs netcdf-fortran)
 
+# netcdf-c is likewise a direct dependency of the runtime: the C-interop
+# NC_STRING-vector metainfo writer in m_preserf calls nc_put_att_string /
+# nc_get_att_string / nc_free_string from netcdf-c directly, so the consumer
+# has to list the DSO explicitly too — without it the link fails with
+# "error adding symbols: DSO missing from command line" (the linker finds
+# the symbols through netcdf-fortran's NEEDED closure but refuses to link
+# a DSO that is not on the command line). Mirrors the runtime CMake's
+# target_link_libraries(... PkgConfig::NETCDF).
+NETCDF_C_LIBS := $(shell $(PKG_CONFIG) --libs netcdf)
+
 # Compile flags — the recipe the CMake helper would otherwise apply for you:
 #   -cpp                     run the C preprocessor for the #ifdef SERIALIZE guards
 #   -DSERIALIZE              turn the guarded serialization calls ON (else no-op)
@@ -72,11 +82,12 @@ $(BUILDDIR)/laplacian.F90: $(SRC) | $(BUILDDIR)
 $(BUILDDIR)/laplacian.o: $(BUILDDIR)/laplacian.F90 | check-prefix
 	$(FC) $(FFLAGS) -c $< -o $@
 
-# 3. Link against the installed static library + netcdf-fortran. Order matters
-#    for static linking: the dependency (-lnetcdff, via NETCDF_LIBS) must come
-#    AFTER -lpreserf_fortran.
+# 3. Link against the installed static library + netcdf-fortran + netcdf-c.
+#    Order matters for static linking: the dependencies (-lnetcdff and
+#    -lnetcdf, via NETCDF_LIBS / NETCDF_C_LIBS) must come AFTER
+#    -lpreserf_fortran.
 $(BUILDDIR)/laplacian: $(BUILDDIR)/laplacian.o
-	$(FC) $< -L$(LIBDIR) -lpreserf_fortran $(NETCDF_LIBS) -o $@
+	$(FC) $< -L$(LIBDIR) -lpreserf_fortran $(NETCDF_LIBS) $(NETCDF_C_LIBS) -o $@
 
 $(BUILDDIR):
 	mkdir -p $(BUILDDIR)
