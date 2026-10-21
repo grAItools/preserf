@@ -311,6 +311,66 @@ def _continues(line: str) -> bool:
     return _strip_comments(line).rstrip().endswith("&")
 
 
+def _string_spans(text: str) -> list[tuple[int, int]]:
+    """Spans ``(start, end)`` of quoted Fortran string literals in ``text``.
+
+    A doubled quote inside a literal is an escape, not a terminator. The
+    spans mark the opaque data regions the preprocessor's regex
+    machinery (qualifier detection, intent substitution) must never
+    match or modify.
+    """
+    spans: list[tuple[int, int]] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "'" or ch == '"':
+            start = i
+            i += 1
+            while i < n:
+                if text[i] == ch:
+                    if i + 1 < n and text[i + 1] == ch:
+                        i += 2
+                        continue
+                    break
+                i += 1
+            spans.append((start, min(i + 1, n)))
+        i += 1
+    return spans
+
+
+def _mask_strings(text: str) -> str:
+    """Blank out quoted string literals, keeping length and positions.
+
+    Fortran literals are opaque data: an ``intent(in)`` occurrence
+    inside ``'...'`` / ``"..."`` is TEXT, not a qualifier, so the
+    qualifier gate must search a masked copy where literal content
+    cannot match.
+    """
+    chars = list(text)
+    for start, end in _string_spans(text):
+        for k in range(start, end):
+            chars[k] = "\x00"
+    return "".join(chars)
+
+
+def _sub_outside_strings(text: str, pattern: re.Pattern[str], repl: str) -> str:
+    """Apply ``pattern.sub(repl, ...)`` only to code outside string literals.
+
+    The substitution must never modify content inside a literal, so
+    each quoted span is carried through verbatim and only the
+    intervening code runs are rewritten.
+    """
+    out: list[str] = []
+    pos = 0
+    for start, end in _string_spans(text):
+        out.append(pattern.sub(repl, text[pos:start]))
+        out.append(text[start:end])
+        pos = end
+    out.append(pattern.sub(repl, text[pos:]))
+    return "".join(out)
+
+
 def _ser_continuation(line: str) -> str | None:
     """Return the accumulated directive text if ``line`` continues, else ``None``.
 
@@ -603,7 +663,11 @@ class Preprocessor:
         # ``dimension(lbound(a,1):)``) does not terminate the span.
         code = _strip_comments(self._line)
         sep = _find_sep(code)
-        if sep < 0 or not _RE_INTENT_QUALIFIER.search(code[:sep]):
+        # The qualifier gate searches a masked copy of the attribute
+        # list: an ``intent(in)`` occurrence inside a quoted string
+        # literal is TEXT (data), not a qualifier, so the declaration
+        # must be left alone -- the literal must remain unchanged.
+        if sep < 0 or not _RE_INTENT_QUALIFIER.search(_mask_strings(code[:sep])):
             return
 
         rhs = code[sep + 2 :]
@@ -627,7 +691,9 @@ class Preprocessor:
         ]
         if not matched:
             return
-        stripped = _RE_INTENT_IN_SUB.sub("", self._line)
+        # The substitution never touches content inside string literals
+        # (a literal is opaque data): only the code runs are rewritten.
+        stripped = _sub_outside_strings(self._line, _RE_INTENT_IN_SUB, "")
         if not self.options.ifdef:
             # Guards disabled: serialization is always active, so drop the
             # INTENT(IN) qualifier unconditionally rather than emitting an

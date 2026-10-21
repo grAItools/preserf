@@ -939,6 +939,29 @@ def test_intent_in_stripped_with_quoted_paren_in_dimension() -> None:
     assert 'real, dimension(len("(")) :: u' in out
 
 
+def test_string_literal_text_is_not_an_intent_qualifier() -> None:
+    # `intent(in)` inside a string literal is TEXT, not a qualifier:
+    # the declaration has no intent to strip, the literal must remain
+    # unchanged (preserving the array extent), and no #ifdef/#else
+    # intent-strip block may be emitted.
+    src = (
+        "program main\n"
+        "real :: u(13)\n"
+        "call s(u)\n"
+        "end program main\n"
+        "\n"
+        "subroutine s(u)\n"
+        'real, dimension(len("(, intent(in)")) :: u\n'
+        "print *, size(u)\n"
+        "return\n"
+        "!$SER DATA x=u\n"
+        "end subroutine s\n"
+    )
+    out = expand(src)
+    assert 'dimension(len("(, intent(in)"))' in out
+    assert "#else" not in out
+
+
 def test_use_block_precedes_continued_declaration_after_header() -> None:
     # A `&`-continued DECLARATION after the completed header must not be
     # consumed by the header lookahead: the USE block lands between the
