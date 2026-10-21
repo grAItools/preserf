@@ -15,6 +15,20 @@ The Fortran helper modules shipped as source inside the wheel: the canonical `fs
 - **WHEN** serialization is disabled via `fs_disable_serialization` and a field write is issued
 - **THEN** the write is a no-op, and `fs_serialization_status` reports disabled
 
+### Requirement: Integer range safety and read-only aborts
+
+Every user-supplied integer that lands in a wire attribute SHALL be range-checked at both bounds, and write entry points on read-only serializers SHALL abort with the same friendly lifecycle message.
+
+#### Scenario: Out-of-range option value aborts
+
+- **WHEN** `fs_Option` is called with a verbosity below the int32 lower bound (for example −2⁴⁰ under a 64-bit default-integer build)
+- **THEN** it aborts with a clear message naming the field and value instead of silently wrapping onto the wire
+
+#### Scenario: Write on a read-only handle
+
+- **WHEN** `fs_write_field` is issued on a serializer opened read-only
+- **THEN** it aborts with the read-only lifecycle message rather than a raw netCDF permission error
+
 ### Requirement: Field type/rank coverage
 
 `fs_write_field` and `fs_read_field` SHALL cover boolean, int32, int64, real32, and real64 in ranks 0D to 4D via generic interfaces; string data fields are deferred past v1.0 (tracked in ADR 0010 and `dev/references/storage_mapping.md`). `fs_read_field` SHALL additionally provide perturb variants for the read-perturb path.
@@ -82,3 +96,12 @@ The tracer API SHALL register and write tracers by name, index, or all-at-once, 
 
 - **WHEN** a pp_ser-annotated source that `USE m_serialize` / `USE utils_ppser` is expanded and compiled against preserf
 - **THEN** it builds and runs without edits to its serialization calls
+
+### Requirement: K-buffer validation parity
+
+The k-buffer read path SHALL consult the `/_fields` registry for shape and type agreement before loading, mirroring the field read path, so a store whose registry and variables disagree is rejected loudly on both paths.
+
+#### Scenario: Registry-mismatched store
+
+- **WHEN** a store's `/_fields` registry and its k-buffer variable disagree on shape
+- **THEN** the k-buffer read aborts with a clear message just as the field read path would
