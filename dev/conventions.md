@@ -1,4 +1,4 @@
-# Style guide
+# Conventions
 
 ## Tooling
 
@@ -17,7 +17,7 @@ editing (or the file-scoped `pixi run fmt-py-src` / `pixi run fmt-f-src`),
 and treat `pixi run verify` (fmt-check + lint + typecheck + test) as the
 pre-done gate — CI is the only hard enforcement of it.
 
-## Conventions
+## Code conventions
 
 - **Tests are the spec.** If you change behaviour, change a test first.
   See [`testing.md`](testing.md) for layering and where each test kind
@@ -33,6 +33,31 @@ pre-done gate — CI is the only hard enforcement of it.
   wire).
 - **No back-compat shims for unreleased code.** Until v1.0 ships, prefer
   changing the code over keeping a shim around.
+
+## Issue triage and change lifecycle
+
+GitHub issues are the entry point for user-reported bugs and feature
+requests; they describe problems. Solution sketches are welcome
+input, but the change spec owns the design. The lifecycle is:
+
+1. **New** — an issue is filed via the bug/feature templates
+   (`.github/ISSUE_TEMPLATE/`).
+2. **Accepted** — a human developer reviews it and marks it valid
+   (`triage/accepted`). Agents may summarize or draft, but only a human
+   accepts (`triage/declined` otherwise).
+3. **Linked** — the accepted issue is dealt with by drafting an OpenSpec
+   change (`openspec/changes/<change>/`) whose proposal references the
+   issue (`Issue: #N`); the change name is posted as a comment on the
+   issue so the link is bidirectional.
+4. **Closed** — when the change is implemented and merged, the PR carries
+   `Closes #N` so GitHub closes the issue automatically at merge.
+
+Accepted issues blocked on an external enabler carry `blocked/deferred`
+and stay open, with the blocker documented in the linked proposal.
+Spec-first work (not originating from a user issue) skips the acceptance
+gate but still runs the same propose → apply → archive loop. The
+decision is recorded in
+[ADR 0012](adr/0012-issue-driven-change-lifecycle.md).
 
 ## Comments
 

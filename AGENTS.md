@@ -71,7 +71,8 @@ per-machine global config; a fresh clone works with the core six workflows.
 ## Conventions
 
 - Tests are the spec. If you change behaviour, change a test first.
-- Code style: see [`dev/style.md`](dev/style.md). Testing strategy:
+- Code and process conventions: see
+  [`dev/conventions.md`](dev/conventions.md). Testing strategy:
   [`dev/testing.md`](dev/testing.md).
 - Errors carry context: raise `DirectiveError` with file/line, never a bare
   `ValueError` from the preprocessor.
@@ -91,7 +92,7 @@ per-machine global config; a fresh clone works with the core six workflows.
 
 Documentation is split by audience: `docs/` holds user documentation (the
 product as consumed by users); `dev/` holds development docs (everything a
-contributor or agent needs: style, testing, references, ADRs).
+contributor or agent needs: conventions, testing, references, ADRs).
 
 - User documentation: [`docs/`](docs/)
 - Directive grammar: [`dev/references/directives_specification.md`](dev/references/directives_specification.md)

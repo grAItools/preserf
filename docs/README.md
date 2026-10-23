@@ -13,3 +13,14 @@ The living capability specs that describe the system's behavior are in
 
 The README at the repository root covers the quick-start path; deeper
 task-specific guides will land here as the need arises.
+
+## Filing issues
+
+Issues are the entry point for bug reports and feature requests:
+describe the _problem_ you are hitting, with enough environment detail
+(preserf version, platform, compiler, storage backend) to reproduce
+it. A maintainer accepts valid issues, and every accepted issue is
+linked to a named change proposal in
+[`openspec/changes/`](../openspec/changes/) — the change's name
+appears in the issue thread. The issue closes automatically when the
+implementing change merges.

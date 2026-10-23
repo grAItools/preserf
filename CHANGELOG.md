@@ -49,11 +49,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `pixi run verify` on review/release-process prose (`Slice X` / `Phase N`
   labels, `v0.x` scope notes, "out of scope for this PR"), commented-out code,
   and `TODO`/`FIXME` markers — inspecting comments and docstrings only, never
-  string literals. The guard scans `src/preserf`, `tests`, `tests-fortran`, and
+  string literals. The guard scans `src/preserf`, `tests`, `tests/fortran`, and
   `examples`, covering Python, Fortran sources, and `.f90.in` build-time
-  templates. Documented in `dev/style.md` ("Comments"), an auto-loaded
-  `.claude/rules/comments.md`, the `reviewer`/`developer` subagents, and
-  ADR 0007.
+  templates. Documented in `dev/conventions.md` ("Comments") and ADR 0007.
 - Differential test pinning preserf's `!$SER` expansion against the upstream
   Serialbox `pp_ser` preprocessor it ports. `tests/unit_tests/`
   `test_pp_ser_differential.py` runs both preserf and the upstream `pp_ser` over
@@ -322,6 +320,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   variable absent from both registries), and asserts the branch-specific
   failure. Runs in the fast pytest selection ([#77](https://github.com/grAItools/preserf/issues/77)).
 
+- Issue-driven change lifecycle (`dev/conventions.md`, `docs/README.md`,
+  ADR 0012): GitHub issues are the user entry point for bug reports and
+  feature requests; a human acceptance gate (`triage/accepted`) links
+  each accepted issue to a named OpenSpec change (bidirectional comment
+  on the issue thread), and the issue closes automatically when the
+  implementing change merges (`Closes #N`). Accepted issues blocked on
+  an external enabler carry `blocked/deferred` instead of living as
+  open ADR-carrying PRs. The section lives in the conventions guide
+  (`dev/style.md` renamed to `dev/conventions.md`); bug and feature
+  issue templates are added under `.github/ISSUE_TEMPLATE/`.
+
 ### Changed
 
 - `preserf` CLI (intentional break): more than one input file with neither
@@ -453,7 +462,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   role-based subagents (`product-owner`, `architect`, `developer`,
   `reviewer`), the `/build` command, and `docs/tool-bootstrap.md`;
   adopts Conventional Commits (`commit_convention`) with squash-merge
-  PR titles, documented in [`dev/style.md`](dev/style.md#commit-messages).
+  PR titles, documented in [`dev/conventions.md`](dev/conventions.md#commit-messages).
 - `pyproject.toml` deselects the `packaging`-marked wheel/sdist
   construction tests from the default pytest run
   (`-m 'not consumer and not packaging'`, mirroring `consumer`);
@@ -607,7 +616,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     `timelevel` in `preserf_tracer_io.inc`) now route through a
     `require_fits_int32` guard that `error stop`s with the offending value
     named, instead of silently wrapping under `-fdefault-integer-8` (the
-    `dev/style.md` anti-pattern; matches the existing guard on dim / halo
+    `dev/conventions.md` anti-pattern; matches the existing guard on dim / halo
     sizes). `utils_preserf` grows its own `require_fits_int32` (mirroring the
     `m_preserf` one) since the cast there lives in a different module.
   - Read-mode metainfo validation no longer aborts a perfect round-trip of a
@@ -700,7 +709,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   before multiplying, the buffer is allocated and indexed with `int64`
   bounds, and a guard `error stop`s naming the field if even the `int64`
   product would overflow — the wire-boundary integer pattern from
-  `dev/style.md`. A `kbuff-offset` Fortran regression test pins the
+  `dev/conventions.md`. A `kbuff-offset` Fortran regression test pins the
   column-major layout the int64 offsets must preserve across many levels.
 - Subprogram-header detection no longer fires on identifiers that merely begin
   with `function`/`subroutine` (e.g. `functional_x = 1`), and now recognises

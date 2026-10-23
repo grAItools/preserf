@@ -25,9 +25,19 @@ context: |
   Conventions: tests are the spec (change a test first when behaviour
   changes). Errors carry file/line context via DirectiveError.
   Documentation is split by audience: docs/ holds user documentation,
-  dev/ holds development docs (style.md, testing.md, adr/,
+  dev/ holds development docs (conventions.md, testing.md, adr/,
   references/); ADRs are append-only, supersede with a new file. No
   new runtime dependency without an ADR.
+
+  Issue lifecycle: GitHub issues are user-reported bugs and feature
+  requests stating the problem (solution sketches are welcome input;
+  the change spec owns the design). A human developer accepts an
+  issue (triage/accepted) before spec work starts; the accepted issue
+  is then dealt with by an OpenSpec change whose proposal references
+  it (Issue: #N) and whose name is commented back on the issue. The
+  issue closes automatically when the implementing PR (Closes #N)
+  merges. Blocked-but-accepted issues carry blocked/deferred with the
+  blocker documented in the linked proposal; see ADR 0012.
 
 rules:
   proposal:

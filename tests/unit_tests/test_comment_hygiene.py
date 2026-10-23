@@ -6,7 +6,7 @@ process. Labels that name how the work was sliced for review — internal
 for this PR" — go stale the moment the next change lands, because they describe
 a process that has already moved on. Scope and rationale belong in the PR
 description, an issue, an ADR, or the spec, and are *referenced* from the code.
-See ``dev/style.md`` ("Comments") for the policy this test enforces.
+See ``dev/conventions.md`` ("Comments") for the policy this test enforces.
 
 The scanner inspects **comments and docstrings only** — never string literals —
 so wire-format names (``_preserf_*`` attributes, savepoint group names) and
@@ -183,7 +183,7 @@ def test_no_process_prose_in_comments() -> None:
     assert not violations, (
         "Review/release-process prose found in comments or docstrings; describe "
         "the code, not the PR — move scope notes to an issue/ADR/spec. See "
-        "dev/style.md (Comments).\n" + "\n".join(violations)
+        "dev/conventions.md (Comments).\n" + "\n".join(violations)
     )
 
 
