@@ -23,7 +23,7 @@ from an abandoned PR.
 ## Decision
 
 - GitHub issues are the sole user-facing entry point: bug reports and
-  feature requests. Issues describe *problems*, never solutions.
+  feature requests. Issues describe _problems_, never solutions.
 - A human developer is the acceptance gate. An issue is marked
   `triage/accepted` when valid and `triage/declined` otherwise; agents
   may summarize or draft but never self-accept.
