@@ -322,6 +322,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   variable absent from both registries), and asserts the branch-specific
   failure. Runs in the fast pytest selection ([#77](https://github.com/grAItools/preserf/issues/77)).
 
+- Issue-driven change lifecycle (`AGENTS.md`, `docs/README.md`, ADR 0013):
+  GitHub issues are the user entry point for bug reports and feature
+  requests; a human acceptance gate (`triage/accepted`) links each
+  accepted issue to a named OpenSpec change (bidirectional comment on
+  the issue thread), and the issue closes automatically when the
+  implementing change merges (`Closes #N`). Accepted issues blocked on
+  an external enabler carry `blocked/deferred` instead of living as
+  open ADR-carrying PRs. Bug and feature issue templates are added
+  under `.github/ISSUE_TEMPLATE/`.
+
 ### Changed
 
 - `preserf` CLI (intentional break): more than one input file with neither

@@ -29,6 +29,15 @@ context: |
   references/); ADRs are append-only, supersede with a new file. No
   new runtime dependency without an ADR.
 
+  Issue lifecycle: GitHub issues are user-reported bugs and feature
+  requests (problems, not solutions). A human developer accepts an
+  issue (triage/accepted) before spec work starts; the accepted issue
+  is then dealt with by an OpenSpec change whose proposal references
+  it (Issue: #N) and whose name is commented back on the issue. The
+  issue closes automatically when the implementing PR (Closes #N)
+  merges. Blocked-but-accepted issues carry blocked/deferred with the
+  blocker documented in the linked proposal; see ADR 0013.
+
 rules:
   proposal:
     - Keep proposals under 200 words and always state what is out of scope
