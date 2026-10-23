@@ -129,5 +129,5 @@ PRESERF_BACKEND=nczarr-v2 ./my_app   # write a Zarr V2 store instead of .nc
 - Fortran runtime helpers and compatibility details:
   [src/preserf/fortran/README.md](src/preserf/fortran/README.md)
 - Testing strategy: [dev/testing.md](dev/testing.md)
-- Code style guide: [dev/style.md](dev/style.md)
+- Conventions guide: [dev/conventions.md](dev/conventions.md)
 - Architecture decision records: [dev/adr/README.md](dev/adr/README.md)

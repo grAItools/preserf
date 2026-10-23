@@ -36,7 +36,7 @@ context: |
   it (Issue: #N) and whose name is commented back on the issue. The
   issue closes automatically when the implementing PR (Closes #N)
   merges. Blocked-but-accepted issues carry blocked/deferred with the
-  blocker documented in the linked proposal; see ADR 0013.
+  blocker documented in the linked proposal; see ADR 0012.
 
 rules:
   proposal:

@@ -2,13 +2,12 @@
 
 ## Why
 
-The GitHub issue and PR surfaces overlap the spec layer: three open
-issues (#46, #47, #111) mirror work also tracked in
-openspec/changes/, and six open PRs mix implementations with
-ADR/deferral drafts that act as decisions outside the OpenSpec loop.
-No single artifact owns a given problem's status, so the backlog is
-hard to read and tracked follow-ups are indistinguishable from
-abandoned PRs.
+The GitHub issue and PR surfaces overlap the spec layer: open issues
+mirror work also tracked in openspec/changes/, and open PRs mix
+implementations with ADR/deferral drafts that act as decisions
+outside the OpenSpec loop. No single artifact owns a given problem's
+status, so the backlog is hard to read and tracked follow-ups are
+indistinguishable from abandoned PRs.
 
 ## What Changes
 
@@ -19,8 +18,8 @@ abandoned PRs.
   change; issues close automatically when the implementing change
   merges (Closes #N)
 - Add bug and feature issue templates under .github/ISSUE_TEMPLATE/
-- Record the decision as dev/adr/0013 (0012 is reserved by the
-  in-flight improve-store-efficiency compression ADR)
+- Record the decision as dev/adr/0012 (the in-flight
+  improve-store-efficiency compression ADR renumbers to 0013)
 
 ## Out of Scope
 
@@ -36,5 +35,6 @@ None — process-only documentation change; no capability delta (the
 
 ## Impact
 
-AGENTS.md, openspec/config.yaml (context block), docs/README.md,
-.github/ISSUE_TEMPLATE/, CHANGELOG.md, dev/adr/0013.
+dev/conventions.md (renamed from dev/style.md; hosts the lifecycle
+section), openspec/config.yaml (context block), docs/README.md,
+.github/ISSUE_TEMPLATE/, CHANGELOG.md, dev/adr/0012.

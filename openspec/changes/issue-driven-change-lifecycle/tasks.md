@@ -2,11 +2,11 @@
 
 ## 1. Decision record
 
-- [x] 1.1 Write `dev/adr/0013-issue-driven-change-lifecycle.md` recording the lifecycle decision
+- [x] 1.1 Write `dev/adr/0012-issue-driven-change-lifecycle.md` recording the lifecycle decision
 
 ## 2. Documentation
 
-- [x] 2.1 Add the "Issue triage and change lifecycle" section to `AGENTS.md`
+- [x] 2.1 Add the "Issue triage and change lifecycle" section to `dev/conventions.md` (renamed from `dev/style.md`)
 - [x] 2.2 Add the issue-lifecycle paragraph to the `openspec/config.yaml` context block
 - [x] 2.3 Add the "Filing issues" section to `docs/README.md`
 - [x] 2.4 Add bug and feature issue templates under `.github/ISSUE_TEMPLATE/`

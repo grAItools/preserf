@@ -7,7 +7,7 @@ creates every variable with netCDF-4 defaults and no storage-layout
 follow-up anywhere in the tree, and the perturb template deliberately
 holds a single scalar random value at a time. Both were flagged with
 explicit measurement prerequisites, and the project's own rule
-(`dev/style.md`) puts correctness and maintainability over unmeasured
+(`dev/conventions.md`) puts correctness and maintainability over unmeasured
 optimization — so this change leads with fixtures that measure, then
 lands the optimizations behind them.
 

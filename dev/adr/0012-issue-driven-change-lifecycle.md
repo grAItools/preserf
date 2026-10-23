@@ -1,21 +1,17 @@
-# 13. Issue-driven change lifecycle: GitHub issues link to OpenSpec changes
+# 12. Issue-driven change lifecycle: GitHub issues link to OpenSpec changes
 
 ## Status
 
 Accepted
 
-(Number 0012 is reserved for the opt-in store-compression ADR planned
-by the in-flight `improve-store-efficiency` change; this record takes
-0013 to avoid a collision.)
-
 ## Context
 
 ADR 0010 adopted OpenSpec as the spec-driven layer, but the GitHub
-issue and PR surface kept growing in parallel: three open issues
-(#46, #47, #111) mirror work also tracked in `openspec/changes/`,
-six open PRs mix implementation with ADR/deferral drafts that act as
-decisions outside the spec layer, and two competing ADR PRs (#50/#54)
-deliberate the same question without a resolution vehicle. No single
+issue and PR surface kept growing in parallel: open issues mirror
+work also tracked in `openspec/changes/`, open PRs mix
+implementations with ADR/deferral drafts that act as decisions
+outside the spec layer, and deliberation on a single question can
+produce competing ADR drafts with no resolution vehicle. No single
 artifact owns a given problem's status, so the backlog is hard to
 read, work lands twice, and a tracked follow-up is indistinguishable
 from an abandoned PR.
