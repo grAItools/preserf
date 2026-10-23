@@ -31,7 +31,7 @@ indistinguishable from abandoned PRs.
 ## Capabilities
 
 None — process-only documentation change; no capability delta (the
---skip-specs carve-out for pure infrastructure changes applies).
+`skip_specs: true` carve-out for pure infrastructure changes applies).
 
 ## Impact
 

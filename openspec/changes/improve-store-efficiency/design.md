@@ -38,7 +38,7 @@ lands the optimizations behind them.
   (`fs_register_field` and the auto-registration path), not the
   `REGISTER` directive grammar: the preprocessor stays untouched and the
   knobs live where the field metadata is declared.
-- The ADR (new `dev/adr/0012`) records the storage-layout decision:
+- The ADR (new `dev/adr/0013`) records the storage-layout decision:
   opt-in, default off, chunk shape derived from the registered dims,
   deflate level from the registration request, reader transparency
   guaranteed by netCDF itself.

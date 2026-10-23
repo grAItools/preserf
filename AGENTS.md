@@ -92,7 +92,7 @@ per-machine global config; a fresh clone works with the core six workflows.
 
 Documentation is split by audience: `docs/` holds user documentation (the
 product as consumed by users); `dev/` holds development docs (everything a
-contributor or agent needs: style, testing, references, ADRs).
+contributor or agent needs: conventions, testing, references, ADRs).
 
 - User documentation: [`docs/`](docs/)
 - Directive grammar: [`dev/references/directives_specification.md`](dev/references/directives_specification.md)

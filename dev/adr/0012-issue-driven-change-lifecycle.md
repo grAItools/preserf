@@ -19,7 +19,8 @@ from an abandoned PR.
 ## Decision
 
 - GitHub issues are the sole user-facing entry point: bug reports and
-  feature requests. Issues describe _problems_, never solutions.
+  feature requests. Issues describe _problems_; solution sketches are
+  welcome input, but the change spec owns the design.
 - A human developer is the acceptance gate. An issue is marked
   `triage/accepted` when valid and `triage/declined` otherwise; agents
   may summarize or draft but never self-accept.
@@ -39,8 +40,9 @@ from an abandoned PR.
 
 - Each problem has one named owner artifact; the issue thread and the
   change proposal reference each other by name.
-- PRs stop being decision carriers: decisions land as ADRs inside
-  change specs, and implementation PRs reference the change.
+- PRs stop being decision carriers: decisions land as ADRs in
+  `dev/adr/` as part of the change, referenced from the proposal, and
+  implementation PRs reference the change.
 - The acceptance gate is a human action (applying a label), keeping
   agent-generated traffic from consuming spec-layer effort.
 - Deferral becomes visible and reversible: a `blocked/deferred` label

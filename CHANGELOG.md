@@ -330,7 +330,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   implementing change merges (`Closes #N`). Accepted issues blocked on
   an external enabler carry `blocked/deferred` instead of living as
   open ADR-carrying PRs. The section lives in the conventions guide
-  (`dev/conventions.md` renamed to `dev/conventions.md`); bug and feature
+  (`dev/style.md` renamed to `dev/conventions.md`); bug and feature
   issue templates are added under `.github/ISSUE_TEMPLATE/`.
 
 ### Changed

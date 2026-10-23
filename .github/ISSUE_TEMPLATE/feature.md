@@ -1,8 +1,6 @@
 ---
 name: Feature request
 about: Request a new capability in preserf
-labels: []
-assignees: ''
 ---
 
 **Summary**
