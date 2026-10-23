@@ -15,4 +15,4 @@
 
 - [x] 3.1 Add the CHANGELOG bullet under `[Unreleased]`
 - [x] 3.2 Create the `triage/accepted`, `triage/declined`, and `blocked/deferred` labels on GitHub
-- [x] 3.3 Run `openspec validate --all --strict` and `pixi run verify` and confirm both are green (exercised by the PR's CI lanes: openspec validate + verify on linux-64/osx-arm64, all green)
+- [x] 3.3 Run `openspec validate --all --strict` and `pixi run verify` and confirm both are green (exercised by the PR's CI lanes — openspec validate, verify linux-64/osx-arm64, fortran intel ifx — on every push of this branch)

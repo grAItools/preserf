@@ -37,7 +37,8 @@ pre-done gate — CI is the only hard enforcement of it.
 ## Issue triage and change lifecycle
 
 GitHub issues are the entry point for user-reported bugs and feature
-requests; they describe problems, not solutions. The lifecycle is:
+requests; they describe problems. Solution sketches are welcome
+input, but the change spec owns the design. The lifecycle is:
 
 1. **New** — an issue is filed via the bug/feature templates
    (`.github/ISSUE_TEMPLATE/`).

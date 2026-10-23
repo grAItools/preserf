@@ -12,11 +12,11 @@ indistinguishable from abandoned PRs.
 ## What Changes
 
 - Document an issue-driven change lifecycle: GitHub issues are the user
-  entry point (bug reports and feature requests, problems not
-  solutions); a human acceptance gate (triage/accepted) precedes spec
-  work; accepted issues link bidirectionally to a named OpenSpec
-  change; issues close automatically when the implementing change
-  merges (Closes #N)
+  entry point (bug reports and feature requests stating the problem;
+  solution sketches are optional input); a human acceptance gate
+  (triage/accepted) precedes spec work; accepted issues link
+  bidirectionally to a named OpenSpec change; issues close
+  automatically when the implementing change merges (Closes #N)
 - Add bug and feature issue templates under .github/ISSUE_TEMPLATE/
 - Record the decision as dev/adr/0012 (the in-flight
   improve-store-efficiency compression ADR renumbers to 0013)

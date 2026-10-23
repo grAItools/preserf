@@ -30,7 +30,8 @@ context: |
   new runtime dependency without an ADR.
 
   Issue lifecycle: GitHub issues are user-reported bugs and feature
-  requests (problems, not solutions). A human developer accepts an
+  requests stating the problem (solution sketches are welcome input;
+  the change spec owns the design). A human developer accepts an
   issue (triage/accepted) before spec work starts; the accepted issue
   is then dealt with by an OpenSpec change whose proposal references
   it (Issue: #N) and whose name is commented back on the issue. The
