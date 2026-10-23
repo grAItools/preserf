@@ -2547,7 +2547,7 @@ contains
    !> `slice_size*k_size` is evaluated in default integer and silently wraps
    !> past ~2^31 elements — plausible for an ICON-scale real64 field (a 17 GB
    !> field is ~2.1e9 elements). This is the wire-boundary integer hazard the
-   !> style guide names (dev/style.md): we promote each operand to int64
+   !> style guide names (dev/conventions.md): we promote each operand to int64
    !> *before* multiplying so the count is exact, and error_stop naming the
    !> field if even the int64 product would overflow (the buffer allocation
    !> and every `off + ss` index downstream use this same int64 count).

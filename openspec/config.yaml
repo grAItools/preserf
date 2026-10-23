@@ -25,7 +25,7 @@ context: |
   Conventions: tests are the spec (change a test first when behaviour
   changes). Errors carry file/line context via DirectiveError.
   Documentation is split by audience: docs/ holds user documentation,
-  dev/ holds development docs (style.md, testing.md, adr/,
+  dev/ holds development docs (conventions.md, testing.md, adr/,
   references/); ADRs are append-only, supersede with a new file. No
   new runtime dependency without an ADR.
 

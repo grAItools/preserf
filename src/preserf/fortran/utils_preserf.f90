@@ -255,7 +255,7 @@ contains
    !> reserved housekeeping attributes (e.g. `_preserf_unique_id`) as int32,
    !> so under `-fdefault-integer-8` a user-supplied default-kind value must
    !> be range-checked before the implicit narrowing at the wire — otherwise
-   !> it would silently wrap (dev/style.md anti-pattern). Mirrors the guard
+   !> it would silently wrap (dev/conventions.md anti-pattern). Mirrors the guard
    !> of the same name in m_preserf for the casts that live in this module.
    subroutine require_fits_int32(value, label)
       integer, intent(in) :: value
