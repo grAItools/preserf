@@ -1,5 +1,7 @@
 # Proposal
 
+Issue: #46
+
 ## Why
 
 Two storage-efficiency gaps cap the runtime for large-field workloads.
