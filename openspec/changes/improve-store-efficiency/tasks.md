@@ -8,8 +8,8 @@
 ## 2. Storage layout (opt-in)
 
 - [ ] 2.1 Draft `dev/adr/0013-opt-in-store-compression.md` recording the storage-layout decision
-- [ ] 2.2 Thread chunking/deflate/shuffle requests from `REGISTER`/auto-registration through `ensure_variable` (`m_preserf.F90:3296-3311`), default off
-- [ ] 2.3 Add native ctest scenarios asserting default registrations remain contiguous and compressed registrations round-trip through the Python support reader
+- [ ] 2.2 Thread the store-wide compression request (`ppser_initialize` keyword + `PRESERF_COMPRESSION` env var) through `ensure_variable` (`m_preserf.F90:3296-3311`), default off, with a chunk shape derived from the registered dims (not whole-variable); keep the per-field registration-API override as an explicit follow-up
+- [ ] 2.3 Add native ctest scenarios asserting default stores remain contiguous and compressed stores round-trip through the Python support reader
 
 ## 3. Perturb RNG batching
 

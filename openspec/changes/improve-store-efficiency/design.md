@@ -34,10 +34,16 @@ lands the optimizations behind them.
 
 ## Decisions
 
-- The compression request surface is the Fortran registration API
-  (`fs_register_field` and the auto-registration path), not the
-  `REGISTER` directive grammar: the preprocessor stays untouched and the
-  knobs live where the field metadata is declared.
+- The compression request surface is a store-wide default at
+  `ppser_initialize` (a `compression=` keyword, mirroring `backend=`)
+  plus a `PRESERF_COMPRESSION` env var — the surface PR #53 implements
+  and that the issue body, the storage reference §9, and the
+  nczarr-compression-codec change all assume. A per-field override
+  through the Fortran registration API (`fs_register_field`) is an
+  explicit follow-up: the auto-registration path carries no
+  caller-supplied metadata today and `!$SER REGISTER` rejects
+  key=value pairs, so that surface is not implementable without
+  preprocessor work.
 - The ADR (new `dev/adr/0013`) records the storage-layout decision:
   opt-in, default off, chunk shape derived from the registered dims,
   deflate level from the registration request, reader transparency

@@ -29,14 +29,14 @@ The runtime SHALL support read-perturb mode: floating-point `fs_read_field_*_per
 
 ### Requirement: Variable storage layout
 
-Store variables SHALL support opt-in chunked and compressed storage: a field registered through the Fortran registration API (`fs_register_field` or the auto-registration path) with a compression request SHALL be created as a chunked, deflated variable, while default registrations SHALL remain contiguous and uncompressed so existing stores are byte-identical.
+Store variables SHALL support opt-in chunked and compressed storage: when a store-wide compression level is requested through the `ppser_initialize` keyword (or the `PRESERF_COMPRESSION` env var), field variables SHALL be created as chunked, deflated variables with a chunk shape derived from the registered dims, while stores created without a compression request SHALL remain contiguous and uncompressed so existing stores are byte-identical.
 
 #### Scenario: Default registration unchanged
 
 - **WHEN** a field is registered without a compression request
 - **THEN** the store variable is created contiguous and uncompressed, matching existing stores
 
-#### Scenario: Compressed registration round-trips
+#### Scenario: Compressed store round-trips
 
-- **WHEN** a field is registered through the Fortran registration API with a compression request and written
+- **WHEN** a store is initialized with a compression request and a field is written
 - **THEN** the store variable is chunked and deflated, and the field round-trips through the Python support reader with identical values
