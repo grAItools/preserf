@@ -38,7 +38,9 @@ name.
   follow-up, not part of this decision.
 - Chunk shapes are derived from the registered dims and bounded,
   not whole-variable (HDF5 aborts above 4 GiB per chunk, and one
-  chunk per field defeats partial reads).
+  chunk per field defeats partial reads) — except for
+  single-element variables, where the only legal chunk is the
+  whole variable.
 - Tracer data follows the global knob: tracer variables are store
   variables like any other.
 - The NCZarr combination (`compression>0` + `backend=nczarr-v2`)
