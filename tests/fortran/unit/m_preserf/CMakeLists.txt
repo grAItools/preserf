@@ -205,6 +205,20 @@ preserf_scenario_test(NAME read_roundtrip SCENARIO read-roundtrip
 preserf_scenario_test(NAME dedup SCENARIO dedup
     PASS "preserf-fortran: dedup OK")
 
+# ADR 0014 regression: dedup is scoped to !$SER DATA field writes, so a
+# DATA_KBUFF flush (which reuses fs_write_field) must bypass dedup and keep its
+# on-disk variable a direct array — otherwise the k-buffer read path aborts.
+# Writes a k-buffered field with dedup ON and reads it back level-by-level.
+preserf_scenario_test(NAME kbuff_dedup SCENARIO kbuff-dedup
+    PASS "preserf-fortran: kbuff-dedup OK")
+
+# ADR 0014 regression: dictionary entries use a short store-global id, not the
+# field name, so a near-limit (248-char) field name does not overflow netCDF's
+# 256-byte name cap once the dimension suffix is appended. Round-trips such a
+# field with dedup ON.
+preserf_scenario_test(NAME dedup_longname SCENARIO dedup-longname
+    PASS "preserf-fortran: dedup-longname OK")
+
 # Issue #32: `mode` is optional on ppser_initialize for pp_ser / Serialbox
 # `!$SER INIT` drop-in compatibility. Covers the default-write path, the derived
 # read path (set_mode(1) + omitted mode), and read-perturb preservation.

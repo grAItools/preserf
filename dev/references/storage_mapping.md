@@ -113,17 +113,17 @@ Two kinds of root attributes are written:
 
 ### 3.1 preserf housekeeping (reserved namespace `_preserf_*`)
 
-| Attribute name              | Type        | Value                                                 |
-| --------------------------- | ----------- | ----------------------------------------------------- |
-| `_preserf_schema_version`   | `NF90_INT`  | `1` (this document's schema version)                  |
-| `_preserf_serialbox_prefix` | `NF90_CHAR` | the `prefix` argument from `ppser_initialize`         |
-| `_preserf_savepoint_count`  | `NF90_INT`  | number of savepoint subgroups under `/savepoints`     |
-| `_preserf_writer`           | `NF90_CHAR` | `"preserf <version>"`                                 |
-| `_preserf_singlefile`       | `NF90_BYTE` | `!$SER INIT singlefile=` keyword (0/1); default `0`   |
-| `_preserf_archive`          | `NF90_CHAR` | `!$SER INIT archive=` keyword; default `"Binary"`     |
-| `_preserf_unique_id`        | `NF90_INT`  | `!$SER INIT unique_id=` keyword; default `0`          |
-| `_preserf_dedup`            | `NF90_BYTE` | cross-savepoint dedup on/off (0/1); default `0` (§10) |
-| `_preserf_option_verbosity` | `NF90_INT`  | `!$SER OPTION verbosity=` value; present only if set  |
+| Attribute name              | Type        | Value                                                         |
+| --------------------------- | ----------- | ------------------------------------------------------------- |
+| `_preserf_schema_version`   | `NF90_INT`  | `1` (this document's schema version)                          |
+| `_preserf_serialbox_prefix` | `NF90_CHAR` | the `prefix` argument from `ppser_initialize`                 |
+| `_preserf_savepoint_count`  | `NF90_INT`  | number of savepoint subgroups under `/savepoints`             |
+| `_preserf_writer`           | `NF90_CHAR` | `"preserf <version>"`                                         |
+| `_preserf_singlefile`       | `NF90_BYTE` | `!$SER INIT singlefile=` keyword (0/1); default `0`           |
+| `_preserf_archive`          | `NF90_CHAR` | `!$SER INIT archive=` keyword; default `"Binary"`             |
+| `_preserf_unique_id`        | `NF90_INT`  | `!$SER INIT unique_id=` keyword; default `0`                  |
+| `_preserf_dedup`            | `NF90_BYTE` | `1` only when cross-savepoint dedup is on; absent = off (§10) |
+| `_preserf_option_verbosity` | `NF90_INT`  | `!$SER OPTION verbosity=` value; present only if set          |
 
 `_preserf_option_*` attributes record `!$SER OPTION` keys for round-trip
 (§4b). Only `verbosity` is defined today; the namespace is reserved for
@@ -487,10 +487,15 @@ off), mirroring the `backend` selector. When it is on:
 
 - A lazily-created `/_dict` group (sibling of `/_fields` and
   `/savepoints`) holds **one dataset per unique field payload**, named
-  `<fieldname>__v<N>` where `N` is a 0-based per-field counter in write
-  order. Each entry is an ordinary data variable, identical in type / dims
-  / axis-order to the §6 variable it replaces (its dimensions are named
-  `<entry>_dim0`, …). The group is absent in a default store.
+  `d<K>` where `K` is a store-global 0-based counter in write order. The
+  entry name is deliberately **not** derived from the field name: netCDF
+  caps every name at `NC_MAX_NAME` (256 bytes) and each entry's dimensions
+  are named `<entry>_dim<j>`, so embedding a long field name would push an
+  otherwise-valid near-limit field's suffixed dimension name over the cap.
+  A short global id keeps those dimension names tiny and is collision-free
+  within `/_dict`. Each entry is an ordinary data variable, identical in
+  type / dims / axis-order to the §6 variable it replaces. The group is
+  absent in a default store.
 - Each savepoint that writes a field stores, in place of the payload, a
   **scalar `NF90_INT` carrier variable** named `<fieldname>` (value `0`,
   like the registry carriers of §4) carrying a reserved attribute:
@@ -499,9 +504,10 @@ off), mirroring the `backend` selector. When it is on:
   | ------------------- | ----------- | ------------------------------------------------ |
   | `_preserf_dict_ref` | `NF90_CHAR` | name of the `/_dict/<entry>` holding the payload |
 
-- The root group records `_preserf_dedup` (`NF90_BYTE`, 0/1) so a store
-  round-trips whether it was written deduplicated (§3.1). A default store
-  writes `0`.
+- The root group records `_preserf_dedup` (`NF90_BYTE`, `1`) **only when
+  dedup is on** (§3.1), so a store round-trips the fact it was written
+  deduplicated. A default store omits the attribute entirely — its absence
+  means off — so a default store stays byte-identical to a pre-dedup build.
 
 Two payloads are treated as identical when they share a 64-bit FNV-1a
 content checksum and byte length (the checksum is trusted; see ADR 0014
@@ -539,15 +545,15 @@ with dedup enabled:
   u                                     scalar NF90_INT, value 0
     attrs: type_id=5, dims=[ke,je,ie], …   ! registry entry unchanged
 /_dict/
-  u__v0                                 NF90_DOUBLE, dims [u__v0_dim0, …]
+  d0                                    NF90_DOUBLE, dims [d0_dim0, …]
                                           ! the single stored copy of u
 /savepoints/
   sp_000000/                            attrs: name="step1", ntstep=1, …
-    u                                   scalar NF90_INT, _preserf_dict_ref="u__v0"
+    u                                   scalar NF90_INT, _preserf_dict_ref="d0"
   sp_000001/                            attrs: name="step1", ntstep=2, …
-    u                                   scalar NF90_INT, _preserf_dict_ref="u__v0"
+    u                                   scalar NF90_INT, _preserf_dict_ref="d0"
 ```
 
-Both savepoints reference `u__v0`; the identical payload is stored once. A
-third savepoint writing a _different_ `u` would add `/_dict/u__v1` and
+Both savepoints reference `d0`; the identical payload is stored once. A
+third savepoint writing a _different_ `u` would add `/_dict/d1` and
 reference that instead.

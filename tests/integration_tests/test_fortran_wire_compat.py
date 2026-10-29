@@ -416,10 +416,16 @@ def test_fortran_writes_dedup_python_reads(
         raw.close()
 
     # The default store (dedup off) keeps the one-dataset-per-write layout
-    # and never creates /_dict, so existing stores stay byte-identical.
+    # and never creates /_dict, so existing stores stay byte-identical. The
+    # `_preserf_dedup` attribute is omitted entirely when dedup is off (a
+    # reader treats its absence as off), so a default store is unchanged on
+    # disk from a pre-dedup build.
     raw = netCDF4.Dataset(str(plain_path), "r")
     try:
-        assert int(raw.getncattr("_preserf_dedup")) == 0
+        assert "_preserf_dedup" not in raw.ncattrs(), (
+            "a default (non-dedup) store must not carry _preserf_dedup; its "
+            "absence means off and keeps the store byte-identical"
+        )
         assert "_dict" not in raw.groups, (
             "a default (non-dedup) store must not carry a /_dict group"
         )

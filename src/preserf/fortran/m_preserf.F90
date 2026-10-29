@@ -1343,6 +1343,17 @@ contains
       type(t_serializer), intent(inout) :: s
       type(t_savepoint), intent(in) :: sp
       integer, intent(in) :: idx
+      logical :: saved_dedup
+
+      ! Cross-savepoint dedup (ADR 0014) is scoped to !$SER DATA field
+      ! writes. A k-buffer flush reuses fs_write_field, but its on-disk
+      ! variable must stay a direct NF90_DOUBLE array: the k-buffer read
+      ! path (kbuff_load_full) reads it back as one, and would abort on a
+      ! scalar dedup reference carrier. Suppress dedup for the flush and
+      ! restore the caller's setting afterwards, so k-buffered fields keep
+      ! the one-dataset-per-write layout regardless of the dedup option.
+      saved_dedup = ppser_dedup_enabled
+      ppser_dedup_enabled = .false.
 
       select case (ppser_kbuffers(idx)%full_rank)
       case (2)
@@ -1364,6 +1375,7 @@ contains
          error stop 1
       end select
 
+      ppser_dedup_enabled = saved_dedup
       call kbuff_free(idx)
    end subroutine kbuff_flush
 

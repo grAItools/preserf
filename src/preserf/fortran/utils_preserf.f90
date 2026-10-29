@@ -955,35 +955,44 @@ contains
    !> `checksum` and byte length `nbytes` under field `field` (ADR 0014).
    !> On a hit (an entry with the same field, checksum, and byte length
    !> already exists) returns that entry's on-disk name and `is_new=.false.`;
-   !> on a miss records a fresh entry named `<field>__v<N>` (N the 0-based
-   !> per-field count) and returns it with `is_new=.true.`. The caller writes
-   !> the payload dataset only when `is_new` is true. Checksum equality is
-   !> trusted (Serialbox semantics; see ADR 0014 for the collision note).
+   !> on a miss records a fresh entry and returns it with `is_new=.true.`.
+   !> The caller writes the payload dataset only when `is_new` is true.
+   !> Checksum equality is trusted (Serialbox semantics; see ADR 0014 for
+   !> the collision note).
+   !>
+   !> The entry name is `d<K>`, K a store-global 0-based counter —
+   !> deliberately NOT built from the field name. netCDF caps every name
+   !> (variable OR dimension) at NC_MAX_NAME = 256 bytes, and the dictionary
+   !> dataset's dimensions are named `<entry>_dim<j>`; embedding a long field
+   !> name would push that suffixed dimension name past the limit for an
+   !> otherwise-valid near-limit field. A short global id keeps the dimension
+   !> names tiny while staying collision-free within `/_dict` (K is unique
+   !> per store). The field is still recorded for the checksum lookup; the
+   !> on-disk reference (`_preserf_dict_ref`) names the entry explicitly, so
+   !> a reader never parses the name.
    subroutine ppser_dict_find_or_add(field, checksum, nbytes, entry_name, is_new)
       character(len=*), intent(in) :: field
       integer(int64), intent(in) :: checksum, nbytes
       character(len=:), allocatable, intent(out) :: entry_name
       logical, intent(out) :: is_new
-      integer :: i, n_for_field
+      integer :: i
       character(len=16) :: idx_str
 
-      n_for_field = 0
       do i = 1, ppser_dict_count
-         if (trim(ppser_dict(i)%field) == field) then
-            if (ppser_dict(i)%checksum == checksum .and. &
-                ppser_dict(i)%nbytes == nbytes) then
-               entry_name = trim(ppser_dict(i)%entry_name)
-               is_new = .false.
-               return
-            end if
-            n_for_field = n_for_field + 1
+         if (trim(ppser_dict(i)%field) == field .and. &
+             ppser_dict(i)%checksum == checksum .and. &
+             ppser_dict(i)%nbytes == nbytes) then
+            entry_name = trim(ppser_dict(i)%entry_name)
+            is_new = .false.
+            return
          end if
       end do
 
       call ppser_dict_grow()
+      ! 0-based global index = the count before this entry is appended.
+      write (idx_str, '(i0)') ppser_dict_count
+      entry_name = 'd'//trim(idx_str)
       ppser_dict_count = ppser_dict_count + 1
-      write (idx_str, '(i0)') n_for_field
-      entry_name = trim(field)//'__v'//trim(idx_str)
       ppser_dict(ppser_dict_count)%field = field
       ppser_dict(ppser_dict_count)%entry_name = entry_name
       ppser_dict(ppser_dict_count)%checksum = checksum
@@ -1436,13 +1445,17 @@ contains
       ncerr = nf90_put_att(s%ncid, NF90_GLOBAL, '_preserf_unique_id', uid)
       call preserf_check_nf_with_msg(ncerr, 'put_att _preserf_unique_id')
 
-      ! Record the opt-in dedup setting (ADR 0014) so a store round-trips
-      ! whether it was written deduplicated. Follows the Boolean NF90_BYTE
-      ! 0/1 convention used for `_preserf_singlefile` and boolean metainfo.
-      ! Read from the module flag the init boundary resolved.
-      ncerr = nf90_put_att(s%ncid, NF90_GLOBAL, '_preserf_dedup', &
-                           preserf_logical_to_byte(ppser_dedup_enabled))
-      call preserf_check_nf_with_msg(ncerr, 'put_att _preserf_dedup')
+      ! Record the opt-in dedup setting (ADR 0014) ONLY when dedup is on.
+      ! A default store must stay byte-identical to a pre-dedup store (the
+      ! change spec's hard guarantee), so the attribute is omitted entirely
+      ! when off; a reader treats its absence as "not deduplicated". When
+      ! on it is written NF90_BYTE 1, matching the Boolean 0/1 convention of
+      ! `_preserf_singlefile` and boolean metainfo.
+      if (ppser_dedup_enabled) then
+         ncerr = nf90_put_att(s%ncid, NF90_GLOBAL, '_preserf_dedup', &
+                              preserf_logical_to_byte(ppser_dedup_enabled))
+         call preserf_check_nf_with_msg(ncerr, 'put_att _preserf_dedup')
+      end if
    end subroutine preserf_write_root_housekeeping
 
    subroutine preserf_create_skeleton_groups(s)

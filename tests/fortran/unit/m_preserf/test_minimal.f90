@@ -2773,6 +2773,135 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: dedup OK'
                stop
             end block
+         else if (scenario == 'kbuff-dedup') then
+            ! Regression for the dedup x k-buffer interaction (ADR 0014):
+            ! dedup is scoped to !$SER DATA field writes, but kbuff_flush
+            ! reuses fs_write_field, so a naive dedup gate would turn a
+            ! k-buffered field into a scalar `/_dict` reference carrier — and
+            ! the k-buffer READ path (fs_write_kbuff in read mode ->
+            ! kbuff_load_full) reads a direct NF90_DOUBLE array, so it would
+            ! abort. This writes a k-buffered 3-D field with dedup ENABLED,
+            ! reads it back level-by-level through the k-buffer read path, and
+            ! confirms on disk that the savepoint variable stayed a direct
+            ! array (no _preserf_dict_ref) and no /_dict entry was created for
+            ! it — i.e. k-buffer flushes bypass dedup as specified.
+            block
+               integer, parameter :: ni = 3, nj = 2, ke = 4
+               real(real64) :: tslice(ni, nj)
+               integer :: i, j, kk
+               integer :: kncid, kdict, kvar, kncerr, ksp
+
+               call ppser_initialize(out_dir, 'fkbdd', 'w', dedup=.true.)
+               call fs_register_field(ppser_serializer, 't', 'double', &
+                                      ppser_reallength, ni, nj, ke, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               do kk = 1, ke
+                  do j = 1, nj
+                     do i = 1, ni
+                        tslice(i, j) = real(100*i + 10*j + kk, real64)
+                     end do
+                  end do
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 't', &
+                                      tslice, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+               end do
+               call ppser_finalize()
+
+               ! Read-back through the k-buffer read path must succeed and
+               ! recover every level — this is what would abort if the flush
+               ! had stored a scalar dedup reference.
+               call ppser_initialize(out_dir, 'fkbdd', 'r')
+               call fs_create_savepoint('step', ppser_savepoint)
+               do kk = 1, ke
+                  tslice = 0.0_real64
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 't', &
+                                      tslice, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+                  do j = 1, nj
+                     do i = 1, ni
+                        if (tslice(i, j) /= real(100*i + 10*j + kk, real64)) &
+                           error stop 'kbuff-dedup: t read-back mismatch'
+                     end do
+                  end do
+               end do
+               call ppser_finalize()
+
+               ! On disk, the k-buffered field must be a direct array in the
+               ! savepoint (never a dedup reference carrier).
+               kncerr = nf90_open(out_dir//'/fkbdd.nc', NF90_NOWRITE, kncid)
+               if (kncerr /= NF90_NOERR) error stop 'kbuff-dedup: reopen failed'
+               kncerr = nf90_inq_ncid(kncid, 'savepoints', ksp)
+               if (kncerr /= NF90_NOERR) error stop 'kbuff-dedup: inq savepoints'
+               kncerr = nf90_inq_ncid(ksp, 'sp_000000', ksp)
+               if (kncerr /= NF90_NOERR) error stop 'kbuff-dedup: inq sp_000000'
+               kncerr = nf90_inq_varid(ksp, 't', kvar)
+               if (kncerr /= NF90_NOERR) error stop 'kbuff-dedup: sp missing t'
+               kncerr = nf90_inquire_attribute(ksp, kvar, '_preserf_dict_ref')
+               if (kncerr == NF90_NOERR) error stop &
+                  'kbuff-dedup: k-buffered field was wrongly deduplicated'
+               ! No /_dict entry should exist at all for a store that only
+               ! wrote a k-buffered field (dedup never fired).
+               kncerr = nf90_inq_ncid(kncid, '_dict', kdict)
+               if (kncerr == NF90_NOERR) error stop &
+                  'kbuff-dedup: k-buffer flush created a /_dict group'
+               kncerr = nf90_close(kncid)
+               if (kncerr /= NF90_NOERR) error stop 'kbuff-dedup: close failed'
+
+               write (*, '(a)') 'preserf-fortran: kbuff-dedup OK'
+               stop
+            end block
+         else if (scenario == 'dedup-longname') then
+            ! Regression for the dedup dictionary name length (ADR 0014):
+            ! dictionary entries use a short store-global id (`d<K>`), not the
+            ! field name, so an otherwise-valid near-limit field name does not
+            ! blow past netCDF's 256-byte name cap once the `_dim<j>` suffix
+            ! is appended to the entry's dimensions. A 248-character field
+            ! name (whose own `<name>_dim0` is a legal 253 bytes) would, under
+            ! a field-name-derived entry scheme, produce a 257-byte
+            ! `<name>__v0_dim0` dimension and fail the write. This writes such
+            ! a field with dedup ON at two savepoints (identical payload) and
+            ! reads it back, proving the short-id scheme keeps it within the
+            ! limit and the payload still collapses + round-trips.
+            block
+               character(len=248) :: longname
+               real(real64) :: lback(3)
+               real(real64), parameter :: lpay(3) = &
+                                          [7.0_real64, 8.0_real64, 9.0_real64]
+
+               longname = repeat('a', 248)
+               call ppser_initialize(out_dir, 'fdedln', 'w', dedup=.true.)
+               call fs_register_field(ppser_serializer, trim(longname), &
+                                      'double', ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('sp0', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, &
+                                   trim(longname), lpay)
+               call fs_create_savepoint('sp1', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, &
+                                   trim(longname), lpay)
+               call ppser_finalize()
+
+               call ppser_initialize(out_dir, 'fdedln', 'r')
+               call fs_register_field(ppser_serializer, trim(longname), &
+                                      'double', ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('sp0', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  trim(longname), lback)
+               if (any(lback /= lpay)) error stop &
+                  'dedup-longname: sp0 read-back mismatch'
+               call fs_create_savepoint('sp1', ppser_savepoint)
+               lback = 0.0_real64
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  trim(longname), lback)
+               if (any(lback /= lpay)) error stop &
+                  'dedup-longname: sp1 read-back mismatch'
+               call ppser_finalize()
+
+               write (*, '(a)') 'preserf-fortran: dedup-longname OK'
+               stop
+            end block
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &

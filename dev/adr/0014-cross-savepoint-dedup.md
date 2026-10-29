@@ -47,12 +47,15 @@ encoding**, default **off** so existing stores stay byte-identical.
 
 - When dedup is enabled for a store, each unique field payload is written
   once as a normal, named dataset in a lazily-created `/_dict` group
-  (`/_dict/<fieldname>__v<N>`, `N` a per-field 0-based counter). Every
-  savepoint that writes that payload stores a scalar `NF90_INT` carrier
-  variable named `<fieldname>` carrying a `_preserf_dict_ref` string
-  attribute naming the dictionary entry, instead of the payload itself.
-  A reader resolves one indirection: savepoint variable → `_preserf_dict_ref`
-  → `/_dict/<entry>`.
+  (`/_dict/d<K>`, `K` a store-global 0-based counter). The entry name is a
+  short global id rather than the field name so that the entry's dimension
+  names (`d<K>_dim<j>`) stay within netCDF's 256-byte `NC_MAX_NAME` cap
+  even for a near-limit field name; it is collision-free within `/_dict`.
+  Every savepoint that writes that payload stores a scalar `NF90_INT`
+  carrier variable named `<fieldname>` carrying a `_preserf_dict_ref`
+  string attribute naming the dictionary entry, instead of the payload
+  itself. A reader resolves one indirection: savepoint variable →
+  `_preserf_dict_ref` → `/_dict/<entry>`.
 - Deduplication is keyed by a content checksum (64-bit FNV-1a over the raw
   payload bytes, combined with the byte length), matching Serialbox's
   "dedup identical writes by checksum" semantics. The checksum→entry map
@@ -63,7 +66,9 @@ encoding**, default **off** so existing stores stay byte-identical.
 - The option is threaded from `ppser_initialize` (a `dedup` keyword,
   resolved from the `PRESERF_DEDUP` environment variable when omitted, else
   the default), mirroring how `backend` is threaded, and recorded on the
-  root group as `_preserf_dedup` (`NF90_BYTE`, 0/1) for round-trip.
+  root group as `_preserf_dedup` (`NF90_BYTE`, `1`) **only when enabled**.
+  A default store omits the attribute entirely — its absence means off —
+  so a non-deduplicated store stays byte-identical to a pre-dedup build.
 
 Dictionary encoding is chosen over the blob pool for three reasons:
 
