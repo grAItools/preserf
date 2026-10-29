@@ -174,11 +174,12 @@ preserf_scenario_test(NAME backend_nczarr_badchar SCENARIO backend-nczarr-badcha
     PASS "needs URI-encoding")
 
 # Store-wide compression. The `compression` scenario writes a multi-element
-# 1-D field, a rank-2 field, a rank-0 field, and a tracer data variable under
-# compression=1, asserts the on-disk layout (chunked + deflated with a
-# bounded, non-whole chunk for the multi-element variables; the backend
-# default for the scalar), and round-trips the fields. The Python wire-compat
-# test re-checks the layout through netCDF4.
+# 1-D field, a rank-2 field, a rank-0 field, a single-element field, and a
+# tracer data variable under compression=1, asserts the on-disk layout
+# (chunked + deflated with a bounded, non-whole chunk for the multi-element
+# variables; one whole-variable chunk for the single-element field; the
+# backend default for the scalar), and round-trips the fields. The Python
+# wire-compat test re-checks the layout through netCDF4.
 preserf_scenario_test(NAME compression SCENARIO compression
     PASS "preserf-fortran: compression OK")
 
