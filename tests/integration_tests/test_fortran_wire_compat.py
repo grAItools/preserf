@@ -842,13 +842,15 @@ def test_fortran_compressed_store_layout_and_roundtrip(
     """A compressed store is chunked + deflated and decodes identically.
 
     The ``compression`` scenario writes a multi-element 1-D field, a rank-2
-    field, a rank-0 field, and a tracer data variable with ``compression=1``;
-    ``compression-default-off`` writes the same 1-D field with no compression
-    request. This asserts the on-disk layout through netCDF4 — chunked with a
-    bounded, non-whole chunk shape and zlib-deflated for the multi-element
-    variables, the backend's default contiguous layout for the scalar — that
-    the Python reference reader decodes the values unchanged, and that the
-    compressed store is smaller than its uncompressed twin.
+    field, a rank-0 field, a single-element field, and a tracer data variable
+    with ``compression=1``; ``compression-default-off`` writes the same 1-D
+    field with no compression request. This asserts the on-disk layout
+    through netCDF4 — chunked with a bounded, non-whole chunk shape and
+    zlib-deflated for the multi-element variables and the tracer, the
+    whole-variable chunk for the single-element field, the backend's default
+    contiguous layout for the scalar — that the Python reference reader
+    decodes the values unchanged, and that the compressed store is smaller
+    than its uncompressed twin.
     """
     import netCDF4  # local import; netCDF4 is a dev-only dependency
 
@@ -889,7 +891,8 @@ def test_fortran_compressed_store_layout_and_roundtrip(
         # A single-element variable has exactly one legal chunk: the whole
         # variable.
         single = data_group.variables["one"]
-        assert single.filters() is not None and single.filters().get("zlib") is True
+        single_filters = single.filters()
+        assert single_filters is not None and single_filters.get("zlib") is True
         assert list(single.chunking()) == list(single.shape)
         # A rank-0 variable cannot be chunked: it keeps the backend's default
         # layout and stays uncompressed.

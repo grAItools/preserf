@@ -3566,8 +3566,11 @@ contains
          if (chunks(i) /= dims(i)) whole = .false.
          bytes = bytes*int(chunks(i), int64)
       end do
-      if (whole .and. .not. allow_whole) call layout_fail( &
-         label, 'must not be one whole-variable chunk')
+      if (whole .neqv. allow_whole) then
+         if (allow_whole) call layout_fail( &
+            label, 'must be one whole-variable chunk')
+         call layout_fail(label, 'must not be one whole-variable chunk')
+      end if
       if (bytes > PPSER_CHUNK_TARGET_BYTES) call layout_fail( &
          label, 'chunk exceeds the derivation target')
    end subroutine expect_deflated
