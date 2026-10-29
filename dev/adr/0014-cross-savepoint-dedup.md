@@ -56,19 +56,34 @@ encoding**, default **off** so existing stores stay byte-identical.
   string attribute naming the dictionary entry, instead of the payload
   itself. A reader resolves one indirection: savepoint variable →
   `_preserf_dict_ref` → `/_dict/<entry>`.
-- Deduplication is keyed by a content checksum (64-bit FNV-1a over the raw
-  payload bytes, combined with the byte length), matching Serialbox's
-  "dedup identical writes by checksum" semantics. The checksum→entry map
-  is a write-time, in-memory accelerator; the durable index lives _inside
-  the store_ as the per-savepoint `_preserf_dict_ref` references plus the
-  `/_dict` datasets (Serialbox keeps its index external only because its
-  binary archive is flat `.dat` files).
+- Deduplication is keyed by a content checksum over the raw payload bytes,
+  combined with the byte length, matching Serialbox's "dedup identical
+  writes by checksum" semantics. The checksum is a double modular
+  polynomial hash (two independent primes near 2^31 combined into a 62-bit
+  digest): every intermediate stays below 2^41, so it never relies on
+  signed-integer overflow wraparound (which Fortran does not guarantee —
+  an overflow-trapping build could abort), and it uses an int64 length and
+  loop index so payloads larger than 2 GiB hash correctly. (An earlier
+  draft used 64-bit FNV-1a, whose multiply overflows the signed range.)
+  The checksum→entry map is a write-time, in-memory accelerator and is
+  never persisted; the durable index lives _inside the store_ as the
+  per-savepoint `_preserf_dict_ref` references plus the `/_dict` datasets
+  (Serialbox keeps its index external only because its binary archive is
+  flat `.dat` files).
 - The option is threaded from `ppser_initialize` (a `dedup` keyword,
   resolved from the `PRESERF_DEDUP` environment variable when omitted, else
   the default), mirroring how `backend` is threaded, and recorded on the
   root group as `_preserf_dedup` (`NF90_BYTE`, `1`) **only when enabled**.
   A default store omits the attribute entirely — its absence means off —
   so a non-deduplicated store stays byte-identical to a pre-dedup build.
+- A deduplicated store advertises a distinct **`_preserf_schema_version`
+  of `2`** (default stores keep `1`). A dedup savepoint variable is a
+  scalar reference carrier, not the payload, so a reader that ignores
+  `_preserf_dict_ref` would silently return the carrier value instead of
+  the data; the version bump makes such a reader reject the store at its
+  version check rather than return wrong data. Both bundled readers (the
+  Fortran `fs_read_field` path and `tests/_support/storage.py`) accept
+  versions `1` and `2`.
 
 Dictionary encoding is chosen over the blob pool for three reasons:
 
@@ -110,9 +125,9 @@ here.
   and may therefore write a duplicate of a payload a previous session
   already stored. This is a size inefficiency, never wrong data, and is
   tracked as follow-up work.
-- Dedup trusts the checksum, as Serialbox does. A 64-bit FNV-1a collision
-  between two genuinely different payloads of equal byte length would
-  mis-dedup; the probability is negligible at realistic unique-version
+- Dedup trusts the checksum, as Serialbox does. A collision of the 62-bit
+  digest between two genuinely different payloads of equal byte length
+  would mis-dedup; the probability is negligible at realistic unique-version
   counts (hundreds to low thousands). The recorded blob-pool fallback,
   were it ever adopted, would be the place to add a byte-exact comparison
   on checksum match if a workload ever needed that guarantee.

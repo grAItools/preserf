@@ -115,7 +115,7 @@ Two kinds of root attributes are written:
 
 | Attribute name              | Type        | Value                                                         |
 | --------------------------- | ----------- | ------------------------------------------------------------- |
-| `_preserf_schema_version`   | `NF90_INT`  | `1` (this document's schema version)                          |
+| `_preserf_schema_version`   | `NF90_INT`  | `1` (default stores); `2` for a deduplicated store (§10)      |
 | `_preserf_serialbox_prefix` | `NF90_CHAR` | the `prefix` argument from `ppser_initialize`                 |
 | `_preserf_savepoint_count`  | `NF90_INT`  | number of savepoint subgroups under `/savepoints`             |
 | `_preserf_writer`           | `NF90_CHAR` | `"preserf <version>"`                                         |
@@ -508,13 +508,21 @@ off), mirroring the `backend` selector. When it is on:
   dedup is on** (§3.1), so a store round-trips the fact it was written
   deduplicated. A default store omits the attribute entirely — its absence
   means off — so a default store stays byte-identical to a pre-dedup build.
+- A deduplicated store advertises **`_preserf_schema_version = 2`** (§3.1)
+  instead of `1`. Because a dedup savepoint variable is a scalar reference
+  carrier rather than the payload, a reader that does not resolve
+  `_preserf_dict_ref` would silently return the carrier value (`0`) as the
+  field. The distinct version makes such a reader reject the store loudly
+  at its version check instead. A default store keeps version `1` and stays
+  byte-identical. Both bundled readers (the Fortran `fs_read_field` path and
+  `tests/_support/storage.py`) accept versions `1` and `2`.
 
-Two payloads are treated as identical when they share a 64-bit FNV-1a
-content checksum and byte length (the checksum is trusted; see ADR 0014
-for the collision note). The durable deduplication index is the set of
-per-savepoint `_preserf_dict_ref` references plus the `/_dict` datasets —
-it lives entirely **inside the store** (Serialbox keeps its index external
-only because its archive is flat `.dat` files).
+Two payloads are treated as identical when they share a content checksum
+and byte length (a double modular polynomial hash; the checksum is trusted;
+see ADR 0014 for the collision note). The durable deduplication index is
+the set of per-savepoint `_preserf_dict_ref` references plus the `/_dict`
+datasets — it lives entirely **inside the store** (Serialbox keeps its
+index external only because its archive is flat `.dat` files).
 
 **Resolution (one indirection).** A reader resolves a field at a savepoint
 by: read the savepoint variable; if it carries `_preserf_dict_ref`, read
@@ -540,7 +548,7 @@ The §8 example (field `u` written unchanged at two savepoints), written
 with dedup enabled:
 
 ```
-/                                       attrs: …, _preserf_dedup=1
+/                                       attrs: …, _preserf_schema_version=2, _preserf_dedup=1
 /_fields/
   u                                     scalar NF90_INT, value 0
     attrs: type_id=5, dims=[ke,je,ie], …   ! registry entry unchanged

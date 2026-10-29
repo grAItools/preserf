@@ -395,6 +395,12 @@ def test_fortran_writes_dedup_python_reads(
     raw = netCDF4.Dataset(str(dedup_path), "r")
     try:
         assert int(raw.getncattr("_preserf_dedup")) == 1
+        # A deduplicated store advertises the dedup schema version (2) so a
+        # dedup-unaware reader rejects it rather than silently returning the
+        # scalar reference carriers (ADR 0014).
+        assert int(raw.getncattr("_preserf_schema_version")) == 2, (
+            "deduplicated store must advertise schema version 2"
+        )
         assert "_dict" in raw.groups, "deduplicated store is missing /_dict"
         dict_vars = raw.groups["_dict"].variables
         assert len(dict_vars) == 2, (
@@ -425,6 +431,9 @@ def test_fortran_writes_dedup_python_reads(
         assert "_preserf_dedup" not in raw.ncattrs(), (
             "a default (non-dedup) store must not carry _preserf_dedup; its "
             "absence means off and keeps the store byte-identical"
+        )
+        assert int(raw.getncattr("_preserf_schema_version")) == 1, (
+            "a default store must keep schema version 1 (byte-identical)"
         )
         assert "_dict" not in raw.groups, (
             "a default (non-dedup) store must not carry a /_dict group"

@@ -30,7 +30,7 @@ program test_minimal
    ! (ADR 0014); every other scenario goes through the helper API alone.
    use netcdf, only: nf90_open, nf90_close, nf90_inq_ncid, nf90_inq_varid, &
                      nf90_inquire, nf90_inquire_attribute, nf90_get_att, &
-                     NF90_NOWRITE, NF90_NOERR
+                     NF90_NOWRITE, NF90_NOERR, NF90_GLOBAL
    implicit none
 
    character(len=:), allocatable :: out_dir
@@ -2675,7 +2675,7 @@ program test_minimal
             ! (test_fortran_wire_compat.py).
             block
                real(real64) :: dback(3)
-               integer :: dncid, ddict, dvar, dnvars, dncerr, dgrp, dvid
+               integer :: dncid, ddict, dvar, dnvars, dncerr, dgrp, dvid, dver
                character(len=256) :: ref0, ref1, ref2
                real(real64), parameter :: pay_a(3) = [1.0_real64, 2.0_real64, 3.0_real64]
                real(real64), parameter :: pay_b(3) = [4.0_real64, 5.0_real64, 6.0_real64]
@@ -2728,6 +2728,12 @@ program test_minimal
                ! --- Introspect the deduplicated store on disk. -----------
                dncerr = nf90_open(out_dir//'/fdedup.nc', NF90_NOWRITE, dncid)
                if (dncerr /= NF90_NOERR) error stop 'dedup: reopen fdedup failed'
+               ! A deduplicated store advertises the dedup schema version so a
+               ! dedup-unaware reader rejects it instead of returning carriers.
+               dncerr = nf90_get_att(dncid, NF90_GLOBAL, '_preserf_schema_version', dver)
+               if (dncerr /= NF90_NOERR) error stop 'dedup: get schema_version failed'
+               if (dver /= 2) error stop &
+                  'dedup: deduplicated store must advertise schema version 2'
                ! `/_dict` must exist and hold exactly two unique payloads.
                dncerr = nf90_inq_ncid(dncid, '_dict', ddict)
                if (dncerr /= NF90_NOERR) error stop &
@@ -2752,6 +2758,11 @@ program test_minimal
                ! --- Introspect the default store on disk. ----------------
                dncerr = nf90_open(out_dir//'/fdedup_plain.nc', NF90_NOWRITE, dncid)
                if (dncerr /= NF90_NOERR) error stop 'dedup: reopen fdedup_plain failed'
+               ! A default store keeps schema version 1 (byte-identical).
+               dncerr = nf90_get_att(dncid, NF90_GLOBAL, '_preserf_schema_version', dver)
+               if (dncerr /= NF90_NOERR) error stop 'dedup: get schema_version (plain) failed'
+               if (dver /= 1) error stop &
+                  'dedup: default store must keep schema version 1'
                ! A default store must carry no /_dict group...
                dncerr = nf90_inq_ncid(dncid, '_dict', ddict)
                if (dncerr == NF90_NOERR) error stop &

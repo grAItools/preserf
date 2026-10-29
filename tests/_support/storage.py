@@ -39,6 +39,13 @@ from .serialbox import (
 )
 
 SCHEMA_VERSION = 1
+# A deduplicated store (ADR 0014) advertises a distinct schema version so a
+# reader that does not resolve `_preserf_dict_ref` rejects it rather than
+# silently returning carrier values. This reader resolves references, so it
+# accepts both. The writer below only ever produces default (non-dedup)
+# stores, so it keeps writing SCHEMA_VERSION.
+SCHEMA_VERSION_DEDUP = 2
+_SUPPORTED_SCHEMA_VERSIONS = (SCHEMA_VERSION, SCHEMA_VERSION_DEDUP)
 
 
 _PRIMITIVE_DTYPE: dict[TypeID, np.dtype[Any]] = {
@@ -413,10 +420,10 @@ def read_dump(url: str) -> SerialboxDump:
                 "this does not look like a preserf store"
             )
         version = int(root.getncattr("_preserf_schema_version"))
-        if version != SCHEMA_VERSION:
+        if version not in _SUPPORTED_SCHEMA_VERSIONS:
             raise ValueError(
                 f"{url}: unsupported preserf schema version {version}; "
-                f"this build supports version {SCHEMA_VERSION}"
+                f"this build supports versions {_SUPPORTED_SCHEMA_VERSIONS}"
             )
         prefix = str(root.getncattr("_preserf_serialbox_prefix"))
         dump = SerialboxDump(prefix=prefix)

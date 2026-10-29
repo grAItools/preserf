@@ -135,6 +135,16 @@ module utils_preserf
    ! tests/_support/storage.py SCHEMA_VERSION.
    integer(int32), parameter, public :: PRESERF_SCHEMA_VERSION = 1
 
+   ! Schema version for a deduplicated store (ADR 0014). A dedup store's
+   ! savepoint field variables are scalar reference carriers, not the
+   ! payload: a reader that does not resolve `_preserf_dict_ref` would
+   ! silently return the carrier value (0) instead of the data. Advertising
+   ! a distinct version makes such a reader reject the store loudly instead.
+   ! Default (non-dedup) stores keep version 1, so they stay byte-identical
+   ! to a pre-dedup build. Both readers (this module and
+   ! tests/_support/storage.py) accept version 1 and this version.
+   integer(int32), parameter, public :: PRESERF_SCHEMA_VERSION_DEDUP = 2
+
    ! Cap matching storage_mapping.md §5 (sp_{idx:06d} naming).
    integer, parameter, public :: PRESERF_SAVEPOINT_INDEX_LIMIT = 1000000
 
@@ -1000,25 +1010,45 @@ contains
       is_new = .true.
    end subroutine ppser_dict_find_or_add
 
-   !> 64-bit FNV-1a hash of a raw byte buffer (ADR 0014). Used as the dedup
-   !> content checksum. int8 bytes are mapped to their unsigned 0..255 value
-   !> before mixing; the multiply overflows int64 and wraps (two's
-   !> complement), which is exactly the modular arithmetic FNV specifies.
+   !> Content checksum of a raw byte buffer, used as the dedup index key
+   !> (ADR 0014). Two independent polynomial rolling hashes over distinct
+   !> primes near 2^31 are combined into a 62-bit digest.
+   !>
+   !> Why not FNV-1a: FNV's 64-bit multiply overflows the signed int64 range
+   !> and relies on two's-complement wraparound, which Fortran does not
+   !> guarantee (an overflow-trapping / sanitiser build could abort). Here
+   !> every intermediate stays below 2^41 — `h < 2^31`, `h*base < 2^40`,
+   !> plus a byte `< 2^41`, reduced mod a prime `< 2^31` each step — so the
+   !> arithmetic never approaches the signed limit; no wraparound is relied
+   !> on. The 62-bit combined digest plus the caller's byte-length check
+   !> make a false dedup collision astronomically unlikely (ADR 0014).
+   !>
+   !> `size(bytes, kind=int64)` and an int64 loop index keep the hash correct
+   !> for payloads larger than 2 GiB (a default-integer bound would wrap
+   !> negative on the usual 32-bit-default-integer build, hash nothing, and
+   !> give equal-length payloads the same digest — a silent mis-dedup).
    pure function ppser_hash_bytes(bytes) result(h)
       integer(int8), intent(in) :: bytes(:)
       integer(int64) :: h
-      ! 14695981039346656037 and 1099511628211 are the FNV-1a 64-bit offset
-      ! basis and prime; the basis exceeds huge(int64) so it is written as
-      ! its two's-complement signed value.
-      integer(int64), parameter :: fnv_offset = -3750763034362895579_int64
-      integer(int64), parameter :: fnv_prime = 1099511628211_int64
-      integer :: i
+      ! Two distinct primes < 2^31 and small multiplier bases.
+      integer(int64), parameter :: p1 = 2147483647_int64  ! 2^31 - 1 (Mersenne)
+      integer(int64), parameter :: p2 = 1000000007_int64  ! 10^9 + 7
+      integer(int64), parameter :: b1 = 257_int64
+      integer(int64), parameter :: b2 = 263_int64
+      integer(int64) :: h1, h2, bv, i, n
 
-      h = fnv_offset
-      do i = 1, size(bytes)
-         h = ieor(h, iand(int(bytes(i), int64), 255_int64))
-         h = h*fnv_prime
+      h1 = 1_int64
+      h2 = 1_int64
+      n = size(bytes, kind=int64)
+      do i = 1_int64, n
+         bv = iand(int(bytes(i), int64), 255_int64)
+         h1 = mod(h1*b1 + bv + 1_int64, p1)
+         h2 = mod(h2*b2 + bv + 1_int64, p2)
       end do
+      ! Combine into one 62-bit key: h1 occupies the high bits (shift by 31),
+      ! h2 (< 2^30) the low bits; the mapping is injective in (h1, h2), so a
+      ! digest collision requires both hashes to collide.
+      h = ishft(h1, 31) + h2
    end function ppser_hash_bytes
 
    !> Resolve the effective dedup setting, mirroring `ppser_resolve_backend`:
@@ -1406,7 +1436,15 @@ contains
       character(len=:), allocatable :: archive_eff
 
       zero = 0_int32
-      schema_version = PRESERF_SCHEMA_VERSION
+      ! A deduplicated store advertises a distinct schema version (ADR 0014)
+      ! so a reader that does not resolve `_preserf_dict_ref` rejects it
+      ! loudly rather than silently returning the scalar reference carriers;
+      ! a default store keeps version 1 and stays byte-identical.
+      if (ppser_dedup_enabled) then
+         schema_version = PRESERF_SCHEMA_VERSION_DEDUP
+      else
+         schema_version = PRESERF_SCHEMA_VERSION
+      end if
 
       ncerr = nf90_put_att(s%ncid, NF90_GLOBAL, &
                            '_preserf_schema_version', schema_version)
@@ -1516,10 +1554,17 @@ contains
       call preserf_check_nf_with_msg(ncerr, &
                                      'get_att _preserf_schema_version (not a preserf store?)')
 
-      if (version /= PRESERF_SCHEMA_VERSION) then
-         write (error_unit, '(a,i0,a,i0)') &
+      ! Accept both the default (1) and the deduplicated (2) schema versions
+      ! (ADR 0014): this reader resolves `_preserf_dict_ref`, so it reads a
+      ! dedup store correctly. The version gate exists to make a reader that
+      ! does NOT understand dedup reject a dedup store rather than silently
+      ! return carrier values.
+      if (version /= PRESERF_SCHEMA_VERSION .and. &
+          version /= PRESERF_SCHEMA_VERSION_DEDUP) then
+         write (error_unit, '(a,i0,a,i0,a,i0)') &
             'preserf: unsupported schema version ', version, &
-            '; this build supports ', PRESERF_SCHEMA_VERSION
+            '; this build supports ', PRESERF_SCHEMA_VERSION, &
+            ' and ', PRESERF_SCHEMA_VERSION_DEDUP
          error stop 1
       end if
    end subroutine preserf_validate_schema_version
