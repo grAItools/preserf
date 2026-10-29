@@ -7,9 +7,9 @@
 
 ## 2. Storage layout (opt-in)
 
-- [ ] 2.1 Draft `dev/adr/0013-opt-in-store-compression.md` recording the storage-layout decision
-- [ ] 2.2 Thread the store-wide compression request (`ppser_initialize` keyword + `PRESERF_COMPRESSION` env var) through `ensure_variable` (`m_preserf.F90:3582-3597`), default off, with a chunk shape derived from the registered dims and bounded — no chunk may exceed 4 GiB of uncompressed data (the byte cap both backends honor); whole-variable chunks are not permitted except for single-element variables; keep the per-field registration-API override as an explicit follow-up
-- [ ] 2.3 Add native ctest scenarios asserting default stores keep the backend's default layout (contiguous on netcdf4), scalar fields stay uncompressed with the backend's default layout under compression, compressed stores carry a bounded (not whole-variable) chunk shape for multi-element fields, tracer data variables are chunked and deflated under the store-wide knob, and compressed stores round-trip through the Python support reader; add a unit test of the chunk-shape derivation with synthetic huge dims (no >4 GiB write needed)
+- [x] 2.1 Draft `dev/adr/0013-opt-in-store-compression.md` recording the storage-layout decision
+- [x] 2.2 Thread the store-wide compression request (`ppser_initialize` keyword + `PRESERF_COMPRESSION` env var) through `ensure_variable` (`m_preserf.F90:3582-3597`), default off, with a chunk shape derived from the registered dims and bounded — no chunk may exceed 4 GiB of uncompressed data (the byte cap both backends honor); whole-variable chunks are not permitted except for single-element variables; keep the per-field registration-API override as an explicit follow-up
+- [x] 2.3 Add native ctest scenarios asserting default stores keep the backend's default layout (contiguous on netcdf4), scalar fields stay uncompressed with the backend's default layout under compression, compressed stores carry a bounded (not whole-variable) chunk shape for multi-element fields, tracer data variables are chunked and deflated under the store-wide knob, and compressed stores round-trip through the Python support reader; add a unit test of the chunk-shape derivation with synthetic huge dims (no >4 GiB write needed)
 
 ## 3. Perturb RNG batching
 
@@ -18,5 +18,5 @@
 
 ## 4. Verification
 
-- [ ] 4.1 Add the CHANGELOG bullet under `[Unreleased]`
-- [ ] 4.2 Run `pixi run verify` and confirm it is green
+- [x] 4.1 Add the CHANGELOG bullet under `[Unreleased]`
+- [x] 4.2 Run `pixi run verify` and confirm it is green

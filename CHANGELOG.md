@@ -8,6 +8,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Opt-in store-wide compression: `ppser_initialize` accepts a `compression=`
+  keyword (an integer zlib deflate level 1..9, or `on` for
+  `PPSER_DEFAULT_DEFLATE_LEVEL` / `off`; `!$SER INIT compression=on` maps onto
+  that parameter), and the `PRESERF_COMPRESSION` environment variable supplies
+  the same value when the keyword is omitted. The request defaults **off**, so
+  existing stores stay contiguous and uncompressed. With it on, the `netcdf4`
+  backend creates field **and** tracer data variables chunked and deflated at
+  that level, with a chunk shape derived from the registered dims: the
+  fastest-varying dims in full up to a 4 MiB uncompressed target, never the
+  whole multi-element variable, and never above the 4 GiB HDF5 per-chunk
+  limit. Rank-0 (scalar) fields keep the backend's default layout (netCDF
+  cannot chunk a scalar), `nczarr-v2` with compression is rejected at
+  initialization until the codec work in #111, and an out-of-range level or
+  unknown `PRESERF_COMPRESSION` value aborts at the same boundary. The chunk
+  derivation is unit-tested against synthetic >4 GiB dims, and the layout is
+  asserted by native ctest scenarios plus the Python wire-compat test.
+  Documented in `dev/references/storage_mapping.md` §6/§9 and ADR 0013.
 - `fs_add_savepoint_metainfo` / `fs_add_serializer_metainfo`
   (src/preserf/fortran/m_preserf.F90) now accept 1D string-array metainfo:
   the values round-trip through the store and the Python reader as lists
