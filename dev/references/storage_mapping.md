@@ -377,8 +377,10 @@ group:
   `chunksizes`, so NetCDF4/HDF5 typically produces contiguous storage and
   NCZarr falls back to its own default chunk shape. When compression is
   requested (per [ADR 0013](../adr/0013-opt-in-store-compression.md) and
-  §9), variables are chunked with a derived, bounded chunk shape;
-  without a compression request the backend's default layout applies. A
+  §9), variables are chunked with a derived, bounded chunk shape on the
+  `netcdf4` backend — the `nczarr-v2` combination is rejected at
+  initialization until the codec follow-up (#111); without a compression
+  request the backend's default layout applies. A
   separate general-purpose chunking knob remains future work; no other
   chunking guarantee is part of the schema.
 
@@ -459,7 +461,9 @@ Resulting NetCDF4 / NCZarr store:
   netCDF-Fortran APIs; [ADR 0013](../adr/0013-opt-in-store-compression.md)
   records the compression surface — a store-wide `compression=` keyword on
   `ppser_initialize` plus the `PRESERF_COMPRESSION` environment variable —
-  under which variables are chunked with a derived, bounded shape (an
+  under which variables are chunked with a derived, bounded shape on the
+  `netcdf4` backend (the `nczarr-v2` combination is rejected at
+  initialization until the codec follow-up, #111; an
   earlier draft suggested `!$SER OPTION` keys; superseded by that
   decision). A separate user-controlled chunking knob is not decided.
 - **Per-rank stores under MPI.** `ppser_initialize`'s `mpi_rank` argument
