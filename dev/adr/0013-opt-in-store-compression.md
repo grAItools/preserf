@@ -24,8 +24,9 @@ The registration-API surface is not implementable as written:
 only `verbosity`, and the auto-registration path carries no
 caller-supplied metadata — so a per-field request requires
 preprocessor work the design explicitly ruled out. Meanwhile the
-issue body (#46), the storage reference, and the nczarr follow-up
-change (for #111) all describe the store-wide knob.
+issue body (#46) and the nczarr follow-up change (for #111)
+describe the store-wide knob; the storage reference deferred the
+name.
 
 ## Decision
 
@@ -46,9 +47,10 @@ change (for #111) all describe the store-wide knob.
 
 ## Consequences
 
-- The spec layer now matches the surface the code already
-  implements, eliminating the drift between
-  `improve-store-efficiency` and PR #53.
+- The spec layer now matches the surface PR #53 implements,
+  narrowing the drift between `improve-store-efficiency` and
+  PR #53 to the chunk-shape and bounded-chunk corrections its
+  rebase must apply.
 - Per-field granularity is deferred until a caller-supplied
   metadata path exists on the auto-registration route.
 - PR #53's mechanism (chunking + deflate plumbing, level

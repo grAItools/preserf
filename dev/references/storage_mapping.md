@@ -454,7 +454,10 @@ Resulting NetCDF4 / NCZarr store:
 - **Chunking and compression.** Both are currently implementation-defined
   (no `chunksizes` set, no compression filter). Both are tunable via
   netCDF-Fortran APIs and should be exposed through `!$SER OPTION` keys;
-  defer naming to a follow-up ADR.
+  the naming decision is recorded in
+  [ADR 0013](../../adr/0013-opt-in-store-compression.md): a store-wide
+  `compression=` keyword on `ppser_initialize` plus the
+  `PRESERF_COMPRESSION` environment variable.
 - **Per-rank stores under MPI.** `ppser_initialize`'s `mpi_rank` argument
   currently maps to a `_rank<n>` suffix on the store name. Parallel HDF5 /
   parallel NCZarr is a future option.

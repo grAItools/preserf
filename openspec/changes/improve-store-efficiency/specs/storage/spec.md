@@ -29,14 +29,19 @@ The runtime SHALL support read-perturb mode: floating-point `fs_read_field_*_per
 
 ### Requirement: Variable storage layout
 
-Store variables SHALL support opt-in chunked and compressed storage: when a store-wide compression level is requested through the `ppser_initialize` keyword (or the `PRESERF_COMPRESSION` env var), field variables SHALL be created as chunked, deflated variables with a chunk shape derived from the registered dims, while stores created without a compression request SHALL remain contiguous and uncompressed so existing stores are byte-identical.
+Store variables SHALL support opt-in chunked and compressed storage: when a store-wide compression level is requested through the `ppser_initialize` keyword (or the `PRESERF_COMPRESSION` env var), field and tracer data variables SHALL be created as chunked, deflated variables with a chunk shape derived from the registered dims and bounded so that no chunk exceeds the HDF5 4 GiB per-chunk limit (whole-variable chunks are not permitted), while rank-0 (scalar) fields SHALL remain contiguous and uncompressed (netCDF cannot chunk a scalar) and stores created without a compression request SHALL remain contiguous and uncompressed so existing stores are byte-identical.
 
-#### Scenario: Default registration unchanged
+#### Scenario: Default store unchanged
 
-- **WHEN** a field is registered without a compression request
+- **WHEN** a store is initialized without a compression request
 - **THEN** the store variable is created contiguous and uncompressed, matching existing stores
 
 #### Scenario: Compressed store round-trips
 
 - **WHEN** a store is initialized with a compression request and a field is written
-- **THEN** the store variable is chunked and deflated, and the field round-trips through the Python support reader with identical values
+- **THEN** the store variable is chunked with a bounded (not whole-variable) chunk shape and deflated, and the field round-trips through the Python support reader with identical values
+
+#### Scenario: Scalar fields stay contiguous
+
+- **WHEN** a store is initialized with a compression request and a rank-0 (scalar) field is written
+- **THEN** the scalar variable is created contiguous and uncompressed, and round-trips identically

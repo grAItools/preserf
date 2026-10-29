@@ -8,16 +8,16 @@ Extend opt-in compression to the nczarr-v2 backend via a Zarr codec, removing th
 
 ### Requirement: Variable storage layout
 
-Store variables SHALL support opt-in chunked and compressed storage on both backends: a field registered with a compression request SHALL be created as a chunked, compressed variable — deflated on the `netcdf4` backend, carrying a Zarr codec recorded in the array metadata on `nczarr-v2` — while default registrations SHALL remain contiguous and uncompressed so existing stores are byte-identical.
+Store variables SHALL support opt-in chunked and compressed storage on both backends: when a store-wide compression level is requested through the `ppser_initialize` keyword (or the `PRESERF_COMPRESSION` env var), field and tracer data variables SHALL be created as chunked, compressed variables — deflated on the `netcdf4` backend, carrying a Zarr codec recorded in the array metadata on `nczarr-v2` — with a chunk shape derived from the registered dims and bounded, while stores created without a compression request SHALL remain contiguous and uncompressed so existing stores are byte-identical.
 
-#### Scenario: Default registration unchanged
+#### Scenario: Default store unchanged
 
-- **WHEN** a field is registered without a compression request
+- **WHEN** a store is initialized without a compression request
 - **THEN** the store variable is created contiguous and uncompressed, matching existing stores
 
-#### Scenario: Compressed registration round-trips
+#### Scenario: Compressed store round-trips
 
-- **WHEN** a field is registered through the Fortran registration API with a compression request and written
+- **WHEN** a store is initialized with a compression request and a field is written
 - **THEN** the store variable is chunked and compressed, and the field round-trips through the Python support reader with identical values
 
 #### Scenario: NCZarr compressed round-trip
