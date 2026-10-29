@@ -194,6 +194,17 @@ preserf_scenario_test(NAME backend_arg_padded SCENARIO backend-arg-padded
 preserf_scenario_test(NAME read_roundtrip SCENARIO read-roundtrip
     PASS "preserf-fortran: read-roundtrip OK")
 
+# Issue #47 / ADR 0014: opt-in cross-savepoint content dedup. Writes the same
+# field at three savepoints (two identical payloads, one different) with dedup
+# ON and with the default OFF, then asserts: the dedup store collapses the
+# identical payloads to a single /_dict dataset (sp0/sp1 reference the same
+# entry, sp2 a different one) and reads back the correct values through the
+# dedup-aware read path; the default store creates no /_dict group and keeps
+# one data variable per savepoint. The Python reader additionally round-trips
+# the fdedup store this scenario leaves behind (test_fortran_wire_compat.py).
+preserf_scenario_test(NAME dedup SCENARIO dedup
+    PASS "preserf-fortran: dedup OK")
+
 # Issue #32: `mode` is optional on ppser_initialize for pp_ser / Serialbox
 # `!$SER INIT` drop-in compatibility. Covers the default-write path, the derived
 # read path (set_mode(1) + omitted mode), and read-perturb preservation.

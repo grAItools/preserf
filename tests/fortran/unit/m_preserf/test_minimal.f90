@@ -25,6 +25,12 @@ program test_minimal
    ! through).
    use utils_ppser
    use m_serialize
+   ! Raw netCDF is used only by the `dedup` scenario to introspect the
+   ! on-disk `/_dict` group and `_preserf_dict_ref` references directly
+   ! (ADR 0014); every other scenario goes through the helper API alone.
+   use netcdf, only: nf90_open, nf90_close, nf90_inq_ncid, nf90_inq_varid, &
+                     nf90_inquire, nf90_inquire_attribute, nf90_get_att, &
+                     NF90_NOWRITE, NF90_NOERR
    implicit none
 
    character(len=:), allocatable :: out_dir
@@ -2648,6 +2654,125 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: read-python-store OK'
                stop
             end block
+         else if (scenario == 'dedup') then
+            ! ADR 0014 / issue #47: opt-in cross-savepoint content dedup.
+            !
+            ! Writes the SAME field `u` at three savepoints — identical
+            ! payload at sp0 and sp1, a different payload at sp2 — once with
+            ! dedup ON (`fdedup`) and once with the default OFF
+            ! (`fdedup_plain`). Then:
+            !   * reads `u` back from the deduplicated store via fs_read_field
+            !     at all three savepoints and checks the values (exercises the
+            !     dedup-aware READ path: the savepoint carrier resolves through
+            !     `/_dict`);
+            !   * introspects the deduplicated store directly: `/_dict` holds
+            !     exactly TWO datasets (the repeated payload collapsed to one),
+            !     and sp0/sp1 reference the same entry while sp2 differs;
+            !   * introspects the default store: no `/_dict` group, and each
+            !     savepoint holds its own one-dataset-per-write `u`.
+            ! The Python reader asserts the cross-language round-trip of the
+            ! `fdedup` store this scenario also leaves at out_dir
+            ! (test_fortran_wire_compat.py).
+            block
+               real(real64) :: dback(3)
+               integer :: dncid, ddict, dvar, dnvars, dncerr, dgrp, dvid
+               character(len=256) :: ref0, ref1, ref2
+               real(real64), parameter :: pay_a(3) = [1.0_real64, 2.0_real64, 3.0_real64]
+               real(real64), parameter :: pay_b(3) = [4.0_real64, 5.0_real64, 6.0_real64]
+
+               ! --- Write the deduplicated store (dedup=.true.). ----------
+               call ppser_initialize(out_dir, 'fdedup', 'w', dedup=.true.)
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('sp0', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', pay_a)
+               call fs_create_savepoint('sp1', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', pay_a)
+               call fs_create_savepoint('sp2', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', pay_b)
+               call ppser_finalize()
+
+               ! --- Write the default store (dedup omitted = off). --------
+               call ppser_initialize(out_dir, 'fdedup_plain', 'w')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('sp0', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', pay_a)
+               call fs_create_savepoint('sp1', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', pay_a)
+               call fs_create_savepoint('sp2', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', pay_b)
+               call ppser_finalize()
+
+               ! --- Read the deduplicated store back (dedup-aware read). --
+               call ppser_initialize(out_dir, 'fdedup', 'r')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('sp0', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', dback)
+               if (any(dback /= pay_a)) error stop &
+                  'dedup: sp0 read-back value mismatch'
+               call fs_create_savepoint('sp1', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', dback)
+               if (any(dback /= pay_a)) error stop &
+                  'dedup: sp1 read-back value mismatch'
+               call fs_create_savepoint('sp2', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', dback)
+               if (any(dback /= pay_b)) error stop &
+                  'dedup: sp2 read-back value mismatch'
+               call ppser_finalize()
+
+               ! --- Introspect the deduplicated store on disk. -----------
+               dncerr = nf90_open(out_dir//'/fdedup.nc', NF90_NOWRITE, dncid)
+               if (dncerr /= NF90_NOERR) error stop 'dedup: reopen fdedup failed'
+               ! `/_dict` must exist and hold exactly two unique payloads.
+               dncerr = nf90_inq_ncid(dncid, '_dict', ddict)
+               if (dncerr /= NF90_NOERR) error stop &
+                  'dedup: deduplicated store is missing the /_dict group'
+               dncerr = nf90_inquire(ddict, nVariables=dnvars)
+               if (dncerr /= NF90_NOERR) error stop 'dedup: inquire /_dict failed'
+               if (dnvars /= 2) error stop &
+                  'dedup: /_dict should hold exactly 2 collapsed payloads'
+               ! Each savepoint carrier must reference a dictionary entry;
+               ! sp0 and sp1 (identical payload) reference the same one, sp2
+               ! (different payload) a different one.
+               call dedup_sp_ref(dncid, 'sp_000000', ref0, dgrp, dvid)
+               call dedup_sp_ref(dncid, 'sp_000001', ref1, dgrp, dvid)
+               call dedup_sp_ref(dncid, 'sp_000002', ref2, dgrp, dvid)
+               if (trim(ref0) /= trim(ref1)) error stop &
+                  'dedup: identical payloads did not collapse to one entry'
+               if (trim(ref0) == trim(ref2)) error stop &
+                  'dedup: distinct payloads wrongly share a dictionary entry'
+               dncerr = nf90_close(dncid)
+               if (dncerr /= NF90_NOERR) error stop 'dedup: close fdedup failed'
+
+               ! --- Introspect the default store on disk. ----------------
+               dncerr = nf90_open(out_dir//'/fdedup_plain.nc', NF90_NOWRITE, dncid)
+               if (dncerr /= NF90_NOERR) error stop 'dedup: reopen fdedup_plain failed'
+               ! A default store must carry no /_dict group...
+               dncerr = nf90_inq_ncid(dncid, '_dict', ddict)
+               if (dncerr == NF90_NOERR) error stop &
+                  'dedup: a default (non-dedup) store must not create /_dict'
+               ! ...and each savepoint holds its own data variable, never a
+               ! `_preserf_dict_ref` carrier.
+               dncerr = nf90_inq_ncid(dncid, 'savepoints', dgrp)
+               if (dncerr /= NF90_NOERR) error stop 'dedup: inq savepoints failed'
+               dncerr = nf90_inq_ncid(dgrp, 'sp_000000', dgrp)
+               if (dncerr /= NF90_NOERR) error stop 'dedup: inq sp_000000 failed'
+               dncerr = nf90_inq_varid(dgrp, 'u', dvar)
+               if (dncerr /= NF90_NOERR) error stop 'dedup: default sp missing u'
+               dncerr = nf90_inquire_attribute(dgrp, dvar, '_preserf_dict_ref')
+               if (dncerr == NF90_NOERR) error stop &
+                  'dedup: default store must not reference a dictionary entry'
+               dncerr = nf90_close(dncid)
+               if (dncerr /= NF90_NOERR) error stop 'dedup: close fdedup_plain failed'
+
+               write (*, '(a)') 'preserf-fortran: dedup OK'
+               stop
+            end block
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &
@@ -2890,6 +3015,32 @@ program test_minimal
    write (*, '(a)') 'preserf-fortran: hello-world OK'
 
 contains
+
+   !> Read the `_preserf_dict_ref` attribute off savepoint `sp_name`'s `u`
+   !> carrier variable in an open deduplicated store (ADR 0014). Returns the
+   !> referenced `/_dict` entry name in `ref` (blank-padded), plus the
+   !> resolved savepoint group id and carrier varid. Aborts if the carrier
+   !> is missing or has no dictionary reference (the dedup scenario expects
+   !> both). Used by the `dedup` scenario to check that identical payloads
+   !> collapse to one entry.
+   subroutine dedup_sp_ref(ncid, sp_name, ref, sp_grpid, varid)
+      integer, intent(in) :: ncid
+      character(len=*), intent(in) :: sp_name
+      character(len=*), intent(out) :: ref
+      integer, intent(out) :: sp_grpid, varid
+      integer :: ncerr, sps_grpid
+
+      ref = ''
+      ncerr = nf90_inq_ncid(ncid, 'savepoints', sps_grpid)
+      if (ncerr /= NF90_NOERR) error stop 'dedup: inq savepoints failed'
+      ncerr = nf90_inq_ncid(sps_grpid, sp_name, sp_grpid)
+      if (ncerr /= NF90_NOERR) error stop 'dedup: inq savepoint group failed'
+      ncerr = nf90_inq_varid(sp_grpid, 'u', varid)
+      if (ncerr /= NF90_NOERR) error stop 'dedup: savepoint missing u carrier'
+      ncerr = nf90_get_att(sp_grpid, varid, '_preserf_dict_ref', ref)
+      if (ncerr /= NF90_NOERR) error stop &
+         'dedup: savepoint carrier has no _preserf_dict_ref'
+   end subroutine dedup_sp_ref
 
    !> Delete a file if it exists. The init-keywords scenario uses this
    !> to clear stores left behind by a prior run before asserting on

@@ -346,6 +346,98 @@ def test_fortran_writes_nczarr_v2_python_reads(
     )
 
 
+def test_fortran_writes_dedup_python_reads(
+    tmp_path: Path, fortran_binary: Path
+) -> None:
+    """A deduplicated Fortran store round-trips through the Python reader.
+
+    Issue #47 / ADR 0014: with cross-savepoint content dedup enabled, the
+    Fortran helper writes each unique field payload once under ``/_dict`` and
+    has every savepoint reference its entry. The ``dedup`` scenario in
+    ``test_minimal.f90`` writes field ``u`` at three savepoints — identical
+    payload ``[1, 2, 3]`` at sp0 and sp1, a different ``[4, 5, 6]`` at sp2 —
+    into ``fdedup.nc`` (plus a default ``fdedup_plain.nc`` for contrast).
+
+    This asserts the deduplicated store (a) decodes to the right per-savepoint
+    values through ``read_dump`` — the reader resolving the single
+    ``_preserf_dict_ref`` indirection — and (b) physically collapses the two
+    identical payloads to one ``/_dict`` dataset, with sp0/sp1 referencing the
+    same entry and sp2 a distinct one. The matching default store is checked
+    to carry no ``/_dict`` group and one data variable per savepoint, so the
+    non-dedup wire format is unchanged.
+    """
+    out_dir = tmp_path / "fortran_out"
+    out_dir.mkdir()
+
+    run_scenario(fortran_binary, out_dir, "dedup")
+
+    dedup_path = out_dir / "fdedup.nc"
+    plain_path = out_dir / "fdedup_plain.nc"
+
+    # (a) Values round-trip through the Python reader, which resolves each
+    #     savepoint's dictionary reference back to the shared payload.
+    dump = read_dump(str(dedup_path))
+    assert dump.field_map["u"].type_id == TypeID.Float64
+    assert dump.field_map["u"].dims == [3]
+    assert [sp.name for sp in dump.savepoints] == ["sp0", "sp1", "sp2"]
+    for idx, expected in enumerate(([1.0, 2.0, 3.0], [1.0, 2.0, 3.0], [4.0, 5.0, 6.0])):
+        sp = dump.savepoints[idx]
+        np.testing.assert_array_equal(
+            dump.field_data["u"][sp.fields["u"]],
+            np.array(expected, dtype=np.float64),
+        )
+
+    import netCDF4  # local import; netCDF4 is a dev-only dependency
+
+    # (b) Physical collapse: /_dict holds exactly the two unique payloads,
+    #     sp0 and sp1 reference the SAME entry, sp2 a different one, and the
+    #     store records it was written deduplicated.
+    raw = netCDF4.Dataset(str(dedup_path), "r")
+    try:
+        assert int(raw.getncattr("_preserf_dedup")) == 1
+        assert "_dict" in raw.groups, "deduplicated store is missing /_dict"
+        dict_vars = raw.groups["_dict"].variables
+        assert len(dict_vars) == 2, (
+            f"identical payloads should collapse to 2 /_dict datasets, "
+            f"found {sorted(dict_vars)}"
+        )
+        sps = raw.groups["savepoints"].groups
+        ref0 = sps["sp_000000"].variables["u"].getncattr("_preserf_dict_ref")
+        ref1 = sps["sp_000001"].variables["u"].getncattr("_preserf_dict_ref")
+        ref2 = sps["sp_000002"].variables["u"].getncattr("_preserf_dict_ref")
+        assert ref0 == ref1, "identical payloads must share one dictionary entry"
+        assert ref0 != ref2, "distinct payloads must not share a dictionary entry"
+        # The referenced dictionary dataset holds the actual payload.
+        np.testing.assert_array_equal(
+            np.asarray(dict_vars[str(ref0)][...]),
+            np.array([1.0, 2.0, 3.0], dtype=np.float64),
+        )
+    finally:
+        raw.close()
+
+    # The default store (dedup off) keeps the one-dataset-per-write layout
+    # and never creates /_dict, so existing stores stay byte-identical.
+    raw = netCDF4.Dataset(str(plain_path), "r")
+    try:
+        assert int(raw.getncattr("_preserf_dedup")) == 0
+        assert "_dict" not in raw.groups, (
+            "a default (non-dedup) store must not carry a /_dict group"
+        )
+        u_var = raw.groups["savepoints"].groups["sp_000000"].variables["u"]
+        assert len(u_var.dimensions) == 1, "default savepoint holds the payload"
+        assert "_preserf_dict_ref" not in u_var.ncattrs()
+    finally:
+        raw.close()
+
+    # Both stores decode to identical per-savepoint values.
+    plain = read_dump(str(plain_path))
+    for idx in range(3):
+        np.testing.assert_array_equal(
+            dump.field_data["u"][dump.savepoints[idx].fields["u"]],
+            plain.field_data["u"][plain.savepoints[idx].fields["u"]],
+        )
+
+
 def test_fortran_autoregistered_fields_python_reads(
     tmp_path: Path, fortran_binary: Path
 ) -> None:
