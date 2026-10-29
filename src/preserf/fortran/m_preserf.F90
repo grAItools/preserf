@@ -44,7 +44,8 @@ module m_preserf
                             PPSER_TRACER_NAME_LEN, PPSER_TRACER_STYPE_LEN, &
                             t_kbuff_entry, ppser_kbuffers, &
                             ppser_kbuff_count, PPSER_MAX_KBUFF, &
-                            ppser_verbosity
+                            ppser_verbosity, ppser_deflate_level, &
+                            ppser_chunk_shape
    implicit none
    private
 
@@ -3591,10 +3592,89 @@ contains
       if (ncerr == NF90_ENOTVAR) then
          ncerr = nf90_def_var(grpid, trim(fieldname), nc_type, dimids, varid)
          call preserf_check_nf_with_msg(ncerr, 'def_var '//trim(fieldname))
+         ! Every field- and tracer-data variable is defined here, so the
+         ! store-wide level applies to both. 0 keeps the backend's default
+         ! layout; the nczarr-v2 + compression combination is already
+         ! rejected by ppser_initialize, so a non-zero level here always
+         ! means the netcdf4 backend.
+         if (ppser_deflate_level > 0) then
+            call set_field_compression(grpid, varid, fieldname, nc_type, dimids)
+         end if
       else
          call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
       end if
    end subroutine ensure_variable
+
+   !> Switch a freshly defined data variable to chunked storage and attach the
+   !> zlib deflate filter at `ppser_deflate_level`.
+   !>
+   !> Deflate requires chunking in netCDF4/HDF5, so the chunk shape comes from
+   !> `ppser_chunk_shape` over the variable's real dim lengths. A rank-0
+   !> (scalar) variable has no chunkable dimension, and netCDF rejects chunking
+   !> one, so it keeps the backend's default layout and stays uncompressed.
+   !> `chunksizes` is passed in Fortran order to match `dimids`; netcdf-fortran
+   !> reverses both consistently before the C call. The shuffle filter is left
+   !> off: it is an independent transform from the deflate level this knob
+   !> selects.
+   subroutine set_field_compression(grpid, varid, fieldname, nc_type, dimids)
+      integer, intent(in) :: grpid
+      integer, intent(in) :: varid
+      character(len=*), intent(in) :: fieldname
+      integer, intent(in) :: nc_type
+      integer, intent(in) :: dimids(:)
+      integer :: ncerr, i, r, elem_bytes
+      integer, allocatable :: dim_lengths(:), chunksizes(:)
+
+      r = size(dimids)
+      elem_bytes = preserf_nc_type_size(nc_type)
+      ! An external type outside the Serialbox TypeID table cannot be sized,
+      ! so the chunk bound would be a guess: abort instead of writing a
+      ! variable whose chunk could exceed the HDF5 limit.
+      if (elem_bytes <= 0) then
+         write (error_unit, '(a,i0,a,a)') 'preserf: cannot size a chunk for ', &
+            nc_type, ' variable ', trim(fieldname)
+         error stop 1
+      end if
+
+      allocate (dim_lengths(r))
+      do i = 1, r
+         ncerr = nf90_inquire_dimension(grpid, dimids(i), len=dim_lengths(i))
+         call preserf_check_nf_with_msg(ncerr, &
+                                        'inquire_dimension '//trim(fieldname))
+      end do
+
+      chunksizes = ppser_chunk_shape(dim_lengths, elem_bytes)
+      if (size(chunksizes) == 0) return
+
+      ncerr = nf90_def_var_chunking(grpid, varid, NF90_CHUNKED, chunksizes)
+      call preserf_check_nf_with_msg(ncerr, &
+                                     'def_var_chunking '//trim(fieldname))
+      ncerr = nf90_def_var_deflate(grpid, varid, shuffle=0, deflate=1, &
+                                   deflate_level=ppser_deflate_level)
+      call preserf_check_nf_with_msg(ncerr, &
+                                     'def_var_deflate '//trim(fieldname))
+   end subroutine set_field_compression
+
+   !> Size in bytes of one element of netCDF external type `xtype`.
+   !>
+   !> These are the netCDF C ABI's type sizes; the helper only defines the
+   !> types the Serialbox TypeID table maps onto, and 0 marks a type outside
+   !> that table.
+   pure integer function preserf_nc_type_size(xtype)
+      integer, intent(in) :: xtype
+      select case (xtype)
+      case (NF90_BYTE, NF90_CHAR, NF90_UBYTE)
+         preserf_nc_type_size = 1
+      case (NF90_SHORT, NF90_USHORT)
+         preserf_nc_type_size = 2
+      case (NF90_INT, NF90_FLOAT, NF90_UINT)
+         preserf_nc_type_size = 4
+      case (NF90_INT64, NF90_DOUBLE, NF90_UINT64)
+         preserf_nc_type_size = 8
+      case default
+         preserf_nc_type_size = 0
+      end select
+   end function preserf_nc_type_size
 
    !> Abort with a clear message if the serializer hasn't been opened.
    subroutine require_open(s, where)
