@@ -38,7 +38,7 @@ Store variables SHALL support opt-in chunked and compressed storage: when a stor
 
 ### Requirement: Bounded chunk shape
 
-Chunk shapes SHALL be bounded: no chunk may exceed 4 GiB of uncompressed data (a byte cap the HDF5 per-chunk limit enforces on the `netcdf4` backend), and whole-variable chunks are not permitted except for single-element variables, where the only legal chunk is the whole variable.
+Chunk shapes created under a compression request SHALL be bounded: no chunk may exceed 4 GiB of uncompressed data (a byte cap the HDF5 per-chunk limit enforces on the `netcdf4` backend), and whole-variable chunks are not permitted except for single-element variables, where the only legal chunk is the whole variable.
 
 #### Scenario: Huge dims derive a bounded chunk shape
 

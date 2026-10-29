@@ -22,7 +22,7 @@ Store variables SHALL support opt-in chunked and compressed storage on both back
 
 ### Requirement: Bounded chunk shape
 
-Chunk shapes SHALL be bounded on both backends: no chunk may exceed 4 GiB of uncompressed data (the cap the base `Bounded chunk shape` requirement also enforces; Zarr chunk sizes are not governed by the HDF5 per-chunk limit, so the shared bound is this byte cap), and whole-variable chunks are not permitted except for single-element variables, where the only legal chunk is the whole variable.
+Chunk shapes created under a compression request SHALL be bounded on both backends: no chunk may exceed 4 GiB of uncompressed data (the cap the base `Bounded chunk shape` requirement also enforces; Zarr chunk sizes are not governed by the HDF5 per-chunk limit, so the shared bound is this byte cap), and whole-variable chunks are not permitted except for single-element variables, where the only legal chunk is the whole variable.
 
 #### Scenario: Huge dims derive a bounded chunk shape
 
