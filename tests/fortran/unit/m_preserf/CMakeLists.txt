@@ -19,6 +19,25 @@ if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
     target_compile_options(preserf_fortran_test_minimal PRIVATE -std=f2008)
 endif()
 
+# Unit test for the compression chunk-shape derivation (ppser_chunk_shape).
+# The derivation is pure, so this links the library and calls it directly with
+# synthetic dims — including >4 GiB shapes that no test store writes.
+add_executable(preserf_fortran_test_chunk_shape test_chunk_shape.f90)
+target_link_libraries(preserf_fortran_test_chunk_shape PRIVATE preserf_fortran)
+set_target_properties(preserf_fortran_test_chunk_shape PROPERTIES
+    Fortran_STANDARD 2008
+    Fortran_STANDARD_REQUIRED ON
+)
+if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(preserf_fortran_test_chunk_shape PRIVATE -std=f2008)
+endif()
+add_test(NAME preserf_fortran_chunk_shape
+    COMMAND $<TARGET_FILE:preserf_fortran_test_chunk_shape>)
+set_tests_properties(preserf_fortran_chunk_shape PROPERTIES
+    PASS_REGULAR_EXPRESSION "preserf-fortran: chunk-shape OK"
+    TIMEOUT 60
+)
+
 # -----------------------------------------------------------------------------
 # Per-scenario isolated output directories.
 #
@@ -153,6 +172,50 @@ preserf_scenario_test(NAME resolve_relpath SCENARIO resolve-relpath
 # (space / # / ? / %) must abort rather than emit a bad URL.
 preserf_scenario_test(NAME backend_nczarr_badchar SCENARIO backend-nczarr-badchar
     PASS "needs URI-encoding")
+
+# Store-wide compression. The `compression` scenario writes a multi-element
+# 1-D field, a rank-2 field, a rank-0 field, and a tracer data variable under
+# compression=1, asserts the on-disk layout (chunked + deflated with a
+# bounded, non-whole chunk for the multi-element variables; the backend
+# default for the scalar), and round-trips the fields. The Python wire-compat
+# test re-checks the layout through netCDF4.
+preserf_scenario_test(NAME compression SCENARIO compression
+    PASS "preserf-fortran: compression OK")
+
+# The same field with no compression request keeps the backend's default
+# layout (contiguous, uncompressed) and is the size baseline the Python test
+# compares against.
+preserf_scenario_test(NAME compression_default_off SCENARIO compression-default-off
+    PASS "preserf-fortran: compression-default-off OK")
+
+# A level outside 0..9 aborts at the ppser_initialize boundary.
+preserf_scenario_test(NAME compression_bad_level SCENARIO compression-bad-level
+    PASS "compression level")
+
+# PRESERF_COMPRESSION with no compression= keyword enables compression exactly
+# like the keyword. The value is the `on` shorthand, which must map onto the
+# helper's default deflate level.
+preserf_scenario_test(NAME compression_env SCENARIO compression-env
+    PASS "preserf-fortran: compression-env OK"
+    ENVIRONMENT "PRESERF_COMPRESSION=on")
+
+# An explicit compression= keyword wins over the environment variable: the same
+# `compression` scenario (compression=1) stays compressed with
+# PRESERF_COMPRESSION=0 set.
+preserf_scenario_test(NAME compression_arg_wins SCENARIO compression
+    PASS "preserf-fortran: compression OK"
+    ENVIRONMENT "PRESERF_COMPRESSION=0")
+
+# Compression on the nczarr-v2 backend is rejected at initialization: NCZarr
+# deflate needs an HDF5 filter plugin that is not always present.
+preserf_scenario_test(NAME compression_nczarr SCENARIO compression-nczarr
+    PASS "compression is not supported with the 'nczarr-v2' backend")
+
+# The guard checks the RESOLVED backend, so both knobs selected through the
+# environment (PRESERF_BACKEND + PRESERF_COMPRESSION) must abort the same way.
+preserf_scenario_test(NAME compression_nczarr_env SCENARIO compression-nczarr-env
+    PASS "compression is not supported with the 'nczarr-v2' backend"
+    ENVIRONMENT "PRESERF_BACKEND=nczarr-v2" "PRESERF_COMPRESSION=1")
 
 # Issue #48: with no explicit backend= argument the backend is resolved from the
 # PRESERF_BACKEND env var. PRESERF_BACKEND=nczarr-v2 selects the NCZarr V2
