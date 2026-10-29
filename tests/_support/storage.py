@@ -39,6 +39,13 @@ from .serialbox import (
 )
 
 SCHEMA_VERSION = 1
+# A deduplicated store (ADR 0014) advertises a distinct schema version so a
+# reader that does not resolve `_preserf_dict_ref` rejects it rather than
+# silently returning carrier values. This reader resolves references, so it
+# accepts both. The writer below only ever produces default (non-dedup)
+# stores, so it keeps writing SCHEMA_VERSION.
+SCHEMA_VERSION_DEDUP = 2
+_SUPPORTED_SCHEMA_VERSIONS = (SCHEMA_VERSION, SCHEMA_VERSION_DEDUP)
 
 
 _PRIMITIVE_DTYPE: dict[TypeID, np.dtype[Any]] = {
@@ -380,6 +387,30 @@ def _write_field_variable(
 # ---------------------------------------------------------------------------
 
 
+def _resolve_data_var(
+    var: nc.Variable[Any], dict_grp: nc.Group | None
+) -> nc.Variable[Any]:
+    """Return the variable that actually holds a savepoint field's payload.
+
+    In a deduplicated store (ADR 0014) a savepoint variable is a scalar
+    carrier whose ``_preserf_dict_ref`` attribute names the ``/_dict`` entry
+    that holds the payload, so identical payloads are stored once and shared.
+    Resolve that single indirection. In a default store the savepoint
+    variable *is* the payload, so return it unchanged — this keeps the reader
+    transparent to every non-deduplicated store.
+    """
+    if "_preserf_dict_ref" not in var.ncattrs():
+        return var
+    ref = str(var.getncattr("_preserf_dict_ref"))
+    if dict_grp is None or ref not in dict_grp.variables:
+        raise ValueError(
+            f"variable '{var.name}' references dictionary entry '{ref}' "
+            "but no such entry exists under '/_dict' (store is internally "
+            "inconsistent)"
+        )
+    return dict_grp.variables[ref]
+
+
 def read_dump(url: str) -> SerialboxDump:
     root = nc.Dataset(url, "r")
     try:
@@ -389,10 +420,10 @@ def read_dump(url: str) -> SerialboxDump:
                 "this does not look like a preserf store"
             )
         version = int(root.getncattr("_preserf_schema_version"))
-        if version != SCHEMA_VERSION:
+        if version not in _SUPPORTED_SCHEMA_VERSIONS:
             raise ValueError(
                 f"{url}: unsupported preserf schema version {version}; "
-                f"this build supports version {SCHEMA_VERSION}"
+                f"this build supports versions {_SUPPORTED_SCHEMA_VERSIONS}"
             )
         prefix = str(root.getncattr("_preserf_serialbox_prefix"))
         dump = SerialboxDump(prefix=prefix)
@@ -478,6 +509,10 @@ def read_dump(url: str) -> SerialboxDump:
                 "look like a preserf store"
             )
         sp_grp = root.groups["savepoints"]
+        # Deduplicated stores (ADR 0014) keep unique field payloads here;
+        # a savepoint variable references its entry. Absent in a default
+        # store, where savepoint variables hold the payload directly.
+        dict_grp = root.groups.get("_dict")
         for name in sorted(sp_grp.groups):
             grp = sp_grp.groups[name]
             sp = Savepoint(
@@ -525,7 +560,10 @@ def read_dump(url: str) -> SerialboxDump:
             for fname, var in grp.variables.items():
                 if fname in dump.field_map:
                     info = dump.field_map[fname]
-                    arr = np.asarray(var[...]).astype(info.element_dtype(), copy=False)
+                    data_var = _resolve_data_var(var, dict_grp)
+                    arr = np.asarray(data_var[...]).astype(
+                        info.element_dtype(), copy=False
+                    )
                     if info.dims:
                         arr = arr.reshape([int(d) for d in info.dims])
                     fid = id_map.get(fname, len(dump.field_data.get(fname, {})))
@@ -533,7 +571,10 @@ def read_dump(url: str) -> SerialboxDump:
                     dump.field_data.setdefault(fname, {})[fid] = arr
                 elif fname in dump.tracer_map:
                     info = dump.tracer_map[fname]
-                    arr = np.asarray(var[...]).astype(info.element_dtype(), copy=False)
+                    data_var = _resolve_data_var(var, dict_grp)
+                    arr = np.asarray(data_var[...]).astype(
+                        info.element_dtype(), copy=False
+                    )
                     if info.dims:
                         arr = arr.reshape([int(d) for d in info.dims])
                     dump.tracer_data.setdefault(fname, {})[sp_index] = arr

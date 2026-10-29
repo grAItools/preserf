@@ -8,7 +8,7 @@ subroutine PRESERF_SUB(s, sp, fieldname, data)
    type(t_savepoint), intent(in) :: sp
    character(len=*), intent(in) :: fieldname
    PRESERF_DTYPE, intent(inout) PRESERF_DIMS :: data
-   integer :: ncerr, varid, read_grpid
+   integer :: ncerr, varid, read_grpid, data_grpid
    integer(int32), allocatable :: reg_dims(:)
 
    if (serialisation_enabled == 0) return
@@ -17,10 +17,12 @@ subroutine PRESERF_SUB(s, sp, fieldname, data)
    call validate_field_shape(s, fieldname, shape(data), PRESERF_TID, 'read', &
                              registered_dims_out=reg_dims)
    read_grpid = resolve_savepoint_grpid(s, sp)
-   ncerr = nf90_inq_varid(read_grpid, trim(fieldname), varid)
-   call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
-   call require_variable_xtype(s, read_grpid, varid, fieldname, PRESERF_NCTYPE, &
+   ! In a deduplicated store (ADR 0014) the savepoint variable references a
+   ! `/_dict` entry; resolve_read_variable follows that one indirection and
+   ! returns the savepoint variable itself for a default store.
+   call resolve_read_variable(s, read_grpid, fieldname, data_grpid, varid)
+   call require_variable_xtype(s, data_grpid, varid, fieldname, PRESERF_NCTYPE, &
                                known_dims_c=reg_dims)
-   ncerr = nf90_get_var(read_grpid, varid, data)
+   ncerr = nf90_get_var(data_grpid, varid, data)
    call preserf_check_nf_with_msg(ncerr, 'get_var '//trim(fieldname))
 end subroutine PRESERF_SUB

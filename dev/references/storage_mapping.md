@@ -113,16 +113,17 @@ Two kinds of root attributes are written:
 
 ### 3.1 preserf housekeeping (reserved namespace `_preserf_*`)
 
-| Attribute name              | Type        | Value                                                |
-| --------------------------- | ----------- | ---------------------------------------------------- |
-| `_preserf_schema_version`   | `NF90_INT`  | `1` (this document's schema version)                 |
-| `_preserf_serialbox_prefix` | `NF90_CHAR` | the `prefix` argument from `ppser_initialize`        |
-| `_preserf_savepoint_count`  | `NF90_INT`  | number of savepoint subgroups under `/savepoints`    |
-| `_preserf_writer`           | `NF90_CHAR` | `"preserf <version>"`                                |
-| `_preserf_singlefile`       | `NF90_BYTE` | `!$SER INIT singlefile=` keyword (0/1); default `0`  |
-| `_preserf_archive`          | `NF90_CHAR` | `!$SER INIT archive=` keyword; default `"Binary"`    |
-| `_preserf_unique_id`        | `NF90_INT`  | `!$SER INIT unique_id=` keyword; default `0`         |
-| `_preserf_option_verbosity` | `NF90_INT`  | `!$SER OPTION verbosity=` value; present only if set |
+| Attribute name              | Type        | Value                                                         |
+| --------------------------- | ----------- | ------------------------------------------------------------- |
+| `_preserf_schema_version`   | `NF90_INT`  | `1` (default stores); `2` for a deduplicated store (§10)      |
+| `_preserf_serialbox_prefix` | `NF90_CHAR` | the `prefix` argument from `ppser_initialize`                 |
+| `_preserf_savepoint_count`  | `NF90_INT`  | number of savepoint subgroups under `/savepoints`             |
+| `_preserf_writer`           | `NF90_CHAR` | `"preserf <version>"`                                         |
+| `_preserf_singlefile`       | `NF90_BYTE` | `!$SER INIT singlefile=` keyword (0/1); default `0`           |
+| `_preserf_archive`          | `NF90_CHAR` | `!$SER INIT archive=` keyword; default `"Binary"`             |
+| `_preserf_unique_id`        | `NF90_INT`  | `!$SER INIT unique_id=` keyword; default `0`                  |
+| `_preserf_dedup`            | `NF90_BYTE` | `1` only when cross-savepoint dedup is on; absent = off (§10) |
+| `_preserf_option_verbosity` | `NF90_INT`  | `!$SER OPTION verbosity=` value; present only if set          |
 
 `_preserf_option_*` attributes record `!$SER OPTION` keys for round-trip
 (§4b). Only `verbosity` is defined today; the namespace is reserved for
@@ -467,3 +468,100 @@ Resulting NetCDF4 / NCZarr store:
   and array) is fully supported. String data-field support is deferred;
   when added it will land as `NF90_STRING` variables under the same
   group-per-savepoint layout, with no schema-version bump expected.
+
+---
+
+## 10. Cross-savepoint content deduplication (opt-in)
+
+By default, every `(savepoint, field)` write lands as its own data
+variable (§6), so a field written unchanged at N savepoints occupies N
+copies on disk. Serialbox instead content-deduplicates identical writes by
+checksum. preserf offers the same as an **opt-in** layer that leaves
+default stores byte-identical. The decision and its alternatives are
+recorded in ADR
+[`0014`](../adr/0014-cross-savepoint-dedup.md).
+
+Dedup is enabled per store via the `dedup` keyword on `ppser_initialize`
+(resolved from the `PRESERF_DEDUP` environment variable when omitted, else
+off), mirroring the `backend` selector. When it is on:
+
+- A lazily-created `/_dict` group (sibling of `/_fields` and
+  `/savepoints`) holds **one dataset per unique field payload**, named
+  `d<K>` where `K` is a store-global 0-based counter in write order. The
+  entry name is deliberately **not** derived from the field name: netCDF
+  caps every name at `NC_MAX_NAME` (256 bytes) and each entry's dimensions
+  are named `<entry>_dim<j>`, so embedding a long field name would push an
+  otherwise-valid near-limit field's suffixed dimension name over the cap.
+  A short global id keeps those dimension names tiny and is collision-free
+  within `/_dict`. Each entry is an ordinary data variable, identical in
+  type / dims / axis-order to the §6 variable it replaces. The group is
+  absent in a default store.
+- Each savepoint that writes a field stores, in place of the payload, a
+  **scalar `NF90_INT` carrier variable** named `<fieldname>` (value `0`,
+  like the registry carriers of §4) carrying a reserved attribute:
+
+  | Attribute           | Type        | Value                                            |
+  | ------------------- | ----------- | ------------------------------------------------ |
+  | `_preserf_dict_ref` | `NF90_CHAR` | name of the `/_dict/<entry>` holding the payload |
+
+- The root group records `_preserf_dedup` (`NF90_BYTE`, `1`) **only when
+  dedup is on** (§3.1), so a store round-trips the fact it was written
+  deduplicated. A default store omits the attribute entirely — its absence
+  means off — so a default store stays byte-identical to a pre-dedup build.
+- A deduplicated store advertises **`_preserf_schema_version = 2`** (§3.1)
+  instead of `1`. Because a dedup savepoint variable is a scalar reference
+  carrier rather than the payload, a reader that does not resolve
+  `_preserf_dict_ref` would silently return the carrier value (`0`) as the
+  field. The distinct version makes such a reader reject the store loudly
+  at its version check instead. A default store keeps version `1` and stays
+  byte-identical. Both bundled readers (the Fortran `fs_read_field` path and
+  `tests/_support/storage.py`) accept versions `1` and `2`.
+
+Two payloads are treated as identical when they share a content checksum
+and byte length (a double modular polynomial hash; the checksum is trusted;
+see ADR 0014 for the collision note). The durable deduplication index is
+the set of per-savepoint `_preserf_dict_ref` references plus the `/_dict`
+datasets — it lives entirely **inside the store** (Serialbox keeps its
+index external only because its archive is flat `.dat` files).
+
+**Resolution (one indirection).** A reader resolves a field at a savepoint
+by: read the savepoint variable; if it carries `_preserf_dict_ref`, read
+the named `/_dict/<entry>` dataset; otherwise the savepoint variable is
+itself the payload. Both the Python reference reader (`read_dump` in
+`tests/_support/storage.py`) and the Fortran `fs_read_field` path do this,
+so a deduplicated store round-trips to identical values. A reader that
+does not understand the reference still sees coherent, self-describing
+datasets (the scalar carriers and the `/_dict` entries), never corrupt
+data.
+
+**Scope.** Dedup applies to `!$SER DATA` field writes. Tracer (§4a) and
+k-buffer (§6) writes remain one-dataset-per-write. The write-time checksum
+index is per-session: within one run identical payloads collapse;
+cross-session append-mode dedup (rebuilding the index from an existing
+`/_dict`) is future work — an appended session may write a duplicate of a
+payload a previous session already stored, a size inefficiency, never
+wrong data (ADR 0014).
+
+### 10.1 Worked example
+
+The §8 example (field `u` written unchanged at two savepoints), written
+with dedup enabled:
+
+```
+/                                       attrs: …, _preserf_schema_version=2, _preserf_dedup=1
+/_fields/
+  u                                     scalar NF90_INT, value 0
+    attrs: type_id=5, dims=[ke,je,ie], …   ! registry entry unchanged
+/_dict/
+  d0                                    NF90_DOUBLE, dims [d0_dim0, …]
+                                          ! the single stored copy of u
+/savepoints/
+  sp_000000/                            attrs: name="step1", ntstep=1, …
+    u                                   scalar NF90_INT, _preserf_dict_ref="d0"
+  sp_000001/                            attrs: name="step1", ntstep=2, …
+    u                                   scalar NF90_INT, _preserf_dict_ref="d0"
+```
+
+Both savepoints reference `d0`; the identical payload is stored once. A
+third savepoint writing a _different_ `u` would add `/_dict/d1` and
+reference that instead.

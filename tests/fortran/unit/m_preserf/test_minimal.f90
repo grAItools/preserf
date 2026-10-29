@@ -25,6 +25,12 @@ program test_minimal
    ! through).
    use utils_ppser
    use m_serialize
+   ! Raw netCDF is used only by the `dedup` scenario to introspect the
+   ! on-disk `/_dict` group and `_preserf_dict_ref` references directly
+   ! (ADR 0014); every other scenario goes through the helper API alone.
+   use netcdf, only: nf90_open, nf90_close, nf90_inq_ncid, nf90_inq_varid, &
+                     nf90_inquire, nf90_inquire_attribute, nf90_get_att, &
+                     NF90_NOWRITE, NF90_NOERR, NF90_GLOBAL
    implicit none
 
    character(len=:), allocatable :: out_dir
@@ -2648,6 +2654,265 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: read-python-store OK'
                stop
             end block
+         else if (scenario == 'dedup') then
+            ! ADR 0014 / issue #47: opt-in cross-savepoint content dedup.
+            !
+            ! Writes the SAME field `u` at three savepoints — identical
+            ! payload at sp0 and sp1, a different payload at sp2 — once with
+            ! dedup ON (`fdedup`) and once with the default OFF
+            ! (`fdedup_plain`). Then:
+            !   * reads `u` back from the deduplicated store via fs_read_field
+            !     at all three savepoints and checks the values (exercises the
+            !     dedup-aware READ path: the savepoint carrier resolves through
+            !     `/_dict`);
+            !   * introspects the deduplicated store directly: `/_dict` holds
+            !     exactly TWO datasets (the repeated payload collapsed to one),
+            !     and sp0/sp1 reference the same entry while sp2 differs;
+            !   * introspects the default store: no `/_dict` group, and each
+            !     savepoint holds its own one-dataset-per-write `u`.
+            ! The Python reader asserts the cross-language round-trip of the
+            ! `fdedup` store this scenario also leaves at out_dir
+            ! (test_fortran_wire_compat.py).
+            block
+               real(real64) :: dback(3)
+               integer :: dncid, ddict, dvar, dnvars, dncerr, dgrp, dvid, dver
+               character(len=256) :: ref0, ref1, ref2
+               real(real64), parameter :: pay_a(3) = [1.0_real64, 2.0_real64, 3.0_real64]
+               real(real64), parameter :: pay_b(3) = [4.0_real64, 5.0_real64, 6.0_real64]
+
+               ! --- Write the deduplicated store (dedup=.true.). ----------
+               call ppser_initialize(out_dir, 'fdedup', 'w', dedup=.true.)
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('sp0', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', pay_a)
+               call fs_create_savepoint('sp1', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', pay_a)
+               call fs_create_savepoint('sp2', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', pay_b)
+               call ppser_finalize()
+
+               ! --- Write the default store (dedup omitted = off). --------
+               call ppser_initialize(out_dir, 'fdedup_plain', 'w')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('sp0', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', pay_a)
+               call fs_create_savepoint('sp1', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', pay_a)
+               call fs_create_savepoint('sp2', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', pay_b)
+               call ppser_finalize()
+
+               ! --- Read the deduplicated store back (dedup-aware read). --
+               call ppser_initialize(out_dir, 'fdedup', 'r')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('sp0', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', dback)
+               if (any(dback /= pay_a)) error stop &
+                  'dedup: sp0 read-back value mismatch'
+               call fs_create_savepoint('sp1', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', dback)
+               if (any(dback /= pay_a)) error stop &
+                  'dedup: sp1 read-back value mismatch'
+               call fs_create_savepoint('sp2', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', dback)
+               if (any(dback /= pay_b)) error stop &
+                  'dedup: sp2 read-back value mismatch'
+               call ppser_finalize()
+
+               ! --- Introspect the deduplicated store on disk. -----------
+               dncerr = nf90_open(out_dir//'/fdedup.nc', NF90_NOWRITE, dncid)
+               if (dncerr /= NF90_NOERR) error stop 'dedup: reopen fdedup failed'
+               ! A deduplicated store advertises the dedup schema version so a
+               ! dedup-unaware reader rejects it instead of returning carriers.
+               dncerr = nf90_get_att(dncid, NF90_GLOBAL, '_preserf_schema_version', dver)
+               if (dncerr /= NF90_NOERR) error stop 'dedup: get schema_version failed'
+               if (dver /= 2) error stop &
+                  'dedup: deduplicated store must advertise schema version 2'
+               ! `/_dict` must exist and hold exactly two unique payloads.
+               dncerr = nf90_inq_ncid(dncid, '_dict', ddict)
+               if (dncerr /= NF90_NOERR) error stop &
+                  'dedup: deduplicated store is missing the /_dict group'
+               dncerr = nf90_inquire(ddict, nVariables=dnvars)
+               if (dncerr /= NF90_NOERR) error stop 'dedup: inquire /_dict failed'
+               if (dnvars /= 2) error stop &
+                  'dedup: /_dict should hold exactly 2 collapsed payloads'
+               ! Each savepoint carrier must reference a dictionary entry;
+               ! sp0 and sp1 (identical payload) reference the same one, sp2
+               ! (different payload) a different one.
+               call dedup_sp_ref(dncid, 'sp_000000', ref0, dgrp, dvid)
+               call dedup_sp_ref(dncid, 'sp_000001', ref1, dgrp, dvid)
+               call dedup_sp_ref(dncid, 'sp_000002', ref2, dgrp, dvid)
+               if (trim(ref0) /= trim(ref1)) error stop &
+                  'dedup: identical payloads did not collapse to one entry'
+               if (trim(ref0) == trim(ref2)) error stop &
+                  'dedup: distinct payloads wrongly share a dictionary entry'
+               dncerr = nf90_close(dncid)
+               if (dncerr /= NF90_NOERR) error stop 'dedup: close fdedup failed'
+
+               ! --- Introspect the default store on disk. ----------------
+               dncerr = nf90_open(out_dir//'/fdedup_plain.nc', NF90_NOWRITE, dncid)
+               if (dncerr /= NF90_NOERR) error stop 'dedup: reopen fdedup_plain failed'
+               ! A default store keeps schema version 1 (byte-identical).
+               dncerr = nf90_get_att(dncid, NF90_GLOBAL, '_preserf_schema_version', dver)
+               if (dncerr /= NF90_NOERR) error stop 'dedup: get schema_version (plain) failed'
+               if (dver /= 1) error stop &
+                  'dedup: default store must keep schema version 1'
+               ! A default store must carry no /_dict group...
+               dncerr = nf90_inq_ncid(dncid, '_dict', ddict)
+               if (dncerr == NF90_NOERR) error stop &
+                  'dedup: a default (non-dedup) store must not create /_dict'
+               ! ...and each savepoint holds its own data variable, never a
+               ! `_preserf_dict_ref` carrier.
+               dncerr = nf90_inq_ncid(dncid, 'savepoints', dgrp)
+               if (dncerr /= NF90_NOERR) error stop 'dedup: inq savepoints failed'
+               dncerr = nf90_inq_ncid(dgrp, 'sp_000000', dgrp)
+               if (dncerr /= NF90_NOERR) error stop 'dedup: inq sp_000000 failed'
+               dncerr = nf90_inq_varid(dgrp, 'u', dvar)
+               if (dncerr /= NF90_NOERR) error stop 'dedup: default sp missing u'
+               dncerr = nf90_inquire_attribute(dgrp, dvar, '_preserf_dict_ref')
+               if (dncerr == NF90_NOERR) error stop &
+                  'dedup: default store must not reference a dictionary entry'
+               dncerr = nf90_close(dncid)
+               if (dncerr /= NF90_NOERR) error stop 'dedup: close fdedup_plain failed'
+
+               write (*, '(a)') 'preserf-fortran: dedup OK'
+               stop
+            end block
+         else if (scenario == 'kbuff-dedup') then
+            ! Regression for the dedup x k-buffer interaction (ADR 0014):
+            ! dedup is scoped to !$SER DATA field writes, but kbuff_flush
+            ! reuses fs_write_field, so a naive dedup gate would turn a
+            ! k-buffered field into a scalar `/_dict` reference carrier — and
+            ! the k-buffer READ path (fs_write_kbuff in read mode ->
+            ! kbuff_load_full) reads a direct NF90_DOUBLE array, so it would
+            ! abort. This writes a k-buffered 3-D field with dedup ENABLED,
+            ! reads it back level-by-level through the k-buffer read path, and
+            ! confirms on disk that the savepoint variable stayed a direct
+            ! array (no _preserf_dict_ref) and no /_dict entry was created for
+            ! it — i.e. k-buffer flushes bypass dedup as specified.
+            block
+               integer, parameter :: ni = 3, nj = 2, ke = 4
+               real(real64) :: tslice(ni, nj)
+               integer :: i, j, kk
+               integer :: kncid, kdict, kvar, kncerr, ksp
+
+               call ppser_initialize(out_dir, 'fkbdd', 'w', dedup=.true.)
+               call fs_register_field(ppser_serializer, 't', 'double', &
+                                      ppser_reallength, ni, nj, ke, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               do kk = 1, ke
+                  do j = 1, nj
+                     do i = 1, ni
+                        tslice(i, j) = real(100*i + 10*j + kk, real64)
+                     end do
+                  end do
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 't', &
+                                      tslice, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+               end do
+               call ppser_finalize()
+
+               ! Read-back through the k-buffer read path must succeed and
+               ! recover every level — this is what would abort if the flush
+               ! had stored a scalar dedup reference.
+               call ppser_initialize(out_dir, 'fkbdd', 'r')
+               call fs_create_savepoint('step', ppser_savepoint)
+               do kk = 1, ke
+                  tslice = 0.0_real64
+                  call fs_write_kbuff(ppser_serializer, ppser_savepoint, 't', &
+                                      tslice, k=kk, k_size=ke, &
+                                      mode=ppser_get_mode())
+                  do j = 1, nj
+                     do i = 1, ni
+                        if (tslice(i, j) /= real(100*i + 10*j + kk, real64)) &
+                           error stop 'kbuff-dedup: t read-back mismatch'
+                     end do
+                  end do
+               end do
+               call ppser_finalize()
+
+               ! On disk, the k-buffered field must be a direct array in the
+               ! savepoint (never a dedup reference carrier).
+               kncerr = nf90_open(out_dir//'/fkbdd.nc', NF90_NOWRITE, kncid)
+               if (kncerr /= NF90_NOERR) error stop 'kbuff-dedup: reopen failed'
+               kncerr = nf90_inq_ncid(kncid, 'savepoints', ksp)
+               if (kncerr /= NF90_NOERR) error stop 'kbuff-dedup: inq savepoints'
+               kncerr = nf90_inq_ncid(ksp, 'sp_000000', ksp)
+               if (kncerr /= NF90_NOERR) error stop 'kbuff-dedup: inq sp_000000'
+               kncerr = nf90_inq_varid(ksp, 't', kvar)
+               if (kncerr /= NF90_NOERR) error stop 'kbuff-dedup: sp missing t'
+               kncerr = nf90_inquire_attribute(ksp, kvar, '_preserf_dict_ref')
+               if (kncerr == NF90_NOERR) error stop &
+                  'kbuff-dedup: k-buffered field was wrongly deduplicated'
+               ! No /_dict entry should exist at all for a store that only
+               ! wrote a k-buffered field (dedup never fired).
+               kncerr = nf90_inq_ncid(kncid, '_dict', kdict)
+               if (kncerr == NF90_NOERR) error stop &
+                  'kbuff-dedup: k-buffer flush created a /_dict group'
+               kncerr = nf90_close(kncid)
+               if (kncerr /= NF90_NOERR) error stop 'kbuff-dedup: close failed'
+
+               write (*, '(a)') 'preserf-fortran: kbuff-dedup OK'
+               stop
+            end block
+         else if (scenario == 'dedup-longname') then
+            ! Regression for the dedup dictionary name length (ADR 0014):
+            ! dictionary entries use a short store-global id (`d<K>`), not the
+            ! field name, so an otherwise-valid near-limit field name does not
+            ! blow past netCDF's 256-byte name cap once the `_dim<j>` suffix
+            ! is appended to the entry's dimensions. A 248-character field
+            ! name (whose own `<name>_dim0` is a legal 253 bytes) would, under
+            ! a field-name-derived entry scheme, produce a 257-byte
+            ! `<name>__v0_dim0` dimension and fail the write. This writes such
+            ! a field with dedup ON at two savepoints (identical payload) and
+            ! reads it back, proving the short-id scheme keeps it within the
+            ! limit and the payload still collapses + round-trips.
+            block
+               character(len=248) :: longname
+               real(real64) :: lback(3)
+               real(real64), parameter :: lpay(3) = &
+                                          [7.0_real64, 8.0_real64, 9.0_real64]
+
+               longname = repeat('a', 248)
+               call ppser_initialize(out_dir, 'fdedln', 'w', dedup=.true.)
+               call fs_register_field(ppser_serializer, trim(longname), &
+                                      'double', ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('sp0', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, &
+                                   trim(longname), lpay)
+               call fs_create_savepoint('sp1', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, &
+                                   trim(longname), lpay)
+               call ppser_finalize()
+
+               call ppser_initialize(out_dir, 'fdedln', 'r')
+               call fs_register_field(ppser_serializer, trim(longname), &
+                                      'double', ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('sp0', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  trim(longname), lback)
+               if (any(lback /= lpay)) error stop &
+                  'dedup-longname: sp0 read-back mismatch'
+               call fs_create_savepoint('sp1', ppser_savepoint)
+               lback = 0.0_real64
+               call fs_read_field(ppser_serializer, ppser_savepoint, &
+                                  trim(longname), lback)
+               if (any(lback /= lpay)) error stop &
+                  'dedup-longname: sp1 read-back mismatch'
+               call ppser_finalize()
+
+               write (*, '(a)') 'preserf-fortran: dedup-longname OK'
+               stop
+            end block
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &
@@ -2890,6 +3155,32 @@ program test_minimal
    write (*, '(a)') 'preserf-fortran: hello-world OK'
 
 contains
+
+   !> Read the `_preserf_dict_ref` attribute off savepoint `sp_name`'s `u`
+   !> carrier variable in an open deduplicated store (ADR 0014). Returns the
+   !> referenced `/_dict` entry name in `ref` (blank-padded), plus the
+   !> resolved savepoint group id and carrier varid. Aborts if the carrier
+   !> is missing or has no dictionary reference (the dedup scenario expects
+   !> both). Used by the `dedup` scenario to check that identical payloads
+   !> collapse to one entry.
+   subroutine dedup_sp_ref(ncid, sp_name, ref, sp_grpid, varid)
+      integer, intent(in) :: ncid
+      character(len=*), intent(in) :: sp_name
+      character(len=*), intent(out) :: ref
+      integer, intent(out) :: sp_grpid, varid
+      integer :: ncerr, sps_grpid
+
+      ref = ''
+      ncerr = nf90_inq_ncid(ncid, 'savepoints', sps_grpid)
+      if (ncerr /= NF90_NOERR) error stop 'dedup: inq savepoints failed'
+      ncerr = nf90_inq_ncid(sps_grpid, sp_name, sp_grpid)
+      if (ncerr /= NF90_NOERR) error stop 'dedup: inq savepoint group failed'
+      ncerr = nf90_inq_varid(sp_grpid, 'u', varid)
+      if (ncerr /= NF90_NOERR) error stop 'dedup: savepoint missing u carrier'
+      ncerr = nf90_get_att(sp_grpid, varid, '_preserf_dict_ref', ref)
+      if (ncerr /= NF90_NOERR) error stop &
+         'dedup: savepoint carrier has no _preserf_dict_ref'
+   end subroutine dedup_sp_ref
 
    !> Delete a file if it exists. The init-keywords scenario uses this
    !> to clear stores left behind by a prior run before asserting on

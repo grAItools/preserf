@@ -44,7 +44,9 @@ module m_preserf
                             PPSER_TRACER_NAME_LEN, PPSER_TRACER_STYPE_LEN, &
                             t_kbuff_entry, ppser_kbuffers, &
                             ppser_kbuff_count, PPSER_MAX_KBUFF, &
-                            ppser_verbosity
+                            ppser_verbosity, &
+                            ppser_dedup_enabled, ppser_dict_find_or_add, &
+                            ppser_hash_bytes
    implicit none
    private
 
@@ -1341,6 +1343,17 @@ contains
       type(t_serializer), intent(inout) :: s
       type(t_savepoint), intent(in) :: sp
       integer, intent(in) :: idx
+      logical :: saved_dedup
+
+      ! Cross-savepoint dedup (ADR 0014) is scoped to !$SER DATA field
+      ! writes. A k-buffer flush reuses fs_write_field, but its on-disk
+      ! variable must stay a direct NF90_DOUBLE array: the k-buffer read
+      ! path (kbuff_load_full) reads it back as one, and would abort on a
+      ! scalar dedup reference carrier. Suppress dedup for the flush and
+      ! restore the caller's setting afterwards, so k-buffered fields keep
+      ! the one-dataset-per-write layout regardless of the dedup option.
+      saved_dedup = ppser_dedup_enabled
+      ppser_dedup_enabled = .false.
 
       select case (ppser_kbuffers(idx)%full_rank)
       case (2)
@@ -1362,6 +1375,7 @@ contains
          error stop 1
       end select
 
+      ppser_dedup_enabled = saved_dedup
       call kbuff_free(idx)
    end subroutine kbuff_flush
 
@@ -3595,6 +3609,94 @@ contains
          call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
       end if
    end subroutine ensure_variable
+
+   !> Return the `/_dict` group id for serializer `s`, creating the group
+   !> lazily on first use (ADR 0014). `/_dict` holds one dataset per unique
+   !> field payload in a deduplicated store; it is absent in a default store
+   !> so the non-dedup wire format is unchanged. nf90_def_grp needs no define
+   !> mode on a NETCDF4 dataset, matching the lazy `/_tracers` create.
+   subroutine ensure_dict_group(s, dict_grpid)
+      type(t_serializer), intent(inout) :: s
+      integer, intent(out) :: dict_grpid
+      integer :: ncerr
+
+      if (s%dict_grpid == -1) then
+         ncerr = nf90_def_grp(s%ncid, '_dict', s%dict_grpid)
+         call preserf_check_nf_with_msg(ncerr, 'def_grp /_dict')
+      end if
+      dict_grpid = s%dict_grpid
+   end subroutine ensure_dict_group
+
+   !> Write the per-savepoint reference to a dictionary entry (ADR 0014).
+   !> In a deduplicated store a savepoint does not hold the payload; it holds
+   !> a scalar NF90_INT carrier variable named `<fieldname>` whose
+   !> `_preserf_dict_ref` attribute names the `/_dict/<entry_name>` dataset
+   !> that holds the payload. Idempotent per (savepoint, field): a repeated
+   !> write of the same field at one savepoint updates the reference
+   !> (last-write-wins), matching the default path's variable overwrite.
+   subroutine write_dict_reference(grpid, fieldname, entry_name)
+      integer, intent(in) :: grpid
+      character(len=*), intent(in) :: fieldname, entry_name
+      integer :: ncerr, varid
+
+      ncerr = nf90_inq_varid(grpid, trim(fieldname), varid)
+      if (ncerr == NF90_ENOTVAR) then
+         ncerr = nf90_def_var(grpid, trim(fieldname), NF90_INT, varid)
+         call preserf_check_nf_with_msg(ncerr, &
+                                        'def_var (dict ref) '//trim(fieldname))
+         ncerr = nf90_put_var(grpid, varid, 0_int32)
+         call preserf_check_nf_with_msg(ncerr, &
+                                        'put_var (dict ref) '//trim(fieldname))
+      else
+         call preserf_check_nf_with_msg(ncerr, &
+                                        'inq_varid (dict ref) '//trim(fieldname))
+      end if
+      ncerr = nf90_put_att(grpid, varid, '_preserf_dict_ref', trim(entry_name))
+      call preserf_check_nf_with_msg(ncerr, &
+                                     'put_att _preserf_dict_ref '//trim(fieldname))
+   end subroutine write_dict_reference
+
+   !> Resolve the group + variable id that actually hold `fieldname`'s data
+   !> for a read under group `grpid_in` (ADR 0014). In a deduplicated store
+   !> the savepoint variable is a scalar carrier whose `_preserf_dict_ref`
+   !> attribute names the `/_dict` entry with the payload; resolve that one
+   !> indirection. In a default store the savepoint variable IS the data, so
+   !> return it unchanged — making the dedup read path transparent to every
+   !> existing (non-dedup) store.
+   subroutine resolve_read_variable(s, grpid_in, fieldname, data_grpid, varid)
+      type(t_serializer), intent(in) :: s
+      integer, intent(in) :: grpid_in
+      character(len=*), intent(in) :: fieldname
+      integer, intent(out) :: data_grpid, varid
+      integer :: ncerr, varid_in, attr_len, dict_grpid
+      character(len=:), allocatable :: ref
+
+      ncerr = nf90_inq_varid(grpid_in, trim(fieldname), varid_in)
+      call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
+
+      ncerr = nf90_inquire_attribute(grpid_in, varid_in, '_preserf_dict_ref', &
+                                     len=attr_len)
+      if (ncerr == NF90_ENOTATT) then
+         data_grpid = grpid_in
+         varid = varid_in
+         return
+      end if
+      call preserf_check_nf_with_msg(ncerr, &
+                                     'inquire_attribute _preserf_dict_ref '// &
+                                     trim(fieldname))
+
+      allocate (character(len=attr_len) :: ref)
+      ncerr = nf90_get_att(grpid_in, varid_in, '_preserf_dict_ref', ref)
+      call preserf_check_nf_with_msg(ncerr, &
+                                     'get_att _preserf_dict_ref '//trim(fieldname))
+      ncerr = nf90_inq_ncid(s%ncid, '_dict', dict_grpid)
+      call preserf_check_nf_with_msg(ncerr, &
+                                     'inq_ncid /_dict (resolving '// &
+                                     trim(fieldname)//')')
+      ncerr = nf90_inq_varid(dict_grpid, trim(ref), varid)
+      call preserf_check_nf_with_msg(ncerr, 'inq_varid /_dict/'//trim(ref))
+      data_grpid = dict_grpid
+   end subroutine resolve_read_variable
 
    !> Abort with a clear message if the serializer hasn't been opened.
    subroutine require_open(s, where)

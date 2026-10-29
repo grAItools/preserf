@@ -11,6 +11,12 @@ subroutine PRESERF_SUB(s, sp, fieldname, data)
    integer :: ncerr, varid
    integer, allocatable :: dimids(:)
    integer(int8), allocatable PRESERF_DIMS :: buf
+   ! Cross-savepoint dedup state (ADR 0014); unused when dedup is off.
+   integer :: dict_grpid
+   integer(int8), allocatable :: raw(:)
+   integer(int64) :: cksum, nbytes
+   character(len=:), allocatable :: entry_name
+   logical :: is_new
 
    if (serialisation_enabled == 0) return
    call require_open(s, 'fs_write_field')
@@ -30,9 +36,29 @@ subroutine PRESERF_SUB(s, sp, fieldname, data)
          '" in write mode but the serializer was opened read-only'
       error stop 1
    end if
-   call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
-   call ensure_variable(sp%grpid, fieldname, NF90_BYTE, dimids, varid)
    buf = merge(1_int8, 0_int8, data)
-   ncerr = nf90_put_var(sp%grpid, varid, buf)
-   call preserf_check_nf_with_msg(ncerr, 'put_var '//trim(fieldname))
+   if (ppser_dedup_enabled) then
+      ! Dedup path (ADR 0014): checksum the on-disk 0/1 byte image (`buf`),
+      ! so two logical fields that encode identically collapse to one
+      ! `/_dict` entry, and reference it from this savepoint. See the
+      ! numeric template for the shared shape of this branch.
+      raw = transfer(buf, raw)
+      cksum = ppser_hash_bytes(raw)
+      nbytes = size(raw, kind=int64)
+      call ppser_dict_find_or_add(trim(fieldname), cksum, nbytes, &
+                                  entry_name, is_new)
+      call ensure_dict_group(s, dict_grpid)
+      if (is_new) then
+         call ensure_dims(dict_grpid, entry_name, shape(data), dimids)
+         call ensure_variable(dict_grpid, entry_name, NF90_BYTE, dimids, varid)
+         ncerr = nf90_put_var(dict_grpid, varid, buf)
+         call preserf_check_nf_with_msg(ncerr, 'put_var '//entry_name)
+      end if
+      call write_dict_reference(sp%grpid, fieldname, entry_name)
+   else
+      call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
+      call ensure_variable(sp%grpid, fieldname, NF90_BYTE, dimids, varid)
+      ncerr = nf90_put_var(sp%grpid, varid, buf)
+      call preserf_check_nf_with_msg(ncerr, 'put_var '//trim(fieldname))
+   end if
 end subroutine PRESERF_SUB

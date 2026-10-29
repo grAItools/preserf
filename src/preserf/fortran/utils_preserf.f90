@@ -40,6 +40,10 @@ module utils_preserf
       integer :: fields_grpid = -1
       integer :: tracers_grpid = -1
       integer :: savepoints_grpid = -1
+      ! `/_dict` group id for cross-savepoint content dedup (ADR 0014).
+      ! Created lazily on the first deduplicated write (like /_tracers);
+      ! -1 means "not created yet / no dedup entries in this store".
+      integer :: dict_grpid = -1
       integer :: next_sp_index = 0
       logical :: writable = .true.
    end type t_serializer
@@ -131,6 +135,16 @@ module utils_preserf
    ! tests/_support/storage.py SCHEMA_VERSION.
    integer(int32), parameter, public :: PRESERF_SCHEMA_VERSION = 1
 
+   ! Schema version for a deduplicated store (ADR 0014). A dedup store's
+   ! savepoint field variables are scalar reference carriers, not the
+   ! payload: a reader that does not resolve `_preserf_dict_ref` would
+   ! silently return the carrier value (0) instead of the data. Advertising
+   ! a distinct version makes such a reader reject the store loudly instead.
+   ! Default (non-dedup) stores keep version 1, so they stay byte-identical
+   ! to a pre-dedup build. Both readers (this module and
+   ! tests/_support/storage.py) accept version 1 and this version.
+   integer(int32), parameter, public :: PRESERF_SCHEMA_VERSION_DEDUP = 2
+
    ! Cap matching storage_mapping.md §5 (sp_{idx:06d} naming).
    integer, parameter, public :: PRESERF_SAVEPOINT_INDEX_LIMIT = 1000000
 
@@ -210,11 +224,46 @@ module utils_preserf
    integer, public, save :: ppser_kbuff_count = 0
 
    ! -------------------------------------------------------------------------
+   ! Cross-savepoint content deduplication (ADR 0014, storage_mapping.md §10)
+   ! -------------------------------------------------------------------------
+   !
+   ! Opt-in: when enabled, each unique field payload is written once as a
+   ! dataset in the `/_dict` group and every savepoint that writes an
+   ! identical payload references it (a scalar carrier variable carrying a
+   ! `_preserf_dict_ref` attribute) instead of storing the payload again.
+   ! Default off, so existing stores stay byte-identical. Mirrors how the
+   ! `backend` selector is threaded: an explicit `dedup` keyword on
+   ! `ppser_initialize`, else the `PRESERF_DEDUP` env var, else the default.
+   logical, parameter, public :: PPSER_DEFAULT_DEDUP = .false.
+   logical, public, save :: ppser_dedup_enabled = PPSER_DEFAULT_DEDUP
+
+   ! Write-time checksum index. The durable index is the per-savepoint
+   ! `_preserf_dict_ref` references plus the `/_dict` datasets (ADR 0014);
+   ! this table is only an in-memory accelerator that maps a payload's
+   ! (field, checksum, byte length) to the dictionary entry already written
+   ! for it, so the writer can detect a repeat without re-reading the store.
+   ! It is reset on every `ppser_initialize` / `ppser_finalize` and grows on
+   ! demand. Not thread-safe (see the module header).
+   integer, parameter, public :: PPSER_DICT_NAME_LEN = 256
+
+   type :: t_dict_entry
+      character(len=PPSER_DICT_NAME_LEN) :: field = ''
+      character(len=PPSER_DICT_NAME_LEN) :: entry_name = ''
+      integer(int64) :: checksum = 0_int64
+      integer(int64) :: nbytes = 0_int64
+   end type t_dict_entry
+
+   type(t_dict_entry), allocatable, save :: ppser_dict(:)
+   integer, save :: ppser_dict_count = 0
+
+   ! -------------------------------------------------------------------------
    ! Public procedures
    ! -------------------------------------------------------------------------
    public :: ppser_initialize, ppser_finalize
    public :: ppser_get_mode, ppser_set_mode
    public :: ppser_reset_tracers, ppser_reset_kbuffers
+   public :: ppser_reset_dict, ppser_dict_find_or_add, ppser_hash_bytes
+   public :: ppser_resolve_dedup
    public :: preserf_check_nf_with_msg
    public :: preserf_writer_version
    public :: preserf_logical_to_byte
@@ -539,7 +588,7 @@ contains
                                directory_ref, prefix_ref, &
                                singlefile, mpi_rank, rprecision, &
                                rperturb, realtype, archive, unique_id, &
-                               backend)
+                               backend, dedup)
       character(len=*), intent(in) :: directory
       character(len=*), intent(in) :: prefix
       ! Optional for pp_ser / Serialbox `!$SER INIT` compatibility: those
@@ -564,6 +613,11 @@ contains
       ! var, else the default. Threaded through to preserf_open_serializer,
       ! which turns it into the right on-disk URL / extension.
       character(len=*), intent(in), optional :: backend
+      ! Opt-in cross-savepoint content dedup (ADR 0014). When omitted,
+      ! resolved from the PRESERF_DEDUP env var, else the default (off).
+      ! Stored in the module flag ppser_dedup_enabled, which the write path
+      ! consumes, and recorded as the `_preserf_dedup` root attribute.
+      logical, intent(in), optional :: dedup
 
       ! Effective open mode passed to preserf_open_serializer. Deferred
       ! length so it mirrors `mode` exactly when present (preserving the
@@ -617,6 +671,16 @@ contains
       ! self-evident from the run log.
       eff_backend = ppser_resolve_backend(backend)
       write (*, '(a,a)') 'preserf: SERIALIZATION IS ON, backend=', eff_backend
+
+      ! Resolve (and validate) the opt-in dedup setting the same way, before
+      ! the store is opened — preserf_write_root_housekeeping records the
+      ! resolved flag as the `_preserf_dedup` root attribute, and the write
+      ! path reads ppser_dedup_enabled on every DATA write (ADR 0014).
+      ppser_dedup_enabled = ppser_resolve_dedup(dedup)
+      ! Start the dedup index empty: it is module SAVE state, so an entry
+      ! recorded before a prior finalize would otherwise alias a payload in
+      ! this fresh session.
+      call ppser_reset_dict()
 
       ! Re-init lifecycle (issue #67). A second ppser_initialize in the
       ! same process without an intervening ppser_finalize must NOT just
@@ -810,6 +874,11 @@ contains
       ppser_mode_state = 0
       call ppser_reset_tracers()
       call ppser_reset_kbuffers()
+      ! Drop the dedup index and restore the default (off), mirroring the
+      ! other module SAVE state resets so a deduplicated session does not
+      ! leak its setting or its checksum table into later code (ADR 0014).
+      call ppser_reset_dict()
+      ppser_dedup_enabled = PPSER_DEFAULT_DEDUP
       ! Also restore the ON/OFF gate to its default. ppser_initialize
       ! re-sets this on every fresh session as belt-and-braces, but
       ! resetting here too means an explicit finalize + later code
@@ -864,6 +933,175 @@ contains
       end do
       ppser_kbuff_count = 0
    end subroutine ppser_reset_kbuffers
+
+   !> Empty the write-time dedup checksum index (ADR 0014). Called on every
+   !> fresh `ppser_initialize` and on `ppser_finalize` so entries written in
+   !> a previous session do not alias entries in the next. Deallocates the
+   !> backing array so a run that never dedups carries no leftover storage.
+   subroutine ppser_reset_dict()
+      if (allocated(ppser_dict)) deallocate (ppser_dict)
+      ppser_dict_count = 0
+   end subroutine ppser_reset_dict
+
+   !> Grow the dedup index backing array to hold at least one more entry,
+   !> doubling the capacity (starting at 16) so the amortised cost stays
+   !> linear. Preserves the existing entries via move_alloc.
+   subroutine ppser_dict_grow()
+      type(t_dict_entry), allocatable :: bigger(:)
+      integer :: new_cap
+
+      if (.not. allocated(ppser_dict)) then
+         allocate (ppser_dict(16))
+         return
+      end if
+      if (ppser_dict_count < size(ppser_dict)) return
+      new_cap = 2*size(ppser_dict)
+      allocate (bigger(new_cap))
+      bigger(1:ppser_dict_count) = ppser_dict(1:ppser_dict_count)
+      call move_alloc(bigger, ppser_dict)
+   end subroutine ppser_dict_grow
+
+   !> Resolve the dictionary entry for a payload identified by its content
+   !> `checksum` and byte length `nbytes` under field `field` (ADR 0014).
+   !> On a hit (an entry with the same field, checksum, and byte length
+   !> already exists) returns that entry's on-disk name and `is_new=.false.`;
+   !> on a miss records a fresh entry and returns it with `is_new=.true.`.
+   !> The caller writes the payload dataset only when `is_new` is true.
+   !> Checksum equality is trusted (Serialbox semantics; see ADR 0014 for
+   !> the collision note).
+   !>
+   !> The entry name is `d<K>`, K a store-global 0-based counter —
+   !> deliberately NOT built from the field name. netCDF caps every name
+   !> (variable OR dimension) at NC_MAX_NAME = 256 bytes, and the dictionary
+   !> dataset's dimensions are named `<entry>_dim<j>`; embedding a long field
+   !> name would push that suffixed dimension name past the limit for an
+   !> otherwise-valid near-limit field. A short global id keeps the dimension
+   !> names tiny while staying collision-free within `/_dict` (K is unique
+   !> per store). The field is still recorded for the checksum lookup; the
+   !> on-disk reference (`_preserf_dict_ref`) names the entry explicitly, so
+   !> a reader never parses the name.
+   subroutine ppser_dict_find_or_add(field, checksum, nbytes, entry_name, is_new)
+      character(len=*), intent(in) :: field
+      integer(int64), intent(in) :: checksum, nbytes
+      character(len=:), allocatable, intent(out) :: entry_name
+      logical, intent(out) :: is_new
+      integer :: i
+      character(len=16) :: idx_str
+
+      do i = 1, ppser_dict_count
+         if (trim(ppser_dict(i)%field) == field .and. &
+             ppser_dict(i)%checksum == checksum .and. &
+             ppser_dict(i)%nbytes == nbytes) then
+            entry_name = trim(ppser_dict(i)%entry_name)
+            is_new = .false.
+            return
+         end if
+      end do
+
+      call ppser_dict_grow()
+      ! 0-based global index = the count before this entry is appended.
+      write (idx_str, '(i0)') ppser_dict_count
+      entry_name = 'd'//trim(idx_str)
+      ppser_dict_count = ppser_dict_count + 1
+      ppser_dict(ppser_dict_count)%field = field
+      ppser_dict(ppser_dict_count)%entry_name = entry_name
+      ppser_dict(ppser_dict_count)%checksum = checksum
+      ppser_dict(ppser_dict_count)%nbytes = nbytes
+      is_new = .true.
+   end subroutine ppser_dict_find_or_add
+
+   !> Content checksum of a raw byte buffer, used as the dedup index key
+   !> (ADR 0014). Two independent polynomial rolling hashes over distinct
+   !> primes near 2^31 are combined into a 62-bit digest.
+   !>
+   !> Why not FNV-1a: FNV's 64-bit multiply overflows the signed int64 range
+   !> and relies on two's-complement wraparound, which Fortran does not
+   !> guarantee (an overflow-trapping / sanitiser build could abort). Here
+   !> every intermediate stays below 2^41 — `h < 2^31`, `h*base < 2^40`,
+   !> plus a byte `< 2^41`, reduced mod a prime `< 2^31` each step — so the
+   !> arithmetic never approaches the signed limit; no wraparound is relied
+   !> on. The 62-bit combined digest plus the caller's byte-length check
+   !> make a false dedup collision astronomically unlikely (ADR 0014).
+   !>
+   !> `size(bytes, kind=int64)` and an int64 loop index keep the hash correct
+   !> for payloads larger than 2 GiB (a default-integer bound would wrap
+   !> negative on the usual 32-bit-default-integer build, hash nothing, and
+   !> give equal-length payloads the same digest — a silent mis-dedup).
+   pure function ppser_hash_bytes(bytes) result(h)
+      integer(int8), intent(in) :: bytes(:)
+      integer(int64) :: h
+      ! Two distinct primes < 2^31 and small multiplier bases.
+      integer(int64), parameter :: p1 = 2147483647_int64  ! 2^31 - 1 (Mersenne)
+      integer(int64), parameter :: p2 = 1000000007_int64  ! 10^9 + 7
+      integer(int64), parameter :: b1 = 257_int64
+      integer(int64), parameter :: b2 = 263_int64
+      integer(int64) :: h1, h2, bv, i, n
+
+      h1 = 1_int64
+      h2 = 1_int64
+      n = size(bytes, kind=int64)
+      do i = 1_int64, n
+         bv = iand(int(bytes(i), int64), 255_int64)
+         h1 = mod(h1*b1 + bv + 1_int64, p1)
+         h2 = mod(h2*b2 + bv + 1_int64, p2)
+      end do
+      ! Combine into one 62-bit key: h1 occupies the high bits (shift by 31),
+      ! h2 (< 2^30) the low bits; the mapping is injective in (h1, h2), so a
+      ! digest collision requires both hashes to collide.
+      h = ishft(h1, 31) + h2
+   end function ppser_hash_bytes
+
+   !> Resolve the effective dedup setting, mirroring `ppser_resolve_backend`:
+   !> the explicit `dedup` argument wins; otherwise the `PRESERF_DEDUP` env
+   !> var is consulted ('1'/'true'/'on'/'yes' → on, '0'/'false'/'off'/'no'
+   !> or blank → off, case-insensitive); otherwise the default (off). An
+   !> unrecognised non-blank env value aborts at this user-facing boundary
+   !> rather than being silently ignored.
+   function ppser_resolve_dedup(dedup) result(eff_dedup)
+      logical, intent(in), optional :: dedup
+      logical :: eff_dedup
+      character(len=64) :: env_value
+      character(len=:), allocatable :: norm
+      integer :: env_len, env_stat
+
+      if (present(dedup)) then
+         eff_dedup = dedup
+         return
+      end if
+
+      call get_environment_variable('PRESERF_DEDUP', value=env_value, &
+                                    length=env_len, status=env_stat)
+      ! status 1 = not set; >1 = fetch error; a value longer than the buffer
+      ! would be truncated and could flip the decision, so reject it loudly.
+      if (env_stat == 1) then
+         eff_dedup = PPSER_DEFAULT_DEDUP
+         return
+      end if
+      if (env_stat > 1) then
+         write (error_unit, '(a,i0)') &
+            'preserf: could not read PRESERF_DEDUP, status=', env_stat
+         error stop 1
+      end if
+      if (env_len > len(env_value)) then
+         write (error_unit, '(a)') &
+            'preserf: PRESERF_DEDUP value is too long'
+         error stop 1
+      end if
+
+      norm = preserf_to_lower(trim(adjustl(env_value)))
+      select case (norm)
+      case ('', '0', 'false', 'off', 'no')
+         eff_dedup = .false.
+      case ('1', 'true', 'on', 'yes')
+         eff_dedup = .true.
+      case default
+         write (error_unit, '(a,a)') 'preserf: unknown PRESERF_DEDUP value: ', norm
+         write (error_unit, '(a)') &
+            "preserf: PRESERF_DEDUP must be one of 1/true/on/yes or "// &
+            "0/false/off/no (case-insensitive)"
+         error stop 1
+      end select
+   end function ppser_resolve_dedup
 
    !> Set the runtime DATA mode. Only 0 (write), 1 (read), and 2
    !> (read-perturb) are accepted; pp_ser-generated SELECT CASE blocks
@@ -1162,6 +1400,11 @@ contains
          ! non-(-1) id, skip the lazy create, and write tracer descriptors
          ! against a group from the previous (closed) file.
          s%tracers_grpid = -1
+         ! `/_dict` is created lazily per session on the first deduplicated
+         ! write (ADR 0014); clear its id on close for the same reason as
+         ! /_tracers — a stale non-(-1) id would make a later write-mode
+         ! session skip the lazy create and target the previous file's group.
+         s%dict_grpid = -1
          s%savepoints_grpid = -1
          s%next_sp_index = 0
          s%writable = .true.
@@ -1193,7 +1436,15 @@ contains
       character(len=:), allocatable :: archive_eff
 
       zero = 0_int32
-      schema_version = PRESERF_SCHEMA_VERSION
+      ! A deduplicated store advertises a distinct schema version (ADR 0014)
+      ! so a reader that does not resolve `_preserf_dict_ref` rejects it
+      ! loudly rather than silently returning the scalar reference carriers;
+      ! a default store keeps version 1 and stays byte-identical.
+      if (ppser_dedup_enabled) then
+         schema_version = PRESERF_SCHEMA_VERSION_DEDUP
+      else
+         schema_version = PRESERF_SCHEMA_VERSION
+      end if
 
       ncerr = nf90_put_att(s%ncid, NF90_GLOBAL, &
                            '_preserf_schema_version', schema_version)
@@ -1231,6 +1482,18 @@ contains
       end if
       ncerr = nf90_put_att(s%ncid, NF90_GLOBAL, '_preserf_unique_id', uid)
       call preserf_check_nf_with_msg(ncerr, 'put_att _preserf_unique_id')
+
+      ! Record the opt-in dedup setting (ADR 0014) ONLY when dedup is on.
+      ! A default store must stay byte-identical to a pre-dedup store (the
+      ! change spec's hard guarantee), so the attribute is omitted entirely
+      ! when off; a reader treats its absence as "not deduplicated". When
+      ! on it is written NF90_BYTE 1, matching the Boolean 0/1 convention of
+      ! `_preserf_singlefile` and boolean metainfo.
+      if (ppser_dedup_enabled) then
+         ncerr = nf90_put_att(s%ncid, NF90_GLOBAL, '_preserf_dedup', &
+                              preserf_logical_to_byte(ppser_dedup_enabled))
+         call preserf_check_nf_with_msg(ncerr, 'put_att _preserf_dedup')
+      end if
    end subroutine preserf_write_root_housekeeping
 
    subroutine preserf_create_skeleton_groups(s)
@@ -1246,6 +1509,11 @@ contains
       ! Clear the id for this fresh write session so the lazy create fires
       ! (belt-and-braces with the reset in preserf_close_serializer).
       s%tracers_grpid = -1
+
+      ! `/_dict` is likewise created lazily on the first deduplicated write
+      ! (ADR 0014), not here, so a non-dedup store carries no empty group.
+      ! Clear the id for this fresh write session so the lazy create fires.
+      s%dict_grpid = -1
 
       ncerr = nf90_def_grp(s%ncid, 'savepoints', s%savepoints_grpid)
       call preserf_check_nf_with_msg(ncerr, 'def_grp /savepoints')
@@ -1286,10 +1554,17 @@ contains
       call preserf_check_nf_with_msg(ncerr, &
                                      'get_att _preserf_schema_version (not a preserf store?)')
 
-      if (version /= PRESERF_SCHEMA_VERSION) then
-         write (error_unit, '(a,i0,a,i0)') &
+      ! Accept both the default (1) and the deduplicated (2) schema versions
+      ! (ADR 0014): this reader resolves `_preserf_dict_ref`, so it reads a
+      ! dedup store correctly. The version gate exists to make a reader that
+      ! does NOT understand dedup reject a dedup store rather than silently
+      ! return carrier values.
+      if (version /= PRESERF_SCHEMA_VERSION .and. &
+          version /= PRESERF_SCHEMA_VERSION_DEDUP) then
+         write (error_unit, '(a,i0,a,i0,a,i0)') &
             'preserf: unsupported schema version ', version, &
-            '; this build supports ', PRESERF_SCHEMA_VERSION
+            '; this build supports ', PRESERF_SCHEMA_VERSION, &
+            ' and ', PRESERF_SCHEMA_VERSION_DEDUP
          error stop 1
       end if
    end subroutine preserf_validate_schema_version
