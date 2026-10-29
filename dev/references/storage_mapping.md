@@ -375,9 +375,14 @@ group:
 - **Chunking** (NCZarr / NetCDF4): **implementation-defined** unless the
   writer explicitly opts in. The reference implementation does not set
   `chunksizes`, so NetCDF4/HDF5 typically produces contiguous storage and
-  NCZarr falls back to its own default chunk shape. A future option (§9)
-  will expose an explicit chunking knob; until then, no chunking guarantee
-  is part of the schema.
+  NCZarr falls back to its own default chunk shape. When compression is
+  requested (per [ADR 0013](../adr/0013-opt-in-store-compression.md) and
+  §9), variables are chunked with a derived, bounded chunk shape on the
+  `netcdf4` backend — the `nczarr-v2` combination is rejected at
+  initialization until the codec follow-up (#111); without a compression
+  request the backend's default layout applies. A
+  separate general-purpose chunking knob remains future work; no other
+  chunking guarantee is part of the schema.
 
 The k-buffer mode (`!$SER DATA_KBUFF`) writes the same variable shape but
 fills it in vertical slices keyed by the `k` / `k_size` arguments; the
@@ -453,8 +458,14 @@ Resulting NetCDF4 / NCZarr store:
   place and we can benchmark both.
 - **Chunking and compression.** Both are currently implementation-defined
   (no `chunksizes` set, no compression filter). Both are tunable via
-  netCDF-Fortran APIs and should be exposed through `!$SER OPTION` keys;
-  defer naming to a follow-up ADR.
+  netCDF-Fortran APIs; [ADR 0013](../adr/0013-opt-in-store-compression.md)
+  records the compression surface — a store-wide `compression=` keyword on
+  `ppser_initialize` plus the `PRESERF_COMPRESSION` environment variable —
+  under which variables are chunked with a derived, bounded shape on the
+  `netcdf4` backend (the `nczarr-v2` combination is rejected at
+  initialization until the codec follow-up, #111; an
+  earlier draft suggested `!$SER OPTION` keys; superseded by that
+  decision). A separate user-controlled chunking knob is not decided.
 - **Per-rank stores under MPI.** `ppser_initialize`'s `mpi_rank` argument
   currently maps to a `_rank<n>` suffix on the store name. Parallel HDF5 /
   parallel NCZarr is a future option.

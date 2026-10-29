@@ -15,13 +15,15 @@ lands the optimizations behind them.
 
 **Goals:**
 
-- Opt-in chunking/deflate/shuffle for registered fields, default off, so
+- Opt-in chunking/deflate for registered fields, default off, so
   existing stores are byte-identical.
 - Read-perturb RNG drawn in bounded batches with the same distribution
   and bounds.
 - Measured wins: a perf-smoke fixture asserting file size and read
   wall-time before/after, on a representative large field through both
-  backends.
+  backends for the default-off baseline; the compressed "after"
+  measurement is netcdf4-only until the nczarr codec follow-up (#111)
+  lands, since the NCZarr combination is rejected at initialization.
 
 **Non-Goals:**
 
@@ -34,14 +36,22 @@ lands the optimizations behind them.
 
 ## Decisions
 
-- The compression request surface is the Fortran registration API
-  (`fs_register_field` and the auto-registration path), not the
-  `REGISTER` directive grammar: the preprocessor stays untouched and the
-  knobs live where the field metadata is declared.
+- The compression request surface is a store-wide default at
+  `ppser_initialize` (a `compression=` keyword, mirroring `backend=`)
+  plus a `PRESERF_COMPRESSION` env var — the surface PR #53 implements
+  and that the issue body and the nczarr-compression-codec change
+  assume. The storage reference §9 deferred naming (proposing
+  `!$SER OPTION` keys), which this decision now supplies. A per-field
+  override through the Fortran registration API (`fs_register_field`)
+  is an explicit follow-up: the auto-registration path carries no
+  caller-supplied metadata today and `!$SER REGISTER` rejects
+  key=value pairs, so that surface is not implementable without
+  preprocessor work.
 - The ADR (new `dev/adr/0013`) records the storage-layout decision:
-  opt-in, default off, chunk shape derived from the registered dims,
-  deflate level from the registration request, reader transparency
-  guaranteed by netCDF itself.
+  the store-wide request surface at `ppser_initialize` plus the env
+  var, the per-field override deferred, bounded chunk shapes derived
+  from the registered dims, tracer data following the global knob,
+  and the NCZarr combination rejected until the codec follow-up.
 - The perturb batching allocates a bounded scratch (on the order of 8192
   elements), one `random_number(chunk)` per chunk, combining elementwise
   within the chunk — peak memory stays O(field + chunk).
