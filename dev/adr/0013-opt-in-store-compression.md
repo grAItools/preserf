@@ -36,9 +36,10 @@ name.
   state and `eff_backend`-aware validation, as PR #53 implements.
 - A per-field override through `fs_register_field` is an explicit
   follow-up, not part of this decision.
-- Chunk shapes are derived from the registered dims and bounded,
-  not whole-variable (HDF5 aborts above 4 GiB per chunk, and one
-  chunk per field defeats partial reads) — except for
+- Chunk shapes are derived from the registered dims and bounded:
+  no chunk may exceed 4 GiB of uncompressed data (the HDF5
+  per-chunk limit on the netcdf4 backend; a byte cap both backends
+  honor), and whole-variable chunks are not permitted — except for
   single-element variables, where the only legal chunk is the
   whole variable.
 - Tracer data follows the global knob: tracer variables are store

@@ -29,19 +29,19 @@ The runtime SHALL support read-perturb mode: floating-point `fs_read_field_*_per
 
 ### Requirement: Variable storage layout
 
-Store variables SHALL support opt-in chunked and compressed storage: when a store-wide compression level is requested through the `ppser_initialize` keyword (or the `PRESERF_COMPRESSION` env var), field and tracer data variables SHALL be created as chunked, deflated variables with a chunk shape derived from the registered dims and bounded — no chunk may exceed the HDF5 4 GiB per-chunk limit, and whole-variable chunks are not permitted except for single-element variables, where the only legal chunk is the whole variable. Rank-0 (scalar) fields SHALL remain contiguous and uncompressed (netCDF cannot chunk a scalar). Stores created without a compression request SHALL keep the backend's default layout — contiguous on the `netcdf4` backend, the backend's default chunking on `nczarr-v2` — and stay uncompressed, so existing stores are byte-identical.
+Store variables SHALL support opt-in chunked and compressed storage: when a store-wide compression level is requested through the `ppser_initialize` keyword (or the `PRESERF_COMPRESSION` env var), field and tracer data variables SHALL be created as chunked, deflated variables with a chunk shape derived from the registered dims and bounded — no chunk may exceed 4 GiB of uncompressed data (a byte cap the HDF5 per-chunk limit enforces on the `netcdf4` backend), and whole-variable chunks are not permitted except for single-element variables, where the only legal chunk is the whole variable. Rank-0 (scalar) fields SHALL remain uncompressed with the backend's default layout (netCDF cannot chunk a scalar). Stores created without a compression request SHALL keep the backend's default layout — contiguous on the `netcdf4` backend, the backend's default chunking on `nczarr-v2` — and stay uncompressed, so existing stores are byte-identical.
 
 #### Scenario: Default store unchanged
 
 - **WHEN** a store is initialized without a compression request and a field is written
-- **THEN** the store variable is created with the backend's default layout — contiguous and uncompressed on `netcdf4`, the backend's default chunking on `nczarr-v2` — matching existing stores
+- **THEN** the store variable is created with the backend's default layout — contiguous and uncompressed on `netcdf4`, the backend's default chunking, uncompressed, on `nczarr-v2` — matching existing stores
 
 #### Scenario: Compressed store round-trips
 
-- **WHEN** a store is initialized with a compression request and a field is written
+- **WHEN** a store is initialized with a compression request and a multi-element field is written
 - **THEN** the store variable is chunked with a bounded (not whole-variable) chunk shape and deflated, and the field round-trips through the Python support reader with identical values
 
-#### Scenario: Scalar fields stay contiguous
+#### Scenario: Scalar fields stay uncompressed
 
 - **WHEN** a store is initialized with a compression request and a rank-0 (scalar) field is written
-- **THEN** the scalar variable is created contiguous and uncompressed, and round-trips identically
+- **THEN** the scalar variable is created with the backend's default layout, uncompressed, and round-trips identically
