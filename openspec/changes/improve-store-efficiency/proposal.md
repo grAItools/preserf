@@ -29,7 +29,7 @@ versus one bulk draw.
 
 ### Modified Capabilities
 
-- `storage`: a new variable storage layout requirement pins opt-in chunking and compression with default-off behavior; the perturbed-reads requirement gains a batched-drawing scenario
+- `storage`: new variable storage layout requirements pin opt-in chunking and compression with default-off behavior; the perturbed-reads requirement gains a batched-drawing scenario
 
 ## Impact
 
