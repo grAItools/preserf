@@ -921,6 +921,99 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: perturb-roundtrip OK'
                stop
             end block
+         else if (scenario == 'perturb-batched') then
+            ! The read-perturb helpers draw uniforms in bounded chunks. A
+            ! field spanning several chunks — with a short final chunk and a
+            ! non-chunk-aligned row length — must still get one uniform draw
+            ! per element, so every element stays inside the same
+            ! [x*(1-scale), x*(1+scale)] bounds as per-element drawing, and
+            ! an exactly-zero element stays zero. Both floating kinds are
+            ! covered because each instantiates its own batched helper.
+            block
+               ! 25000 = 3 chunks of 8192 plus a short 424-element tail for
+               ! the helper's chunk size; the rank-2 row length is different
+               ! so its rows split at a different offset.
+               integer, parameter :: nbat = 25000
+               integer, parameter :: nbat_row = 20345
+               real(real64), allocatable :: d1(:), d1b(:)
+               real(real64), allocatable :: d2(:, :), d2b(:, :)
+               real(real32), allocatable :: f1(:), f1b(:)
+               real(real64) :: ddev
+               integer :: bi, bj
+               allocate (d1(nbat), d1b(nbat))
+               allocate (d2(nbat_row, 2), d2b(nbat_row, 2))
+               allocate (f1(nbat), f1b(nbat))
+               do bi = 1, nbat
+                  d1(bi) = real(bi, real64)*0.5_real64 + 0.25_real64
+                  f1(bi) = real(bi, real32)*0.5_real32 + 0.25_real32
+               end do
+               d1(1) = 0.0_real64
+               f1(1) = 0.0_real32
+               do bj = 1, 2
+                  do bi = 1, nbat_row
+                     d2(bi, bj) = real(2*bi + bj, real64)*0.25_real64
+                  end do
+               end do
+               call ppser_initialize(out_dir, 'fpertbat', 'w')
+               call fs_register_field(ppser_serializer, 'd1', 'double', &
+                                      ppser_reallength, nbat, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'd2', 'double', &
+                                      ppser_reallength, nbat_row, 2, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'f1', 'float', 4, &
+                                      nbat, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'd1', d1)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'd2', d2)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'f1', f1)
+               call ppser_finalize()
+               call ppser_initialize(out_dir, 'fpertbat', 'r')
+               call fs_register_field(ppser_serializer, 'd1', 'double', &
+                                      ppser_reallength, nbat, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'd2', 'double', &
+                                      ppser_reallength, nbat_row, 2, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'f1', 'float', 4, &
+                                      nbat, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'd1', &
+                                  d1b, 0.1_real64)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'd2', &
+                                  d2b, 0.1_real64)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'f1', &
+                                  f1b, 0.1_real64)
+               ddev = 0.0_real64
+               if (d1b(1) /= 0.0_real64) error stop &
+                  'perturb-batched: zero element must stay zero (real64)'
+               if (f1b(1) /= 0.0_real32) error stop &
+                  'perturb-batched: zero element must stay zero (real32)'
+               do bi = 2, nbat
+                  if (d1b(bi) < d1(bi)*0.9_real64 .or. &
+                      d1b(bi) > d1(bi)*1.1_real64) error stop &
+                     'perturb-batched: real64 1-D value out of bounds'
+                  if (f1b(bi) < f1(bi)*0.9_real32 .or. &
+                      f1b(bi) > f1(bi)*1.1_real32) error stop &
+                     'perturb-batched: real32 1-D value out of bounds'
+                  ddev = ddev + abs(d1b(bi) - d1(bi))
+               end do
+               do bj = 1, 2
+                  do bi = 1, nbat_row
+                     if (d2b(bi, bj) < d2(bi, bj)*0.9_real64 .or. &
+                         d2b(bi, bj) > d2(bi, bj)*1.1_real64) error stop &
+                        'perturb-batched: real64 2-D value out of bounds'
+                     ddev = ddev + abs(d2b(bi, bj) - d2(bi, bj))
+                  end do
+               end do
+               if (ddev <= 0.0_real64) error stop &
+                  'perturb-batched: scale 0.1 left data unchanged'
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: perturb-batched OK'
+               stop
+            end block
          else if (scenario == 'perturb-noop') then
             ! Issue #39: the 5-arg fs_read_field(s, sp, name, data, perturb)
             ! must resolve for integer (int32 / int64) and logical fields.

@@ -301,6 +301,14 @@ preserf_scenario_test(NAME wire_matrix SCENARIO wire-matrix
 preserf_scenario_test(NAME perturb_roundtrip SCENARIO perturb-roundtrip
     PASS "preserf-fortran: perturb-roundtrip OK")
 
+# The batched read-perturb drawing keeps every element inside the same
+# multiplicative bounds as per-element drawing: a field spanning several
+# chunks (short final chunk, non-chunk-aligned rank-2 rows) is perturbed at
+# scale 0.1 and every element must stay within x*(1 +/- 0.1), for both
+# floating kinds; an exactly-zero element stays zero.
+preserf_scenario_test(NAME perturb_batched SCENARIO perturb-batched
+    PASS "preserf-fortran: perturb-batched OK")
+
 # Issue #39: 5-arg fs_read_field perturb overloads for integer and logical. The
 # perturb argument is accepted but ignored. Covers int32, int64, logical 0-4.
 preserf_scenario_test(NAME perturb_noop SCENARIO perturb-noop
