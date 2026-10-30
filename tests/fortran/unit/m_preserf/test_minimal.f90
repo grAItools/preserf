@@ -36,6 +36,10 @@ program test_minimal
    integer, parameter :: ni = 4, nj = 3, nk = 2
    integer, parameter :: nv = 5
    integer, parameter :: nw_i = 3, nw_j = 4
+   ! Extent of the compression scenarios' 1-D field: large enough that its
+   ! chunk is derived (not the whole variable) and its 32 KiB of raw doubles
+   ! compress visibly.
+   integer, parameter :: ncomp = 4096
    integer :: i, j, k
    real(real64) :: maxdiff
    ! No local `sp` declaration: pp_ser-generated code uses the
@@ -363,6 +367,163 @@ program test_minimal
             ! Unreachable: the URI-safe-char guard must abort first.
             error stop &
                'preserf-test_minimal: nczarr directory with unsafe char accepted'
+         else if (scenario == 'compression') then
+            ! Store-wide compression=1: a multi-element 1-D field, a rank-2
+            ! field, a rank-0 (scalar) field, and a tracer data variable are
+            ! written in one session. The store is then inspected directly
+            ! (chunked + deflated with a bounded, non-whole chunk for the
+            ! multi-element variables; the backend's default layout for the
+            ! scalar) and re-opened read-only to prove the fields round-trip
+            ! losslessly. The Python wire-compat test re-checks the same
+            ! layout through netCDF4 and the values through the reference
+            ! reader.
+            block
+               real(real64) :: cz(ncomp), cz_back(ncomp)
+               real(real64) :: cw(nw_i, nw_j), cw_back(nw_i, nw_j)
+               real(real64), target :: qv(3)
+               real(real64) :: one(1)
+               real(real64) :: one_back(1)
+               integer(int32) :: sc, scb
+               integer :: ci
+               do ci = 1, ncomp
+                  cz(ci) = real(ci/64, real64)
+               end do
+               one(1) = 42.5_real64
+               do j = 1, nw_j
+                  do i = 1, nw_i
+                     cw(i, j) = real(10*i + j, real64)
+                  end do
+               end do
+               do ci = 1, 3
+                  qv(ci) = real(100 + ci, real64)
+               end do
+               sc = 7_int32
+
+               call ppser_initialize(out_dir, 'fcomp', 'w', compression=1)
+               call fs_register_field(ppser_serializer, 'big', 'double', &
+                                      ppser_reallength, ncomp, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'cw', 'double', &
+                                      ppser_reallength, nw_i, nw_j, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'sc', 'int', 4, &
+                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'one', 'double', &
+                                      ppser_reallength, 1, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call ppser_register_tracer('q_v', qv)
+               call fs_RegisterAllTracers()
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'big', cz)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'cw', cw)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'sc', sc)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'one', one)
+               call ppser_write_tracer_by_name('q_v')
+               call ppser_finalize()
+
+               call check_compression_layout(trim(out_dir)//'/fcomp.nc', 1)
+
+               ! Re-open read-only: compression is a write-time layout, the
+               ! reader needs no knob and netCDF decompresses transparently.
+               call ppser_initialize(out_dir, 'fcomp', 'r')
+               call fs_register_field(ppser_serializer, 'big', 'double', &
+                                      ppser_reallength, ncomp, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'cw', 'double', &
+                                      ppser_reallength, nw_i, nw_j, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'sc', 'int', 4, &
+                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'one', 'double', &
+                                      ppser_reallength, 1, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'big', &
+                                  cz_back)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'cw', &
+                                  cw_back)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'sc', scb)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'one', &
+                                  one_back)
+               if (any(cz_back /= cz)) error stop &
+                  'compression: 1-D field round-trip mismatch'
+               if (any(cw_back /= cw)) error stop &
+                  'compression: rank-2 field round-trip mismatch'
+               if (scb /= sc) error stop &
+                  'compression: scalar field round-trip mismatch'
+               if (one_back(1) /= one(1)) error stop &
+                  'compression: single-element field round-trip mismatch'
+               call ppser_finalize()
+               write (*, '(a)') 'preserf-fortran: compression OK'
+               stop
+            end block
+         else if (scenario == 'compression-default-off') then
+            ! The same multi-element field with no compression request must
+            ! keep the backend's default layout: contiguous on netcdf4 and
+            ! uncompressed. This is the byte-parity baseline the Python
+            ! test compares the compressed store's size against.
+            block
+               real(real64) :: cz(ncomp)
+               integer :: ci
+               do ci = 1, ncomp
+                  cz(ci) = real(ci/64, real64)
+               end do
+               call ppser_initialize(out_dir, 'fnocomp', 'w')
+               call fs_register_field(ppser_serializer, 'big', 'double', &
+                                      ppser_reallength, ncomp, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'big', cz)
+               call ppser_finalize()
+               call check_default_layout(trim(out_dir)//'/fnocomp.nc')
+               write (*, '(a)') 'preserf-fortran: compression-default-off OK'
+               stop
+            end block
+         else if (scenario == 'compression-bad-level') then
+            ! A level outside 0..9 is a user mistake and must abort at the
+            ! ppser_initialize boundary rather than reach
+            ! nf90_def_var_deflate.
+            call ppser_initialize(out_dir, 'fcbad', 'w', compression=42)
+            ! Unreachable: the level-range guard must abort first.
+            call abort_unexpected('compression-bad-level')
+         else if (scenario == 'compression-env') then
+            ! A level taken from PRESERF_COMPRESSION with no compression=
+            ! keyword must apply exactly like the keyword; ctest sets the
+            ! variable to `on`, which also covers the shorthand mapping onto
+            ! the helper's default level.
+            block
+               real(real64) :: cz(ncomp)
+               integer :: ci
+               do ci = 1, ncomp
+                  cz(ci) = real(ci/64, real64)
+               end do
+               call ppser_initialize(out_dir, 'fcompenv', 'w')
+               call fs_register_field(ppser_serializer, 'big', 'double', &
+                                      ppser_reallength, ncomp, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('step', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'big', cz)
+               call ppser_finalize()
+               call check_single_compressed(trim(out_dir)//'/fcompenv.nc', &
+                                            PPSER_DEFAULT_DEFLATE_LEVEL)
+               write (*, '(a)') 'preserf-fortran: compression-env OK'
+               stop
+            end block
+         else if (scenario == 'compression-nczarr') then
+            ! Compression is rejected on the nczarr-v2 backend: NCZarr
+            ! deflate needs an HDF5 filter plugin that is not always
+            ! present, so the store could be written but not read back.
+            call ppser_initialize(out_dir, 'fcz', 'w', &
+                                  backend='nczarr-v2', compression=1)
+            ! Unreachable: the backend guard must abort first.
+            call abort_unexpected('compression-nczarr')
+         else if (scenario == 'compression-nczarr-env') then
+            ! The guard checks the RESOLVED backend, so selecting nczarr-v2
+            ! through PRESERF_BACKEND (no backend= argument) plus a level
+            ! from PRESERF_COMPRESSION must abort the same way.
+            call ppser_initialize(out_dir, 'fcze', 'w')
+            ! Unreachable: the backend guard must abort first.
+            call abort_unexpected('compression-nczarr-env')
          else if (scenario == 'read-roundtrip') then
             ! Write a store, finalize, then
             ! re-open read-only and replay the same REGISTER / SAVEPOINT /
@@ -3309,16 +3470,154 @@ contains
        call nc_must(nf90_close(ncid), 'nf90_close')
     end subroutine build_kbuff_registry_mismatch_store
 
-   !> Abort the test build if a raw netCDF call in
-   !> build_xtype_mismatch_store failed. Unchecked errors there could
-   !> leave a malformed store that makes the read-bad-xtype negative
-   !> test pass for the wrong reason (PR #22 review note).
+   !> Assert the on-disk layout of the compressed store written by the
+   !> `compression` scenario: the multi-element field variables and the tracer
+   !> data variable are chunked with a bounded, non-whole shape and deflated
+   !> at the requested level; the rank-0 field keeps the backend's default
+   !> layout, uncompressed.
+   subroutine check_compression_layout(path, level)
+      use netcdf
+      character(len=*), intent(in) :: path
+      integer, intent(in) :: level
+      integer :: ncid, spid
+
+      call nc_must(nf90_open(path, NF90_NOWRITE, ncid), 'open '//path)
+      call nc_must(nf90_inq_ncid(ncid, 'savepoints', spid), &
+                   'inq_ncid savepoints')
+      call nc_must(nf90_inq_ncid(spid, 'sp_000000', spid), &
+                   'inq_ncid sp_000000')
+      call expect_deflated(spid, 'big', [ncomp], 8, level, 'field big')
+      call expect_deflated(spid, 'cw', [nw_i, nw_j], 8, level, 'field cw')
+      call expect_deflated(spid, 'q_v', [3], 8, level, 'tracer q_v')
+      ! A single-element variable has exactly one legal chunk: the whole
+      ! variable.
+      call expect_deflated(spid, 'one', [1], 8, level, &
+                           'single-element field one', whole_chunk=.true.)
+      call expect_default_var(spid, 'sc', 'scalar sc')
+      call nc_must(nf90_close(ncid), 'nf90_close '//path)
+   end subroutine check_compression_layout
+
+   !> Assert the single field written by the `compression-env` scenario is
+   !> chunked + deflated at `level`.
+   subroutine check_single_compressed(path, level)
+      use netcdf
+      character(len=*), intent(in) :: path
+      integer, intent(in) :: level
+      integer :: ncid, spid
+
+      call nc_must(nf90_open(path, NF90_NOWRITE, ncid), 'open '//path)
+      call nc_must(nf90_inq_ncid(ncid, 'savepoints', spid), &
+                   'inq_ncid savepoints')
+      call nc_must(nf90_inq_ncid(spid, 'sp_000000', spid), &
+                   'inq_ncid sp_000000')
+      call expect_deflated(spid, 'big', [ncomp], 8, level, 'field big')
+      call nc_must(nf90_close(ncid), 'nf90_close '//path)
+   end subroutine check_single_compressed
+
+   !> Assert the store written without a compression request keeps the
+   !> backend's default variable layout: contiguous and uncompressed.
+   subroutine check_default_layout(path)
+      use netcdf
+      character(len=*), intent(in) :: path
+      integer :: ncid, spid
+
+      call nc_must(nf90_open(path, NF90_NOWRITE, ncid), 'open '//path)
+      call nc_must(nf90_inq_ncid(ncid, 'savepoints', spid), &
+                   'inq_ncid savepoints')
+      call nc_must(nf90_inq_ncid(spid, 'sp_000000', spid), &
+                   'inq_ncid sp_000000')
+      call expect_default_var(spid, 'big', 'field big')
+      call nc_must(nf90_close(ncid), 'nf90_close '//path)
+   end subroutine check_default_layout
+
+   !> Assert one variable is chunked with a bounded shape and deflated at
+   !> `level`. `dims` holds the extents in Fortran order, matching the order
+   !> netcdf-fortran reports chunk sizes in. A multi-element variable must not
+   !> be one chunk; pass `whole_chunk` for the single-element case, whose only
+   !> legal chunk is the whole variable.
+   subroutine expect_deflated(grpid, name, dims, elem_bytes, level, label, &
+                              whole_chunk)
+      use netcdf
+      integer, intent(in) :: grpid, dims(:), elem_bytes, level
+      character(len=*), intent(in) :: name, label
+      logical, intent(in), optional :: whole_chunk
+      integer :: varid, storage, shuffle, deflate, got_level, i
+      integer, allocatable :: chunks(:)
+      integer(int64) :: bytes
+      logical :: whole, allow_whole
+
+      allow_whole = .false.
+      if (present(whole_chunk)) allow_whole = whole_chunk
+
+      call nc_must(nf90_inq_varid(grpid, name, varid), 'inq_varid '//name)
+      allocate (chunks(size(dims)))
+      call nc_must(nf90_inq_var_chunking(grpid, varid, storage, chunks), &
+                   'inq_var_chunking '//name)
+      if (storage /= NF90_CHUNKED) call layout_fail(label, 'is not chunked')
+      call nc_must(nf90_inq_var_deflate(grpid, varid, shuffle, deflate, &
+                                        got_level), 'inq_var_deflate '//name)
+      if (deflate /= 1) call layout_fail(label, 'is not deflated')
+      if (got_level /= level) call layout_fail(label, 'deflate level differs')
+      bytes = elem_bytes
+      whole = .true.
+      do i = 1, size(dims)
+         if (chunks(i) < 1 .or. chunks(i) > dims(i)) call layout_fail( &
+            label, 'chunk extent is outside the variable')
+         if (chunks(i) /= dims(i)) whole = .false.
+         bytes = bytes*int(chunks(i), int64)
+      end do
+      if (whole .neqv. allow_whole) then
+         if (allow_whole) call layout_fail( &
+            label, 'must be one whole-variable chunk')
+         call layout_fail(label, 'must not be one whole-variable chunk')
+      end if
+      if (bytes > PPSER_CHUNK_TARGET_BYTES) call layout_fail( &
+         label, 'chunk exceeds the derivation target')
+   end subroutine expect_deflated
+
+   !> Assert one variable keeps the backend's default layout: contiguous on
+   !> netcdf4 and uncompressed.
+   subroutine expect_default_var(grpid, name, label)
+      use netcdf
+      integer, intent(in) :: grpid
+      character(len=*), intent(in) :: name, label
+      integer :: varid, storage, shuffle, deflate, level, ndims
+      integer, allocatable :: chunks(:)
+
+      call nc_must(nf90_inq_varid(grpid, name, varid), 'inq_varid '//name)
+      call nc_must(nf90_inquire_variable(grpid, varid, ndims=ndims), &
+                   'inquire_variable '//name)
+      ! nf90_inq_var_chunking requires the size buffer even for a rank-0
+      ! variable, which it never fills; a zero-sized array trips up the
+      ! library, so give it one element.
+      allocate (chunks(max(ndims, 1)))
+      call nc_must(nf90_inq_var_chunking(grpid, varid, storage, chunks), &
+                   'inq_var_chunking '//name)
+      if (storage /= NF90_CONTIGUOUS) call layout_fail( &
+         label, 'must keep the default contiguous layout')
+      call nc_must(nf90_inq_var_deflate(grpid, varid, shuffle, deflate, level), &
+                   'inq_var_deflate '//name)
+      if (deflate /= 0) call layout_fail(label, 'must be uncompressed')
+   end subroutine expect_default_var
+
+   !> Report a layout assertion failure for the named variable and abort;
+   !> `error stop` needs a constant code, so the diagnostic is written first.
+   subroutine layout_fail(label, what)
+      character(len=*), intent(in) :: label, what
+      write (*, '(a,a,a)') 'preserf-test_minimal: compression: '//label//' ', &
+         what
+      error stop 1
+   end subroutine layout_fail
+
+   !> Abort the test build if a raw netCDF call failed. Unchecked errors
+   !> there could leave a malformed store that makes a negative test pass for
+   !> the wrong reason.
    subroutine nc_must(ncerr, what)
       use netcdf, only: nf90_noerr, nf90_strerror
       integer, intent(in) :: ncerr
       character(len=*), intent(in) :: what
       if (ncerr /= nf90_noerr) then
-         write (*, '(a,a,a,a)') 'build_xtype_mismatch_store: ', trim(what), &
+         write (*, '(a,a,a,a)') 'preserf-test_minimal: ', trim(what), &
             ' failed: ', trim(nf90_strerror(ncerr))
          error stop 1
       end if

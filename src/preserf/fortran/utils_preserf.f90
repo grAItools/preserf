@@ -110,6 +110,29 @@ module utils_preserf
    ! Python reader agree on the on-disk URL.
    character(len=*), parameter, public :: PPSER_DEFAULT_BACKEND = 'netcdf4'
 
+   ! Store-wide compression. `ppser_deflate_level` is the zlib deflate
+   ! level applied to every field- and tracer-data variable at definition
+   ! time: 0 leaves the backend's default (uncompressed) layout, 1..9
+   ! creates the variable chunked with a derived shape and deflated at that
+   ! level. It is module SAVE state resolved by `ppser_resolve_compression`
+   ! from the `compression` keyword, else the PRESERF_COMPRESSION
+   ! environment variable, else off; every `ppser_initialize` re-resolves
+   ! it and `ppser_finalize` resets it. `PPSER_DEFAULT_DEFLATE_LEVEL` is
+   ! what `compression=on` (keyword or env var) selects, so the level lives
+   ! in one place.
+   integer, parameter, public :: PPSER_DEFAULT_DEFLATE_LEVEL = 4
+   integer, save, public :: ppser_deflate_level = 0
+
+   ! Uncompressed bytes a derived chunk aims for. Chunks this size keep one
+   ! deflate pass over a contiguous block of each field while staying small
+   ! enough that a partial read touches few chunks.
+   integer(int64), parameter, public :: PPSER_CHUNK_TARGET_BYTES = 4194304_int64
+
+   ! Largest uncompressed chunk `ppser_chunk_shape` may return. HDF5 — the
+   ! storage layer under the netcdf4 backend — rejects a chunk whose
+   ! uncompressed size exceeds 4 GiB, so the derivation never crosses it.
+   integer(int64), parameter, public :: PPSER_MAX_CHUNK_BYTES = 4294967296_int64
+
    ! Mode: 0 = write, 1 = read, 2 = read-perturb.
    integer, save :: ppser_mode_state = 0
 
@@ -218,6 +241,7 @@ module utils_preserf
    public :: preserf_check_nf_with_msg
    public :: preserf_writer_version
    public :: preserf_logical_to_byte
+   public :: ppser_chunk_shape
 
    ! POSIX getcwd(3) via C interop. There is no F2008-standard intrinsic
    ! for the current working directory (gfortran's `getcwd` extension is
@@ -381,6 +405,161 @@ contains
       end if
    end function ppser_resolve_backend
 
+   !> Resolve the effective store-wide compression level, applying the same
+   !> precedence as `ppser_resolve_backend` (most → least specific):
+   !>
+   !>   1. the `compression` argument (`!$SER INIT compression=`, with
+   !>      `on`/`off` mapped to the default level / 0 before this point), when
+   !>      present;
+   !>   2. the `PRESERF_COMPRESSION` environment variable, when set to a
+   !>      non-blank value — a runtime override for callers that never surface
+   !>      the keyword. Accepts `on` (→ PPSER_DEFAULT_DEFLATE_LEVEL), `off`,
+   !>      or an integer 0..9; a blank / whitespace-only value is unset;
+   !>   3. otherwise 0 (off — the backend's default layout).
+   !>
+   !> The resolved level is range-checked here so an out-of-range argument, or
+   !> an unrecognised / out-of-range environment value, aborts with a message
+   !> naming the knob instead of reaching `nf90_def_var_deflate`. A
+   !> `PRESERF_COMPRESSION` value too long for the read buffer aborts rather
+   !> than acting on the truncated prefix.
+   function ppser_resolve_compression(compression) result(level)
+      integer, intent(in), optional :: compression
+      integer :: level
+      ! Values are short ('off' / 'on' / '0'..'9'); the buffer only has to be
+      ! long enough to detect a value that was truncated on the way in.
+      character(len=64) :: env_value
+      character(len=:), allocatable :: eff
+      integer :: env_stat, ios
+
+      if (present(compression)) then
+         if (compression < 0 .or. compression > 9) then
+            write (error_unit, '(a,i0,a)') &
+               'preserf: compression level ', compression, &
+               ' is out of range; expected 0 (off) or 1..9'
+            error stop 1
+         end if
+         level = compression
+         return
+      end if
+
+      call get_environment_variable('PRESERF_COMPRESSION', value=env_value, &
+                                    status=env_stat)
+      if (env_stat < 0) then
+         write (error_unit, '(a,i0,a)') &
+            'preserf: PRESERF_COMPRESSION value too long ', &
+            len(env_value), ' chars max (it was truncated)'
+         error stop 1
+      else if (env_stat /= 0 .or. len_trim(env_value) == 0) then
+         level = 0
+         return
+      end if
+
+      ! The same `on` / `off` shorthand the directive accepts, plus a bare
+      ! integer 0..9. Anything else yields a -1 sentinel that the range check
+      ! below rejects with the offending value in the message.
+      eff = preserf_to_lower(trim(adjustl(env_value)))
+      if (eff == 'off') then
+         level = 0
+      else if (eff == 'on') then
+         level = PPSER_DEFAULT_DEFLATE_LEVEL
+      else
+         read (eff, *, iostat=ios) level
+         if (ios /= 0 .or. verify(eff, '0123456789') /= 0) level = -1
+      end if
+      if (level < 0 .or. level > 9) then
+         write (error_unit, '(a,a)') &
+            'preserf: unknown PRESERF_COMPRESSION value: ', eff
+         write (error_unit, '(a)') &
+            "preserf: PRESERF_COMPRESSION must be 'on', 'off', or an integer 0..9"
+         error stop 1
+      end if
+   end function ppser_resolve_compression
+
+   !> Derive the chunk shape for a variable of rank `size(dim_lengths)`.
+   !>
+   !> `dim_lengths` holds the variable's extents in Fortran order (fastest-
+   !> varying first) and `elem_bytes` the size of one element, so
+   !> `product(dim_lengths) * elem_bytes` is the variable's uncompressed size.
+   !> The returned shape is derived from the dims alone:
+   !>
+   !>   * a rank-0 variable has no chunkable dimension and returns a
+   !>     zero-sized shape, which the caller reads as "keep the backend's
+   !>     default layout" (netCDF cannot chunk a scalar);
+   !>   * a single-element variable returns the whole variable: a chunk may be
+   !>     at most the extent in each dimension, so that is its only legal
+   !>     chunk;
+   !>   * any other variable returns the fastest-varying dimensions in full up
+   !>     to the first one that would push the chunk past
+   !>     PPSER_CHUNK_TARGET_BYTES (that dimension is truncated, the slower
+   !>     ones stay at 1), so a chunk spans whole rows of the field. A shape
+   !>     that would cover the whole variable is halved along its fastest-
+   !>     varying dimension with an extent above 1, so no multi-element
+   !>     variable is one chunk.
+   !>
+   !> Every result is at most PPSER_CHUNK_TARGET_BYTES of uncompressed data,
+   !> which is below PPSER_MAX_CHUNK_BYTES. Pure, so the derivation can be
+   !> checked against synthetic dims without writing a store.
+   pure function ppser_chunk_shape(dim_lengths, elem_bytes) result(chunks)
+      integer, intent(in) :: dim_lengths(:)
+      integer, intent(in) :: elem_bytes
+      integer, allocatable :: chunks(:)
+      integer :: r, i, n
+      integer(int64) :: bytes_per_elem, used, total
+      logical :: overflow
+
+      r = size(dim_lengths)
+      allocate (chunks(r))
+      chunks = 1
+      if (r == 0) return
+      bytes_per_elem = int(max(elem_bytes, 1), int64)
+
+      ! Element count, saturated rather than wrapped when the product does not
+      ! fit in int64: only its relation to the target matters.
+      total = 1_int64
+      overflow = .false.
+      do i = 1, r
+         n = dim_lengths(i)
+         if (n <= 0) cycle
+         if (total > huge(total)/int(n, int64)) then
+            overflow = .true.
+            exit
+         end if
+         total = total*int(n, int64)
+      end do
+      if (overflow) total = huge(total)
+
+      if (total == 1) then
+         ! Single element (or every extent non-positive): the whole variable.
+         do i = 1, r
+            chunks(i) = max(dim_lengths(i), 1)
+         end do
+         return
+      end if
+
+      ! `used * n` cannot overflow: `used` stays at or below the target and `n`
+      ! is a default integer, so the product fits in int64.
+      used = bytes_per_elem
+      do i = 1, r
+         n = max(dim_lengths(i), 1)
+         if (used*int(n, int64) <= PPSER_CHUNK_TARGET_BYTES) then
+            chunks(i) = n
+            used = used*int(n, int64)
+         else
+            chunks(i) = max(1, int(PPSER_CHUNK_TARGET_BYTES/used))
+            exit
+         end if
+      end do
+
+      if (all(chunks == dim_lengths)) then
+         do i = 1, r
+            if (chunks(i) > 1) then
+               chunks(i) = chunks(i)/2
+               exit
+            end if
+         end do
+      end if
+   end function ppser_chunk_shape
+
    !> Resolve a (possibly relative) `directory` to an absolute path for the
    !> NCZarr V2 `file://` URL. NetCDF4 (and Serialbox) accept a relative
    !> directory like `./ser_data` because the OS resolves it against the
@@ -539,7 +718,7 @@ contains
                                directory_ref, prefix_ref, &
                                singlefile, mpi_rank, rprecision, &
                                rperturb, realtype, archive, unique_id, &
-                               backend)
+                               backend, compression)
       character(len=*), intent(in) :: directory
       character(len=*), intent(in) :: prefix
       ! Optional for pp_ser / Serialbox `!$SER INIT` compatibility: those
@@ -564,6 +743,11 @@ contains
       ! var, else the default. Threaded through to preserf_open_serializer,
       ! which turns it into the right on-disk URL / extension.
       character(len=*), intent(in), optional :: backend
+      ! Store-wide compression request: 1..9 deflates each field-/tracer-data
+      ! variable at that zlib level, 0 leaves the backend's default layout.
+      ! When omitted, resolved from PRESERF_COMPRESSION, else off — see
+      ! ppser_resolve_compression.
+      integer, intent(in), optional :: compression
 
       ! Effective open mode passed to preserf_open_serializer. Deferred
       ! length so it mirrors `mode` exactly when present (preserving the
@@ -617,6 +801,22 @@ contains
       ! self-evident from the run log.
       eff_backend = ppser_resolve_backend(backend)
       write (*, '(a,a)') 'preserf: SERIALIZATION IS ON, backend=', eff_backend
+
+      ! Resolve the store-wide compression level BEFORE any store is opened,
+      ! so a bad level aborts without creating or truncating a file. The
+      ! level is checked against the RESOLVED backend: nczarr-v2 deflate needs
+      ! an HDF5 filter plugin that is not always present, so a compressed
+      ! NCZarr store could be written but not read back. Reject that
+      ! combination here, however the backend and the level were selected
+      ! (keyword or environment), rather than at nf90_def_var_deflate.
+      ppser_deflate_level = ppser_resolve_compression(compression)
+      if (ppser_deflate_level > 0 .and. eff_backend == 'nczarr-v2') then
+         write (error_unit, '(a)') &
+            "preserf: compression is not supported with the 'nczarr-v2' backend"
+         write (error_unit, '(a)') &
+            'preserf: use backend=netcdf4 for a compressed store'
+         error stop 1
+      end if
 
       ! Re-init lifecycle (issue #67). A second ppser_initialize in the
       ! same process without an intervening ppser_finalize must NOT just
@@ -816,6 +1016,10 @@ contains
       ! that touches fs_* without a fresh init at least starts from
       ! a clean state.
       serialisation_enabled = 1
+      ! The compression level is module SAVE state resolved by each
+      ! `ppser_initialize`; clearing it here keeps an fs_* call after a
+      ! finalize from deflating against a level whose session has ended.
+      ppser_deflate_level = 0
    end subroutine ppser_finalize
 
    function ppser_get_mode() result(m)

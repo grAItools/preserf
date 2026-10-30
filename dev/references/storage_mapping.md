@@ -383,6 +383,16 @@ group:
   request the backend's default layout applies. A
   separate general-purpose chunking knob remains future work; no other
   chunking guarantee is part of the schema.
+- **Derived chunk shape.** With compression on, the chunk shape comes from
+  the variable's registered dims alone: the fastest-varying dims are taken
+  in full up to a 4 MiB uncompressed target (the dim that would cross the
+  target is truncated there and the slower dims stay at 1), and a shape that
+  would cover the whole variable is halved along its fastest-varying dim
+  with an extent above 1, so no multi-element variable is one chunk. No
+  chunk exceeds 4 GiB of uncompressed data — the HDF5 per-chunk limit. Two
+  cases are exempt: a rank-0 (scalar) variable keeps the backend's default
+  layout and stays uncompressed, since netCDF cannot chunk a scalar, and a
+  single-element variable is one whole-variable chunk, its only legal chunk.
 
 The k-buffer mode (`!$SER DATA_KBUFF`) writes the same variable shape but
 fills it in vertical slices keyed by the `k` / `k_size` arguments; the
@@ -456,16 +466,21 @@ Resulting NetCDF4 / NCZarr store:
   xarray)? Default today is per-field private dimensions to match the
   Serialbox metadata model exactly. Revisit when the helper module is in
   place and we can benchmark both.
-- **Chunking and compression.** Both are currently implementation-defined
-  (no `chunksizes` set, no compression filter). Both are tunable via
-  netCDF-Fortran APIs; [ADR 0013](../adr/0013-opt-in-store-compression.md)
-  records the compression surface — a store-wide `compression=` keyword on
-  `ppser_initialize` plus the `PRESERF_COMPRESSION` environment variable —
-  under which variables are chunked with a derived, bounded shape on the
-  `netcdf4` backend (the `nczarr-v2` combination is rejected at
-  initialization until the codec follow-up, #111; an
-  earlier draft suggested `!$SER OPTION` keys; superseded by that
-  decision). A separate user-controlled chunking knob is not decided.
+- **Chunking and compression.** A store written without a compression
+  request sets no `chunksizes` and attaches no filter, so the layout is the
+  backend's default (contiguous on `netcdf4`, the backend's own chunking on
+  `nczarr-v2`). Opt-in compression is implemented on the `netcdf4` backend:
+  [ADR 0013](../adr/0013-opt-in-store-compression.md) records the surface —
+  a store-wide `compression=` keyword on `ppser_initialize` plus the
+  `PRESERF_COMPRESSION` environment variable — under which variables are
+  chunked with the derived, bounded shape in §6 (the `nczarr-v2`
+  combination is rejected at initialization until the codec follow-up,
+  #111; an earlier draft suggested `!$SER OPTION` keys; superseded by that
+  decision). The keyword and the environment variable take an integer
+  zlib deflate level (1..9), `on` for the helper's default level (4), or
+  `off` / 0 for the backend's default layout, which is also what an absent
+  request selects. What remains undecided is a user-controlled chunking
+  knob independent of compression.
 - **Per-rank stores under MPI.** `ppser_initialize`'s `mpi_rank` argument
   currently maps to a `_rank<n>` suffix on the store name. Parallel HDF5 /
   parallel NCZarr is a future option.

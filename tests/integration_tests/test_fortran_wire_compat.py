@@ -836,6 +836,117 @@ def test_fortran_unknown_realtype_aborts(tmp_path: Path, fortran_binary: Path) -
     )
 
 
+def test_fortran_compressed_store_layout_and_roundtrip(
+    tmp_path: Path, fortran_binary: Path
+) -> None:
+    """A compressed store is chunked + deflated and decodes identically.
+
+    The ``compression`` scenario writes a multi-element 1-D field, a rank-2
+    field, a rank-0 field, a single-element field, and a tracer data variable
+    with ``compression=1``; ``compression-default-off`` writes the same 1-D
+    field with no compression request. This asserts the on-disk layout
+    through netCDF4 — chunked with a bounded, non-whole chunk shape and
+    zlib-deflated for the multi-element variables and the tracer, the
+    whole-variable chunk for the single-element field, the backend's default
+    contiguous layout for the scalar — that the Python reference reader
+    decodes the values unchanged, and that the compressed store is smaller
+    than its uncompressed twin.
+    """
+    import netCDF4  # local import; netCDF4 is a dev-only dependency
+
+    comp_dir = tmp_path / "comp"
+    comp_dir.mkdir()
+    plain_dir = tmp_path / "plain"
+    plain_dir.mkdir()
+
+    run_scenario(fortran_binary, comp_dir, "compression")
+    run_scenario(fortran_binary, plain_dir, "compression-default-off")
+
+    comp_nc = comp_dir / "fcomp.nc"
+    plain_nc = plain_dir / "fnocomp.nc"
+
+    with netCDF4.Dataset(str(comp_nc), "r") as raw:
+        data_group = raw.groups["savepoints"].groups["sp_000000"]
+        # Multi-element fields and tracer data are store variables like any
+        # other: chunked, deflated, and never one whole-variable chunk.
+        for name in ("big", "cw", "q_v"):
+            var = data_group.variables[name]
+            filters = var.filters()
+            assert filters is not None and filters.get("zlib") is True, (
+                f"compressed {name!r} should report a zlib filter, got {filters}"
+            )
+            chunking = var.chunking()
+            assert chunking != "contiguous", (
+                f"deflate requires chunked storage; {name!r} got {chunking!r}"
+            )
+            elements = int(np.prod(chunking))
+            assert elements < int(np.prod(var.shape)), (
+                f"{name!r} must not be one whole-variable chunk: "
+                f"{chunking} vs {var.shape}"
+            )
+            chunk_bytes = elements * var.dtype.itemsize
+            assert chunk_bytes <= 4 * 1024**3, (
+                f"{name!r} chunk is {chunk_bytes} bytes, over the 4 GiB cap"
+            )
+        # A single-element variable has exactly one legal chunk: the whole
+        # variable.
+        single = data_group.variables["one"]
+        single_filters = single.filters()
+        assert single_filters is not None and single_filters.get("zlib") is True
+        assert list(single.chunking()) == list(single.shape)
+        # A rank-0 variable cannot be chunked: it keeps the backend's default
+        # layout and stays uncompressed.
+        scalar = data_group.variables["sc"]
+        assert scalar.chunking() == "contiguous", (
+            f"scalar 'sc' must keep the default layout, got {scalar.chunking()!r}"
+        )
+        scalar_filters = scalar.filters()
+        assert scalar_filters is None or scalar_filters.get("zlib") in (
+            False,
+            None,
+        ), f"scalar 'sc' must be uncompressed, got {scalar_filters}"
+
+    with netCDF4.Dataset(str(plain_nc), "r") as raw:
+        var = raw.groups["savepoints"].groups["sp_000000"].variables["big"]
+        assert var.chunking() == "contiguous", (
+            f"default 'big' must stay contiguous, got {var.chunking()!r}"
+        )
+        filters = var.filters()
+        assert filters is None or filters.get("zlib") in (False, None), (
+            f"default 'big' must be uncompressed, got {filters}"
+        )
+
+    # The ramp field is highly compressible, so the deflated store is smaller.
+    assert comp_nc.stat().st_size < plain_nc.stat().st_size, (
+        "compressed store should be smaller than the uncompressed default: "
+        f"{comp_nc.stat().st_size} vs {plain_nc.stat().st_size}"
+    )
+
+    # The reference reader decodes the deflated variables unchanged.
+    dump = read_dump(str(comp_nc))
+    sp = dump.savepoints[0]
+    assert sp.name == "step"
+    np.testing.assert_array_equal(
+        dump.field_data["big"][sp.fields["big"]],
+        np.array([i // 64 for i in range(1, 4097)], dtype=np.float64),
+    )
+    # Fortran cw(i, j) = 10*i + j over (3, 4); the C-order view transposes.
+    np.testing.assert_array_equal(
+        dump.field_data["cw"][sp.fields["cw"]],
+        np.array(
+            [[10 * i + j for i in range(1, 4)] for j in range(1, 5)],
+            dtype=np.float64,
+        ),
+    )
+    assert int(dump.field_data["sc"][sp.fields["sc"]]) == 7
+    np.testing.assert_array_equal(
+        dump.field_data["one"][sp.fields["one"]], np.array([42.5])
+    )
+    np.testing.assert_array_equal(
+        dump.tracer_data["q_v"][0], np.array([101.0, 102.0, 103.0])
+    )
+
+
 # ---------------------------------------------------------------------------
 # Full (rank x dtype) type-coverage matrix.
 #

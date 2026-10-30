@@ -187,6 +187,17 @@ optional `IF` are passed directly as arguments to the initialization call.
 These typically correspond to named Fortran arguments for the initialization
 subroutine (e.g., `singlefile=.true.`).
 
+**`compression=` shorthand**: unlike the other key-value pairs, `compression`
+is rewritten before the call — `compression=on` becomes
+`compression=PPSER_DEFAULT_DEFLATE_LEVEL` and `compression=off` becomes
+`compression=0` (a quoted `'on'` / `'off'` is accepted) — so the helper's
+default deflate level lives in one place. The generated `USE utils_ppser,
+ONLY:` list imports `PPSER_DEFAULT_DEFLATE_LEVEL` only for a directive that
+uses `on`. An explicit integer level (1..9) is passed through for
+`ppser_initialize` to range-check at runtime. The keyword is store-wide: it
+selects the chunked + deflated layout for every field and tracer data
+variable (see `storage_mapping.md` §6 and §9).
+
 **Generated code**:
 
 ```fortran
