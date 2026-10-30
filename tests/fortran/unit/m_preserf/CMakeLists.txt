@@ -38,6 +38,23 @@ set_tests_properties(preserf_fortran_chunk_shape PROPERTIES
     TIMEOUT 60
 )
 
+# Perf-smoke fixtures: one representative large field through both backends
+# (default-off baseline), the compressed netcdf4 "after" store, and the
+# read-perturb timing comparison. The binary asserts netcdf4 store sizes and
+# the batched-versus-per-element timing ratio; the Python perf test
+# (`tests/integration_tests/test_perf_smoke.py`) sums the nczarr-v2 directory
+# store and asserts the read wall times. TIMEOUT is generous because the
+# fixture writes 128 MiB per store on a possibly cold CI filesystem.
+add_executable(preserf_fortran_test_perf_smoke test_perf_smoke.f90)
+target_link_libraries(preserf_fortran_test_perf_smoke PRIVATE preserf_fortran)
+set_target_properties(preserf_fortran_test_perf_smoke PROPERTIES
+    Fortran_STANDARD 2008
+    Fortran_STANDARD_REQUIRED ON
+)
+if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(preserf_fortran_test_perf_smoke PRIVATE -std=f2008)
+endif()
+
 # -----------------------------------------------------------------------------
 # Per-scenario isolated output directories.
 #
@@ -590,3 +607,31 @@ else()
         "preserf: int8 variant build skipped (needs -fdefault-integer-8 and "
         "F2018 assumed-rank support; GNU only)")
 endif()
+
+# Register one perf scenario in its own output directory (mirroring
+# preserf_scenario_test's isolation so parallel ctest runs cannot clobber a
+# shared store).
+function(preserf_perf_test)
+    set(oneValueArgs NAME SCENARIO PASS)
+    cmake_parse_arguments(ARG "" "${oneValueArgs}" "" ${ARGN})
+    set(scenario_dir "${_PRESERF_TEST_OUTPUT_ROOT}/${ARG_NAME}")
+    set(fixture_name "preserf_fortran_${ARG_NAME}_dir")
+    add_test(NAME "preserf_fortran_${ARG_NAME}_setup"
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${scenario_dir})
+    set_tests_properties("preserf_fortran_${ARG_NAME}_setup" PROPERTIES
+        FIXTURES_SETUP ${fixture_name})
+    add_test(NAME "preserf_fortran_${ARG_NAME}"
+        COMMAND $<TARGET_FILE:preserf_fortran_test_perf_smoke>
+            "${scenario_dir}" "${ARG_SCENARIO}")
+    set_tests_properties("preserf_fortran_${ARG_NAME}" PROPERTIES
+        FIXTURES_REQUIRED ${fixture_name}
+        PASS_REGULAR_EXPRESSION "${ARG_PASS}"
+        TIMEOUT 300)
+endfunction()
+
+preserf_perf_test(NAME perf_smoke_baseline SCENARIO baseline
+    PASS "preserf-perf: baseline OK")
+preserf_perf_test(NAME perf_smoke_compressed SCENARIO compressed
+    PASS "preserf-perf: compressed OK")
+preserf_perf_test(NAME perf_perturb_timing SCENARIO perturb-timing
+    PASS "preserf-perf: perturb-timing OK")
