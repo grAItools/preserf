@@ -2,8 +2,8 @@
 
 ## 1. Measurement prerequisites (fail first)
 
-- [ ] 1.1 Add a perf-smoke fixture writing a representative large field through both backends for the default-off baseline, asserting file size and read wall-time; the compressed "after" measurement is netcdf4-only until the nczarr codec follow-up (#111) lands
-- [ ] 1.2 Add a perturb-mode timing fixture large enough that per-element versus batched drawing is distinguishable
+- [x] 1.1 Add a perf-smoke fixture writing a representative large field through both backends for the default-off baseline, asserting file size and read wall-time; the compressed "after" measurement is netcdf4-only until the nczarr codec follow-up (#111) lands
+- [x] 1.2 Add a perturb-mode timing fixture large enough that per-element versus batched drawing is distinguishable
 
 ## 2. Storage layout (opt-in)
 
@@ -13,8 +13,8 @@
 
 ## 3. Perturb RNG batching
 
-- [ ] 3.1 Rework `preserf_apply_perturb.inc:29-66` to draw in bounded chunks (one `random_number(chunk)` per chunk) while preserving the documented formula and bounds
-- [ ] 3.2 Add a ctest scenario asserting batched drawing preserves the multiplicative bounds
+- [x] 3.1 Rework `preserf_apply_perturb.inc:29-66` to draw in bounded chunks (one `random_number(chunk)` per chunk) while preserving the documented formula and bounds
+- [x] 3.2 Add a ctest scenario asserting batched drawing preserves the multiplicative bounds
 
 ## 4. Verification
 
