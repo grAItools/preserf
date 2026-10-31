@@ -8,6 +8,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `preserf_apply_perturb.inc`: read-perturb now draws its uniforms in
+  bounded 8192-element chunks (one `random_number(chunk)` call per chunk,
+  along the fastest dim) instead of one call per element, while preserving
+  the documented `1 + scale*(2u - 1)` formula and the multiplicative bounds
+  for every element; a native ctest scenario (`perturb-batched`) asserts the
+  bounds across chunk boundaries and a short final chunk for both floating
+  kinds. Perf-smoke fixtures
+  (`tests/fortran/unit/m_preserf/test_perf_smoke.f90`, driven by
+  `tests/integration_tests/test_perf_smoke.py`) measure the default-off
+  store size and read wall time through both backends, the netcdf4
+  compressed "after" store, and batched-versus-per-element perturb timing.
 - Opt-in store-wide compression: `ppser_initialize` accepts a `compression=`
   keyword (an integer zlib deflate level 1..9, or `on` for
   `PPSER_DEFAULT_DEFLATE_LEVEL` / `off`; `!$SER INIT compression=on` maps onto
