@@ -12,12 +12,10 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from typing import TYPE_CHECKING
+import sys
+from pathlib import Path
 
 import pytest
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 # Probe order matches tests/conftest.py: single-config generators (Ninja, Unix
 # Makefiles) drop the binary directly under the build dir, multi-config ones
@@ -83,3 +81,35 @@ def locate_binary(build: Path, name: str) -> Path | None:
             if candidate.is_file():
                 return candidate
     return None
+
+
+def build_wheel(outdir: Path) -> Path:
+    """Build the preserf wheel into ``outdir`` and return its path.
+
+    Reuses the same ``python -m build --no-isolation`` recipe as the
+    packaging tests, keeping the consumer lane offline. This is the single
+    source of truth for the wheel→install→consume chain so the two test
+    modules cannot drift apart on the artifact-build recipe.
+    """
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "build",
+            "--wheel",
+            "--no-isolation",
+            "--outdir",
+            str(outdir),
+            str(Path(__file__).resolve().parents[2]),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    artifacts = list(outdir.glob("*.whl"))
+    assert result.returncode == 0, (
+        f"wheel build exited {result.returncode}.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert len(artifacts) == 1, f"expected one wheel, got {artifacts}"
+    return artifacts[0]

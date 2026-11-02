@@ -45,6 +45,10 @@ _EXPECTED_RUNTIME_FILES = (
     # standards flags, so a consumer build breaks if it is not shipped too.
     "preserf/fortran/cmake/PreserfFortranFlags.cmake",
     "preserf/fortran/cmake/preserf_fortranConfig.cmake.in",
+    # The typing marker and the runtime README: a typing-aware consumer
+    # (py.typed) and a doc-reading consumer (README) need both shipped.
+    "preserf/py.typed",
+    "preserf/fortran/README.md",
 )
 
 
@@ -149,6 +153,22 @@ def test_twine_check_passes(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, (
         f"twine check failed.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    # The wheel's METADATA must carry the version hatchling derived from
+    # src/preserf/__init__.py, so a bump there propagates to the artifact
+    # without any other edit (single-source-of-truth version contract).
+    with zipfile.ZipFile(wheel) as archive:
+        dist_info = next(
+            name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
+        )
+        metadata = archive.read(dist_info).decode()
+    version_line = next(
+        (line for line in metadata.splitlines() if line.startswith("Version:")),
+        None,
+    )
+    assert version_line == f"Version: {preserf.__version__}", (
+        f"wheel METADATA version {version_line!r} does not equal "
+        f"preserf.__version__ {preserf.__version__!r}"
     )
 
 

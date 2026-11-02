@@ -14,16 +14,23 @@ Marked ``consumer`` so it is deselected from the fast ``verify`` gate (see the
 ``pixi run test-all``. It skips gracefully when the Fortran toolchain
 (compiler, ``netcdf-fortran`` via pkg-config, CMake) or the ``preserf`` CLI is
 unavailable.
+
+A second, wheel-installed variant installs the built wheel into a clean
+virtual environment under ``tmp_path`` and drives the same consumer CMake
+recipe against that install's ``preserf --cmake-helper``, executing the
+wheel→install→consume chain rather than inferring it from content inspection.
 """
 
 from __future__ import annotations
 
+import os
 import subprocess
+import venv
 from pathlib import Path
 
 import pytest
 
-from tests._support.consumer import locate_binary, require_toolchain, run
+from tests._support.consumer import build_wheel, locate_binary, require_toolchain, run
 from tests._support.serialbox import TypeID
 from tests._support.storage import read_dump
 
@@ -99,3 +106,97 @@ def test_external_project_builds_against_bundled_runtime(tmp_path: Path) -> None
     assert dump.prefix == _FIXTURE_PREFIX
     assert "temperature" in dump.field_map
     assert dump.field_map["temperature"].type_id == TypeID.Float64
+
+
+def test_external_project_builds_against_wheel_installed_runtime(
+    tmp_path: Path,
+) -> None:
+    """The wheel→install→consume chain, executed rather than inferred.
+
+    Builds the wheel, installs it into a clean virtual environment under
+    ``tmp_path``, and drives the same consumer CMake recipe with that
+    install's ``preserf`` first on PATH — so ``execute_process(COMMAND
+    preserf --cmake-helper)`` resolves the *installed* copy in
+    site-packages, proving the shipped wheel alone suffices to build a
+    downstream project with no repository checkout involved.
+    """
+    require_toolchain("external-consumer-wheel", need_preserf_cli=True)
+
+    wheel = build_wheel(tmp_path / "dist")
+    venv_dir = tmp_path / "venv"
+    venv.EnvBuilder(
+        system_site_packages=False,
+        with_pip=True,
+        symlinks=False,
+    ).create(str(venv_dir))
+
+    # Install the wheel into the clean venv — the install path a real
+    # ``pip install preserf`` user takes.
+    run(
+        [str(venv_dir / "bin" / "python"), "-m", "pip", "install", str(wheel)],
+        cwd=tmp_path,
+    )
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "consumer.f90").write_text(_FIXTURE.read_text())
+    (project / "CMakeLists.txt").write_text(_CONSUMER_CMAKE)
+
+    # Drive the recipe with the venv's bin first on PATH so the helper
+    # resolves from the installed site-packages, not the editable checkout.
+    env = dict(os.environ, PATH=f"{venv_dir / 'bin'}{os.pathsep}{os.environ['PATH']}")
+    result = subprocess.run(
+        ["cmake", "-S", str(project), "-B", str(tmp_path / "build")],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, (
+        f"cmake configure failed.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+    # The helper must have resolved from the *installed* copy in the venv's
+    # site-packages — this is the assertion that the wheel→install→consume
+    # chain actually took the install path, not the editable checkout.
+    installed_helper = (
+        subprocess.run(
+            [str(venv_dir / "bin" / "preserf"), "--cmake-helper"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+        ).stdout.strip()
+        if (venv_dir / "bin" / "preserf").exists()
+        else None
+    )
+    assert installed_helper and str(venv_dir) in installed_helper, (
+        f"helper did not resolve from the venv ({venv_dir}): {installed_helper!r}"
+    )
+    assert (
+        subprocess.run(
+            ["cmake", "--build", str(tmp_path / "build")],
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        ).returncode
+        == 0
+    ), "cmake build failed"
+
+    binary = locate_binary(tmp_path / "build", "consumer")
+    assert binary is not None, f"consumer binary not built under {tmp_path / 'build'}"
+
+    run_result = subprocess.run(
+        [str(binary), str(tmp_path / "store")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert run_result.returncode == 0, (
+        f"consumer exited {run_result.returncode}.\n"
+        f"stdout: {run_result.stdout}\nstderr: {run_result.stderr}"
+    )
+    assert _FIXTURE_MARKER in run_result.stdout
