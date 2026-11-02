@@ -12,12 +12,10 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from typing import TYPE_CHECKING
+import sys
+from pathlib import Path
 
 import pytest
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 # Probe order matches tests/conftest.py: single-config generators (Ninja, Unix
 # Makefiles) drop the binary directly under the build dir, multi-config ones
@@ -64,15 +62,22 @@ def require_toolchain(label: str, *, need_preserf_cli: bool = False) -> None:
         pytest.skip(message)
 
 
-def run(cmd: list[str], cwd: Path) -> None:
-    """Run a build command, asserting success with captured output on failure."""
+def run(
+    cmd: list[str], cwd: Path, *, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    """Run a build command, asserting success and returning the result.
+
+    ``env`` lets callers pass a venv-first PATH; a 300s timeout bounds
+    hung builds. Captured output is included in the failure assert.
+    """
     result = subprocess.run(
-        cmd, cwd=cwd, capture_output=True, text=True, check=False, timeout=300
+        cmd, cwd=cwd, env=env, capture_output=True, text=True, check=False, timeout=300
     )
     assert result.returncode == 0, (
         f"command failed: {' '.join(cmd)}\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
+    return result
 
 
 def locate_binary(build: Path, name: str) -> Path | None:
@@ -83,3 +88,41 @@ def locate_binary(build: Path, name: str) -> Path | None:
             if candidate.is_file():
                 return candidate
     return None
+
+
+def build(target: str, outdir: Path, glob: str) -> Path:
+    """Build ``target`` (``--wheel`` / ``--sdist``) into ``outdir`` and
+    return the single artifact matching ``glob``.
+
+    This is the shared artifact-build recipe for the packaging and
+    consumer test modules — the single source of truth so the two cannot
+    drift apart on how wheels and sdists are constructed.
+    """
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "build",
+            target,
+            "--no-isolation",
+            "--outdir",
+            str(outdir),
+            str(Path(__file__).resolve().parents[2]),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=300,
+    )
+    artifacts = list(outdir.glob(glob))
+    assert result.returncode == 0, (
+        f"{target} build exited {result.returncode}.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert len(artifacts) == 1, f"expected one {glob} artifact, got {artifacts}"
+    return artifacts[0]
+
+
+def build_wheel(outdir: Path) -> Path:
+    """Build the preserf wheel into ``outdir`` and return its path."""
+    return build("--wheel", outdir, "*.whl")
