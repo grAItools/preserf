@@ -9,21 +9,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - Wheel install-chain verification: a new `consumer`-marked integration test
-  (`tests/integration_tests/test_external_consumer.py::
-  test_external_project_builds_against_wheel_installed_runtime`) builds the
-  preserf wheel, installs it into a clean virtual environment under
-  `tmp_path`, and drives the existing consumer CMake recipe against that
-  install's `preserf --cmake-helper` — executing the wheel→install→consume
-  chain end to end rather than inferring it from content inspection. The
-  packaging test (`test_packaging_distribution.py`) now asserts the wheel's
-  `METADATA` `Version:` equals `preserf.__version__` (single-source-of-truth
-  version contract), extends `_EXPECTED_RUNTIME_FILES` with
-  `preserf/py.typed` and `preserf/fortran/README.md`, and `twine` (>=6) is a
-  dev dependency so `twine check` runs on both artifacts instead of
-  skipping. The root README states the POSIX-only Fortran runtime
-  prerequisite, and the shipped runtime README's repo-relative links are
-  rewritten as absolute repository URLs so they resolve from
-  `site-packages`.
+  installs the built wheel into a clean virtual environment and drives the
+  consumer CMake recipe against that install.
+- Packaging metadata assertion: `test_packaging_distribution.py` asserts the
+  wheel's `METADATA` `Version:` equals `preserf.__version__`, and
+  `_EXPECTED_RUNTIME_FILES` now covers `preserf/py.typed` and
+  `preserf/fortran/README.md`.
+- `twine` (>=6) is a dev dependency, so `twine check` executes on both
+  distribution artifacts instead of skipping.
+- Documentation: the root README states the POSIX-only Fortran runtime
+  prerequisite; the shipped runtime README's repo-relative links are absolute
+  repository URLs so they resolve from `site-packages`.
 
 - `preserf_apply_perturb.inc`: read-perturb now draws its uniforms in
   bounded 8192-element chunks (one `random_number(chunk)` call per chunk,

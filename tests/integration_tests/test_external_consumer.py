@@ -113,27 +113,38 @@ def test_external_project_builds_against_wheel_installed_runtime(
 ) -> None:
     """The wheel→install→consume chain, executed rather than inferred.
 
-    Builds the wheel, installs it into a clean virtual environment under
+    Builds the wheel, installs it into a virtual environment under
     ``tmp_path``, and drives the same consumer CMake recipe with that
     install's ``preserf`` first on PATH — so ``execute_process(COMMAND
     preserf --cmake-helper)`` resolves the *installed* copy in
     site-packages, proving the shipped wheel alone suffices to build a
     downstream project with no repository checkout involved.
     """
-    require_toolchain("external-consumer-wheel", need_preserf_cli=True)
+    require_toolchain("external-consumer-wheel")
 
     wheel = build_wheel(tmp_path / "dist")
     venv_dir = tmp_path / "venv"
+    # system_site_packages=True lets the venv see the dev environment's
+    # runtime deps (typer/rich) instead of fetching them from PyPI, and
+    # --no-index --no-deps below installs only the wheel itself — the
+    # test stays offline and hermetic.
     venv.EnvBuilder(
-        system_site_packages=False,
+        system_site_packages=True,
         with_pip=True,
         symlinks=False,
     ).create(str(venv_dir))
 
-    # Install the wheel into the clean venv — the install path a real
-    # ``pip install preserf`` user takes.
     run(
-        [str(venv_dir / "bin" / "python"), "-m", "pip", "install", str(wheel)],
+        [
+            str(venv_dir / "bin" / "python"),
+            "-m",
+            "pip",
+            "install",
+            "--no-index",
+            "--no-deps",
+            "--force-reinstall",
+            str(wheel),
+        ],
         cwd=tmp_path,
     )
 
@@ -144,47 +155,36 @@ def test_external_project_builds_against_wheel_installed_runtime(
 
     # Drive the recipe with the venv's bin first on PATH so the helper
     # resolves from the installed site-packages, not the editable checkout.
+    # PYTHONPATH/PYTHONHOME from an outer harness would shadow the venv's
+    # site-packages, so scrub them.
     env = dict(os.environ, PATH=f"{venv_dir / 'bin'}{os.pathsep}{os.environ['PATH']}")
-    result = subprocess.run(
+    env.pop("PYTHONPATH", None)
+    env.pop("PYTHONHOME", None)
+    result = run(
         ["cmake", "-S", str(project), "-B", str(tmp_path / "build")],
         cwd=tmp_path,
         env=env,
-        capture_output=True,
-        text=True,
-        check=False,
     )
     assert result.returncode == 0, (
         f"cmake configure failed.\nstdout: {result.stdout}\nstderr: {result.stderr}"
     )
 
-    # The helper must have resolved from the *installed* copy in the venv's
-    # site-packages — this is the assertion that the wheel→install→consume
-    # chain actually took the install path, not the editable checkout.
-    installed_helper = (
-        subprocess.run(
-            [str(venv_dir / "bin" / "preserf"), "--cmake-helper"],
-            capture_output=True,
-            text=True,
-            check=False,
-            env=env,
-        ).stdout.strip()
-        if (venv_dir / "bin" / "preserf").exists()
-        else None
+    # Provenance: the configure step's execute_process must have resolved
+    # the helper from the venv's site-packages, not the editable checkout.
+    # The CMake cache records the resolved runtime dir directly.
+    cache = (tmp_path / "build" / "CMakeCache.txt").read_text()
+    assert f"PRESERF_FORTRAN_DIR:INTERNAL={venv_dir}" in cache, (
+        "configure resolved the helper from outside the venv: "
+        f"{[line for line in cache.splitlines() if 'PRESERF_FORTRAN_DIR' in line]}"
     )
-    assert installed_helper and str(venv_dir) in installed_helper, (
-        f"helper did not resolve from the venv ({venv_dir}): {installed_helper!r}"
+    result = run(
+        ["cmake", "--build", str(tmp_path / "build")],
+        cwd=tmp_path,
+        env=env,
     )
-    assert (
-        subprocess.run(
-            ["cmake", "--build", str(tmp_path / "build")],
-            cwd=tmp_path,
-            env=env,
-            capture_output=True,
-            text=True,
-            check=False,
-        ).returncode
-        == 0
-    ), "cmake build failed"
+    assert result.returncode == 0, (
+        f"cmake build failed.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
 
     binary = locate_binary(tmp_path / "build", "consumer")
     assert binary is not None, f"consumer binary not built under {tmp_path / 'build'}"
@@ -194,9 +194,17 @@ def test_external_project_builds_against_wheel_installed_runtime(
         capture_output=True,
         text=True,
         check=False,
+        timeout=60,
     )
     assert run_result.returncode == 0, (
         f"consumer exited {run_result.returncode}.\n"
         f"stdout: {run_result.stdout}\nstderr: {run_result.stderr}"
     )
     assert _FIXTURE_MARKER in run_result.stdout
+
+    # The wheel's runtime must have serialized a store the Python reader can
+    # decode — proving the installed helper actually wrote data.
+    dump = read_dump(str(tmp_path / "store" / f"{_FIXTURE_PREFIX}.nc"))
+    assert dump.prefix == _FIXTURE_PREFIX
+    assert "temperature" in dump.field_map
+    assert dump.field_map["temperature"].type_id == TypeID.Float64

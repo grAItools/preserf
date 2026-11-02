@@ -28,6 +28,7 @@ from typer.testing import CliRunner
 
 import preserf
 from preserf.cli import app
+from tests._support.consumer import build, build_wheel
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -50,43 +51,6 @@ _EXPECTED_RUNTIME_FILES = (
     "preserf/py.typed",
     "preserf/fortran/README.md",
 )
-
-
-def _build(target: str, outdir: Path, glob: str) -> Path:
-    """Build ``target`` (``--wheel`` / ``--sdist``) into ``outdir``.
-
-    Returns the single produced artifact matching ``glob``.
-    """
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "build",
-            target,
-            "--no-isolation",
-            "--outdir",
-            str(outdir),
-            str(_REPO_ROOT),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, (
-        f"{target} build exited {result.returncode}.\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-    artifacts = list(outdir.glob(glob))
-    assert len(artifacts) == 1, f"expected one {glob} artifact, got {artifacts}"
-    return artifacts[0]
-
-
-def _build_wheel(outdir: Path) -> Path:
-    return _build("--wheel", outdir, "*.whl")
-
-
-def _build_sdist(outdir: Path) -> Path:
-    return _build("--sdist", outdir, "*.tar.gz")
 
 
 def _wheel_names(wheel: Path) -> set[str]:
@@ -116,7 +80,7 @@ def _sdist_names(sdist: Path) -> set[str]:
 
 @pytest.mark.packaging
 def test_wheel_bundles_fortran_runtime(tmp_path: Path) -> None:
-    names = _wheel_names(_build_wheel(tmp_path))
+    names = _wheel_names(build_wheel(tmp_path))
     for expected in _EXPECTED_RUNTIME_FILES:
         assert expected in names, f"{expected} missing from wheel: {sorted(names)}"
     # The CPP overload templates ship too (m_preserf.F90 #includes them).
@@ -127,7 +91,7 @@ def test_wheel_bundles_fortran_runtime(tmp_path: Path) -> None:
 
 @pytest.mark.packaging
 def test_sdist_bundles_fortran_runtime(tmp_path: Path) -> None:
-    names = _sdist_names(_build_sdist(tmp_path))
+    names = _sdist_names(build("--sdist", tmp_path, "*.tar.gz"))
     for expected in _EXPECTED_RUNTIME_FILES:
         assert expected in names, f"{expected} missing from sdist: {sorted(names)}"
     # The CPP overload templates ship too (m_preserf.F90 #includes them).
@@ -143,8 +107,8 @@ def test_sdist_bundles_fortran_runtime(tmp_path: Path) -> None:
 )
 def test_twine_check_passes(tmp_path: Path) -> None:
     """``twine check`` validates the rendered metadata for both artifacts."""
-    wheel = _build_wheel(tmp_path)
-    sdist = _build_sdist(tmp_path)
+    wheel = build_wheel(tmp_path)
+    sdist = build("--sdist", tmp_path, "*.tar.gz")
     result = subprocess.run(
         [sys.executable, "-m", "twine", "check", str(wheel), str(sdist)],
         capture_output=True,
@@ -154,9 +118,19 @@ def test_twine_check_passes(tmp_path: Path) -> None:
     assert result.returncode == 0, (
         f"twine check failed.\nstdout: {result.stdout}\nstderr: {result.stderr}"
     )
-    # The wheel's METADATA must carry the version hatchling derived from
-    # src/preserf/__init__.py, so a bump there propagates to the artifact
-    # without any other edit (single-source-of-truth version contract).
+
+
+@pytest.mark.packaging
+def test_wheel_metadata_version_matches_source(tmp_path: Path) -> None:
+    """The wheel's METADATA ``Version:`` equals ``preserf.__version__``.
+
+    The version derives from a single literal in
+    ``src/preserf/__init__.py`` that hatch reads, so a bump there
+    propagates to the artifact without any other edit. Compared as
+    normalized PEP 440 versions so a valid-but-non-normalized literal
+    (e.g. ``0.2.0-dev0``) does not false-fail.
+    """
+    wheel = build_wheel(tmp_path)
     with zipfile.ZipFile(wheel) as archive:
         dist_info = next(
             name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
@@ -166,7 +140,12 @@ def test_twine_check_passes(tmp_path: Path) -> None:
         (line for line in metadata.splitlines() if line.startswith("Version:")),
         None,
     )
-    assert version_line == f"Version: {preserf.__version__}", (
+    assert version_line is not None, "no Version: line in wheel METADATA"
+    from packaging.version import Version
+
+    assert Version(version_line.partition(":")[2].strip()) == Version(
+        preserf.__version__
+    ), (
         f"wheel METADATA version {version_line!r} does not equal "
         f"preserf.__version__ {preserf.__version__!r}"
     )

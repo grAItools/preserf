@@ -2,7 +2,7 @@
 
 Fortran helper modules that pp_ser-generated `!$SER` directive code links
 against, following the group-per-savepoint layout documented in
-[`https://github.com/GrAItools/preserf/blob/main/dev/references/storage_mapping.md`][mapping]. The helper writes
+[`storage mapping`][mapping]. The helper writes
 **NetCDF4 stores** (`.nc` files, the default) or **NCZarr V2 stores**
 (`.zarr` directory stores), selected by the `backend` keyword on
 `ppser_initialize`; the same schema serves both (ADR 0002).

@@ -62,15 +62,22 @@ def require_toolchain(label: str, *, need_preserf_cli: bool = False) -> None:
         pytest.skip(message)
 
 
-def run(cmd: list[str], cwd: Path) -> None:
-    """Run a build command, asserting success with captured output on failure."""
+def run(
+    cmd: list[str], cwd: Path, *, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    """Run a build command, asserting success and returning the result.
+
+    ``env`` lets callers pass a venv-first PATH; a 300s timeout bounds
+    hung builds. Captured output is included in the failure assert.
+    """
     result = subprocess.run(
-        cmd, cwd=cwd, capture_output=True, text=True, check=False, timeout=300
+        cmd, cwd=cwd, env=env, capture_output=True, text=True, check=False, timeout=300
     )
     assert result.returncode == 0, (
         f"command failed: {' '.join(cmd)}\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
+    return result
 
 
 def locate_binary(build: Path, name: str) -> Path | None:
@@ -83,20 +90,21 @@ def locate_binary(build: Path, name: str) -> Path | None:
     return None
 
 
-def build_wheel(outdir: Path) -> Path:
-    """Build the preserf wheel into ``outdir`` and return its path.
+def build(target: str, outdir: Path, glob: str) -> Path:
+    """Build ``target`` (``--wheel`` / ``--sdist``) into ``outdir`` and
+    return the single artifact matching ``glob``.
 
     Reuses the same ``python -m build --no-isolation`` recipe as the
-    packaging tests, keeping the consumer lane offline. This is the single
-    source of truth for the wheel→install→consume chain so the two test
-    modules cannot drift apart on the artifact-build recipe.
+    packaging tests. This is the single source of truth for the
+    wheel→install→consume chain so the two test modules cannot drift
+    apart on the artifact-build recipe.
     """
     result = subprocess.run(
         [
             sys.executable,
             "-m",
             "build",
-            "--wheel",
+            target,
             "--no-isolation",
             "--outdir",
             str(outdir),
@@ -106,10 +114,15 @@ def build_wheel(outdir: Path) -> Path:
         text=True,
         check=False,
     )
-    artifacts = list(outdir.glob("*.whl"))
+    artifacts = list(outdir.glob(glob))
     assert result.returncode == 0, (
-        f"wheel build exited {result.returncode}.\n"
+        f"{target} build exited {result.returncode}.\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
-    assert len(artifacts) == 1, f"expected one wheel, got {artifacts}"
+    assert len(artifacts) == 1, f"expected one {glob} artifact, got {artifacts}"
     return artifacts[0]
+
+
+def build_wheel(outdir: Path) -> Path:
+    """Build the preserf wheel into ``outdir`` and return its path."""
+    return build("--wheel", outdir, "*.whl")
