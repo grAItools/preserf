@@ -30,6 +30,7 @@ from pathlib import Path
 
 import pytest
 
+import preserf
 from tests._support.consumer import build_wheel, locate_binary, require_toolchain, run
 from tests._support.serialbox import TypeID
 from tests._support.storage import read_dump
@@ -180,6 +181,28 @@ def test_external_project_builds_against_wheel_installed_runtime(
         ["cmake", "--build", str(tmp_path / "build")],
         cwd=tmp_path,
         env=env,
+    )
+
+    # The spec's version-bump scenario requires the installed artifact's
+    # metadata to reflect the version: anchor importlib.metadata.version in
+    # the wheel-installed venv (the dev env's dist-info bakes the version
+    # at install time and would lag a __version__ bump until pixi install).
+    probe = subprocess.run(
+        [
+            str(venv_dir / "bin" / "python"),
+            "-c",
+            "import importlib.metadata; print(importlib.metadata.version('preserf'))",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=60,
+    )
+    assert probe.returncode == 0
+    assert probe.stdout.strip() == preserf.__version__, (
+        f"venv importlib.metadata.version('preserf') {probe.stdout.strip()!r} "
+        f"!= preserf.__version__ {preserf.__version__!r}"
     )
 
     binary = locate_binary(tmp_path / "build", "consumer")
