@@ -8,6 +8,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Wheel install-chain verification: a new `consumer`-marked integration test
+  installs the built wheel into a throwaway virtual environment (borrowing
+  the dev environment's runtime deps, offline) and drives the consumer CMake
+  recipe against that install.
+- Packaging metadata assertion: `test_packaging_distribution.py` asserts the
+  wheel's `METADATA` `Version:` equals `preserf.__version__`, and
+  `_EXPECTED_RUNTIME_FILES` now covers `preserf/py.typed` and
+  `preserf/fortran/README.md`.
+- `twine` (>=6) is a dev dependency, so `twine check` executes on both
+  distribution artifacts instead of skipping.
+- Documentation: the root README states the POSIX-only Fortran runtime
+  prerequisite; the shipped runtime README's repo-relative links are absolute
+  repository URLs so they resolve from `site-packages`.
+
 - `preserf_apply_perturb.inc`: read-perturb now draws its uniforms in
   bounded 8192-element chunks (one `random_number(chunk)` call per chunk,
   along the fastest dim) instead of one call per element, while preserving
