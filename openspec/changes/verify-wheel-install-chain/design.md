@@ -53,9 +53,6 @@ typing-aware and doc-reading consumer cares about.
 
 - Venv creation and a pip install add roughly a minute to the consumer
   lane; the `consumer` marker keeps it out of the fast slice.
-- The venv-based test must stay hermetic: `system_site_packages=True`
-  borrows the dev environment's runtime deps (typer/rich) and the wheel is
-  installed with `--no-index --no-deps --force-reinstall`, so nothing resolves from PyPI —
-  the test never depends on network access, and the venv's own
-  site-packages take precedence over the system's, so the wheel's
-  `preserf` wins over the dev environment's editable checkout.
+- The venv-based test depends on network access for pip; mitigated by
+  `--no-index` with a `find-links` pointing at the locally built wheel
+  where CI requires hermetic builds.

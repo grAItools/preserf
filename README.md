@@ -28,11 +28,7 @@ cloning this repository.
 via pkg-config, and CMake ≥ 3.20. `preserf` does not bundle or build these —
 the runtime is shipped as **source** and compiled by your own project against
 your own `netcdf-fortran` (compiler-specific `.mod` files and prebuilt
-libraries are deliberately not distributed). The runtime additionally assumes
-a **POSIX environment**: directory creation shells out to `mkdir -p`, and CWD
-resolution binds libc `getcwd(3)` — the helper targets Linux/macOS and is not
-portable to non-POSIX platforms (Windows) without those two call sites being
-reworked.
+libraries are deliberately not distributed).
 
 **Discover the bundled files.** The package exposes their location both as a
 CLI command and a Python API (the numpy `get_include()` pattern):
