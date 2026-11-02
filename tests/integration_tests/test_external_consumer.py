@@ -29,6 +29,7 @@ import venv
 from pathlib import Path
 
 import pytest
+from packaging.version import Version
 
 import preserf
 from tests._support.consumer import build_wheel, locate_binary, require_toolchain, run
@@ -200,9 +201,9 @@ def test_external_project_builds_against_wheel_installed_runtime(
         timeout=60,
     )
     assert probe.returncode == 0
-    assert probe.stdout.strip() == preserf.__version__, (
+    assert Version(probe.stdout.strip()) == Version(preserf.__version__), (
         f"venv importlib.metadata.version('preserf') {probe.stdout.strip()!r} "
-        f"!= preserf.__version__ {preserf.__version__!r}"
+        f"does not match preserf.__version__ {preserf.__version__!r}"
     )
 
     binary = locate_binary(tmp_path / "build", "consumer")
