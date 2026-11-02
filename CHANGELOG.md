@@ -9,8 +9,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - Wheel install-chain verification: a new `consumer`-marked integration test
-  installs the built wheel into a clean virtual environment and drives the
-  consumer CMake recipe against that install.
+  installs the built wheel into a throwaway virtual environment (borrowing
+  the dev environment's runtime deps, offline) and drives the consumer CMake
+  recipe against that install.
 - Packaging metadata assertion: `test_packaging_distribution.py` asserts the
   wheel's `METADATA` `Version:` equals `preserf.__version__`, and
   `_EXPECTED_RUNTIME_FILES` now covers `preserf/py.typed` and

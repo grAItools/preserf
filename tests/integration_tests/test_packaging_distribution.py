@@ -16,6 +16,7 @@ wheel test never exercises.
 
 from __future__ import annotations
 
+import importlib.metadata
 import importlib.util
 import subprocess
 import sys
@@ -24,13 +25,12 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from packaging.version import Version
 from typer.testing import CliRunner
 
 import preserf
 from preserf.cli import app
 from tests._support.consumer import build, build_wheel
-
-_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # A representative slice of the runtime tree that must travel in every
 # distribution artifact (paths relative to the ``preserf`` package root).
@@ -141,14 +141,51 @@ def test_wheel_metadata_version_matches_source(tmp_path: Path) -> None:
         None,
     )
     assert version_line is not None, "no Version: line in wheel METADATA"
-    from packaging.version import Version
-
     assert Version(version_line.partition(":")[2].strip()) == Version(
         preserf.__version__
     ), (
         f"wheel METADATA version {version_line!r} does not equal "
         f"preserf.__version__ {preserf.__version__!r}"
     )
+
+    # The spec's version-bump scenario requires BOTH the wheel metadata and
+    # importlib.metadata.version("preserf") to reflect the bump — assert the
+    # installed-artifact metadata half here (the dev env's editable install
+    # shares the same version literal as the wheel under test).
+    assert importlib.metadata.version("preserf") == preserf.__version__, (
+        f"importlib.metadata.version('preserf') "
+        f"{importlib.metadata.version('preserf')!r} != preserf.__version__ "
+        f"{preserf.__version__!r}"
+    )
+
+
+@pytest.mark.packaging
+def test_wheel_metadata_declares_spec_runtime_deps(tmp_path: Path) -> None:
+    """The wheel's METADATA declares the spec's runtime requirements.
+
+    The packaging-distribution spec requires the package to declare
+    runtime dependencies ``typer>=0.12`` and ``rich>=13.0`` only, and to
+    target Python >= 3.12. The hermetic ``--no-deps`` venv install in the
+    consumer test no longer catches a missing or wrong ``Requires-Dist``
+    (it borrows the dev environment's deps), so assert the metadata
+    directly.
+    """
+    wheel = build_wheel(tmp_path)
+    with zipfile.ZipFile(wheel) as archive:
+        dist_info = next(
+            name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
+        )
+        metadata = archive.read(dist_info).decode()
+    lines = metadata.splitlines()
+    assert "Requires-Dist: typer>=0.12" in lines
+    assert "Requires-Dist: rich>=13.0" in lines
+    assert "Requires-Python: >=3.12" in lines
+    # The spec says those two deps ONLY — enforce the exact set.
+    requires_dist = {line for line in lines if line.startswith("Requires-Dist:")}
+    assert requires_dist == {
+        "Requires-Dist: typer>=0.12",
+        "Requires-Dist: rich>=13.0",
+    }, f"unexpected Requires-Dist set: {sorted(requires_dist)}"
 
 
 def test_discovery_api_resolves_to_runtime() -> None:

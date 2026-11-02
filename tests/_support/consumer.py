@@ -94,10 +94,9 @@ def build(target: str, outdir: Path, glob: str) -> Path:
     """Build ``target`` (``--wheel`` / ``--sdist``) into ``outdir`` and
     return the single artifact matching ``glob``.
 
-    Reuses the same ``python -m build --no-isolation`` recipe as the
-    packaging tests. This is the single source of truth for the
-    wheel→install→consume chain so the two test modules cannot drift
-    apart on the artifact-build recipe.
+    This is the shared artifact-build recipe for the packaging and
+    consumer test modules — the single source of truth so the two cannot
+    drift apart on how wheels and sdists are constructed.
     """
     result = subprocess.run(
         [
@@ -113,6 +112,7 @@ def build(target: str, outdir: Path, glob: str) -> Path:
         capture_output=True,
         text=True,
         check=False,
+        timeout=300,
     )
     artifacts = list(outdir.glob(glob))
     assert result.returncode == 0, (

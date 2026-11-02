@@ -134,6 +134,12 @@ def test_external_project_builds_against_wheel_installed_runtime(
         symlinks=False,
     ).create(str(venv_dir))
 
+    # Build the scrubbed environment first so the pip install and all
+    # subsequent subprocesses run under it: PYTHONPATH/PYTHONHOME from an
+    # outer harness would shadow the venv's site-packages.
+    env = dict(os.environ, PATH=f"{venv_dir / 'bin'}{os.pathsep}{os.environ['PATH']}")
+    env.pop("PYTHONPATH", None)
+    env.pop("PYTHONHOME", None)
     run(
         [
             str(venv_dir / "bin" / "python"),
@@ -146,6 +152,7 @@ def test_external_project_builds_against_wheel_installed_runtime(
             str(wheel),
         ],
         cwd=tmp_path,
+        env=env,
     )
 
     project = tmp_path / "project"
@@ -155,18 +162,10 @@ def test_external_project_builds_against_wheel_installed_runtime(
 
     # Drive the recipe with the venv's bin first on PATH so the helper
     # resolves from the installed site-packages, not the editable checkout.
-    # PYTHONPATH/PYTHONHOME from an outer harness would shadow the venv's
-    # site-packages, so scrub them.
-    env = dict(os.environ, PATH=f"{venv_dir / 'bin'}{os.pathsep}{os.environ['PATH']}")
-    env.pop("PYTHONPATH", None)
-    env.pop("PYTHONHOME", None)
-    result = run(
+    run(
         ["cmake", "-S", str(project), "-B", str(tmp_path / "build")],
         cwd=tmp_path,
         env=env,
-    )
-    assert result.returncode == 0, (
-        f"cmake configure failed.\nstdout: {result.stdout}\nstderr: {result.stderr}"
     )
 
     # Provenance: the configure step's execute_process must have resolved
@@ -177,13 +176,10 @@ def test_external_project_builds_against_wheel_installed_runtime(
         "configure resolved the helper from outside the venv: "
         f"{[line for line in cache.splitlines() if 'PRESERF_FORTRAN_DIR' in line]}"
     )
-    result = run(
+    run(
         ["cmake", "--build", str(tmp_path / "build")],
         cwd=tmp_path,
         env=env,
-    )
-    assert result.returncode == 0, (
-        f"cmake build failed.\nstdout: {result.stdout}\nstderr: {result.stderr}"
     )
 
     binary = locate_binary(tmp_path / "build", "consumer")
