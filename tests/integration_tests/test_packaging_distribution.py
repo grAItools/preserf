@@ -16,7 +16,6 @@ wheel test never exercises.
 
 from __future__ import annotations
 
-import importlib.metadata
 import importlib.util
 import subprocess
 import sys
