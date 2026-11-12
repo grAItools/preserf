@@ -453,6 +453,98 @@ def test_fortran_writes_dedup_python_reads(
         )
 
 
+def test_fortran_writes_dedup_logical_python_reads(
+    tmp_path: Path, fortran_binary: Path
+) -> None:
+    """A deduplicated logical (Boolean) Fortran store round-trips in Python.
+
+    Issue #47 / ADR 0014: the other dedup coverage is real64-only; this
+    checks the logical write/read templates
+    (``preserf_write_field_logical.inc``) under dedup. The ``dedup-logical``
+    scenario writes a logical scalar ``lsc`` and a logical array ``la`` at
+    three savepoints — identical payloads at sp0 and sp1, changed payloads at
+    sp2 — into ``fdedlog.nc``.
+
+    This asserts the Python reader (a) decodes the per-savepoint Boolean
+    values, resolving each savepoint's ``_preserf_dict_ref`` back to the
+    shared ``/_dict`` entry, and (b) that the physical store collapses the
+    identical payloads to one dataset per field (four in all), references them
+    per field name, and stores them as NF90_BYTE with the documented 0/1
+    encoding (storage_mapping.md §1).
+    """
+    out_dir = tmp_path / "fortran_out"
+    out_dir.mkdir()
+
+    run_scenario(fortran_binary, out_dir, "dedup-logical")
+
+    dedup_path = out_dir / "fdedlog.nc"
+
+    # (a) Boolean values round-trip through the Python reader. Boolean fields
+    #     decode to int8 0/1 arrays (storage._PRIMITIVE_DTYPE). la is a 3-vec,
+    #     lsc a 0-d scalar.
+    dump = read_dump(str(dedup_path))
+    assert dump.field_map["la"].type_id == TypeID.Boolean
+    assert dump.field_map["la"].dims == [3]
+    assert dump.field_map["lsc"].type_id == TypeID.Boolean
+    assert dump.field_map["lsc"].dims == []
+    assert [sp.name for sp in dump.savepoints] == ["sp0", "sp1", "sp2"]
+    expected_la = (
+        np.array([1, 0, 1], dtype=np.int8),
+        np.array([1, 0, 1], dtype=np.int8),
+        np.array([0, 1, 0], dtype=np.int8),
+    )
+    expected_lsc = (1, 1, 0)
+    for idx in range(3):
+        sp = dump.savepoints[idx]
+        np.testing.assert_array_equal(
+            dump.field_data["la"][sp.fields["la"]], expected_la[idx]
+        )
+        assert int(dump.field_data["lsc"][sp.fields["lsc"]]) == expected_lsc[idx]
+
+    import netCDF4  # local import; netCDF4 is a dev-only dependency
+
+    # (b) Physical collapse: /_dict holds four datasets (two per field — the
+    #     repeated payload collapsed, the changed one distinct), each savepoint
+    #     references its per-field entry (sp0==sp1, sp0!=sp2), and the entries
+    #     are NF90_BYTE 0/1 images.
+    raw = netCDF4.Dataset(str(dedup_path), "r")
+    try:
+        assert int(raw.getncattr("_preserf_dedup")) == 1
+        assert int(raw.getncattr("_preserf_schema_version")) == 2, (
+            "deduplicated store must advertise schema version 2"
+        )
+        assert "_dict" in raw.groups, "deduplicated store is missing /_dict"
+        dict_vars = raw.groups["_dict"].variables
+        assert len(dict_vars) == 4, (
+            f"logical dedup should collapse to 4 /_dict datasets (two per "
+            f"field), found {sorted(dict_vars)}"
+        )
+        sps = raw.groups["savepoints"].groups
+        for field in ("la", "lsc"):
+            ref0 = sps["sp_000000"].variables[field].getncattr("_preserf_dict_ref")
+            ref1 = sps["sp_000001"].variables[field].getncattr("_preserf_dict_ref")
+            ref2 = sps["sp_000002"].variables[field].getncattr("_preserf_dict_ref")
+            assert ref0 == ref1, f"{field}: identical payloads must share one entry"
+            assert ref0 != ref2, f"{field}: distinct payloads must not share an entry"
+        # NF90_BYTE 0/1 encoding of the referenced datasets.
+        la_ref0 = sps["sp_000000"].variables["la"].getncattr("_preserf_dict_ref")
+        la_ref2 = sps["sp_000002"].variables["la"].getncattr("_preserf_dict_ref")
+        lsc_ref0 = sps["sp_000000"].variables["lsc"].getncattr("_preserf_dict_ref")
+        lsc_ref2 = sps["sp_000002"].variables["lsc"].getncattr("_preserf_dict_ref")
+        assert dict_vars[str(la_ref0)].dtype == np.int8
+        np.testing.assert_array_equal(
+            np.asarray(dict_vars[str(la_ref0)][...]), np.array([1, 0, 1], dtype=np.int8)
+        )
+        np.testing.assert_array_equal(
+            np.asarray(dict_vars[str(la_ref2)][...]), np.array([0, 1, 0], dtype=np.int8)
+        )
+        assert dict_vars[str(lsc_ref0)].dtype == np.int8
+        assert int(np.asarray(dict_vars[str(lsc_ref0)][...])) == 1
+        assert int(np.asarray(dict_vars[str(lsc_ref2)][...])) == 0
+    finally:
+        raw.close()
+
+
 def test_fortran_autoregistered_fields_python_reads(
     tmp_path: Path, fortran_binary: Path
 ) -> None:

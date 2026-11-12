@@ -14,7 +14,7 @@
 !> directly via netCDF4 (so the kind-specific `nf90_put_att` branches
 !> are protected against on-disk type regressions).
 program test_minimal
-   use, intrinsic :: iso_fortran_env, only: int32, int64, real32, real64, &
+   use, intrinsic :: iso_fortran_env, only: int8, int32, int64, real32, real64, &
                                             error_unit
    ! Deliberately import the alias module names rather than the real
    ! ones (utils_preserf, m_preserf). pp_ser-generated source uses
@@ -30,7 +30,8 @@ program test_minimal
    ! (ADR 0014); every other scenario goes through the helper API alone.
    use netcdf, only: nf90_open, nf90_close, nf90_inq_ncid, nf90_inq_varid, &
                      nf90_inquire, nf90_inquire_attribute, nf90_get_att, &
-                     NF90_NOWRITE, NF90_NOERR, NF90_GLOBAL
+                     nf90_inquire_variable, nf90_get_var, &
+                     NF90_NOWRITE, NF90_NOERR, NF90_GLOBAL, NF90_BYTE
    implicit none
 
    character(len=:), allocatable :: out_dir
@@ -3167,6 +3168,352 @@ program test_minimal
                write (*, '(a)') 'preserf-fortran: dedup-longname OK'
                stop
             end block
+         else if (scenario == 'dedup-logical') then
+            ! ADR 0014 / issue #47: logical (Boolean) dedup round-trips.
+            ! The other dedup scenarios cover only real64 arrays; this one
+            ! exercises the logical write/read templates
+            ! (preserf_write_field_logical.inc) under dedup. A logical SCALAR
+            ! (`lsc`) and a logical ARRAY (`la`) are written with dedup ON at
+            ! three savepoints — identical payloads at sp0 and sp1, changed
+            ! payloads at sp2 — then:
+            !   * read back through the Fortran reader at every savepoint and
+            !     value-checked (the dedup-aware read path resolves each
+            !     logical carrier through `/_dict`);
+            !   * introspected on disk: `/_dict` holds exactly FOUR datasets
+            !     (two per field: the repeated payload collapsed, the changed
+            !     one distinct), sp0 and sp1 reference the same entry for each
+            !     field while sp2 differs, and dedup is keyed per field name;
+            !   * the referenced `/_dict` datasets are NF90_BYTE with the
+            !     documented 0/1 encoding (storage_mapping.md §1): `la`'s sp0
+            !     entry holds [1,0,1] and sp2 holds [0,1,0]; `lsc`'s sp0 entry
+            !     holds 1 (.true.) and sp2 holds 0 (.false.).
+            ! The Python reader round-trips the same `fdedlog` store this
+            ! scenario leaves at out_dir (test_fortran_wire_compat.py).
+            block
+               logical :: la(3), lsc, la_b(3), lsc_b
+               integer :: lncid, ldict, lnvars, lncerr, lgrp, lvid, lver, lxt
+               character(len=256) :: ar0, ar1, ar2, sr0, sr1, sr2
+               integer(int8) :: abuf(3), sbuf
+               logical, parameter :: pa(3) = [.true., .false., .true.]
+               logical, parameter :: pb(3) = [.false., .true., .false.]
+
+               ! --- Write the deduplicated store (dedup=.true.). ----------
+               call ppser_initialize(out_dir, 'fdedlog', 'w', dedup=.true.)
+               call fs_register_field(ppser_serializer, 'la', 'bool', 1, &
+                                      3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'lsc', 'bool', 1, &
+                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('sp0', ppser_savepoint)
+               la = pa
+               lsc = .true.
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'la', la)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'lsc', lsc)
+               call fs_create_savepoint('sp1', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'la', la)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'lsc', lsc)
+               call fs_create_savepoint('sp2', ppser_savepoint)
+               la = pb
+               lsc = .false.
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'la', la)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'lsc', lsc)
+               call ppser_finalize()
+
+               ! --- Read back through the Fortran (dedup-aware) read path. -
+               call ppser_initialize(out_dir, 'fdedlog', 'r')
+               call fs_register_field(ppser_serializer, 'la', 'bool', 1, &
+                                      3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_register_field(ppser_serializer, 'lsc', 'bool', 1, &
+                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('sp0', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'la', la_b)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'lsc', lsc_b)
+               if (any(la_b .neqv. pa)) error stop &
+                  'dedup-logical: sp0 array read-back mismatch'
+               if (lsc_b .neqv. .true.) error stop &
+                  'dedup-logical: sp0 scalar read-back mismatch'
+               call fs_create_savepoint('sp1', ppser_savepoint)
+               la_b = .false.
+               lsc_b = .false.
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'la', la_b)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'lsc', lsc_b)
+               if (any(la_b .neqv. pa)) error stop &
+                  'dedup-logical: sp1 array read-back mismatch'
+               if (lsc_b .neqv. .true.) error stop &
+                  'dedup-logical: sp1 scalar read-back mismatch'
+               call fs_create_savepoint('sp2', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'la', la_b)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'lsc', lsc_b)
+               if (any(la_b .neqv. pb)) error stop &
+                  'dedup-logical: sp2 array read-back mismatch'
+               if (lsc_b .neqv. .false.) error stop &
+                  'dedup-logical: sp2 scalar read-back mismatch'
+               call ppser_finalize()
+
+               ! --- Introspect the deduplicated store on disk. -----------
+               lncerr = nf90_open(out_dir//'/fdedlog.nc', NF90_NOWRITE, lncid)
+               if (lncerr /= NF90_NOERR) error stop &
+                  'dedup-logical: reopen fdedlog failed'
+               lncerr = nf90_get_att(lncid, NF90_GLOBAL, &
+                                     '_preserf_schema_version', lver)
+               if (lncerr /= NF90_NOERR) error stop &
+                  'dedup-logical: get schema_version failed'
+               if (lver /= 2) error stop &
+                  'dedup-logical: deduplicated store must advertise schema version 2'
+               ! `/_dict` must hold four entries: two per field (collapsed
+               ! repeat + distinct change), as dedup is keyed per field name.
+               lncerr = nf90_inq_ncid(lncid, '_dict', ldict)
+               if (lncerr /= NF90_NOERR) error stop &
+                  'dedup-logical: deduplicated store is missing /_dict'
+               lncerr = nf90_inquire(ldict, nVariables=lnvars)
+               if (lncerr /= NF90_NOERR) error stop 'dedup-logical: inquire /_dict'
+               if (lnvars /= 4) error stop &
+                  'dedup-logical: /_dict should hold exactly 4 collapsed payloads'
+               ! Per-field references: identical payloads collapse (sp0==sp1),
+               ! the changed payload is distinct (sp0/=sp2).
+               call dedup_field_ref(lncid, 'sp_000000', 'la', ar0)
+               call dedup_field_ref(lncid, 'sp_000001', 'la', ar1)
+               call dedup_field_ref(lncid, 'sp_000002', 'la', ar2)
+               if (trim(ar0) /= trim(ar1)) error stop &
+                  'dedup-logical: identical array payloads did not collapse'
+               if (trim(ar0) == trim(ar2)) error stop &
+                  'dedup-logical: distinct array payloads wrongly share an entry'
+               call dedup_field_ref(lncid, 'sp_000000', 'lsc', sr0)
+               call dedup_field_ref(lncid, 'sp_000001', 'lsc', sr1)
+               call dedup_field_ref(lncid, 'sp_000002', 'lsc', sr2)
+               if (trim(sr0) /= trim(sr1)) error stop &
+                  'dedup-logical: identical scalar payloads did not collapse'
+               if (trim(sr0) == trim(sr2)) error stop &
+                  'dedup-logical: distinct scalar payloads wrongly share an entry'
+               ! Stored encoding: NF90_BYTE with the 0/1 image. Array sp0 ->
+               ! [1,0,1], sp2 -> [0,1,0]; scalar sp0 -> 1, sp2 -> 0.
+               lncerr = nf90_inq_varid(ldict, trim(ar0), lvid)
+               if (lncerr /= NF90_NOERR) error stop 'dedup-logical: inq /_dict array entry'
+               lncerr = nf90_inquire_variable(ldict, lvid, xtype=lxt)
+               if (lncerr /= NF90_NOERR) error stop 'dedup-logical: inquire array xtype'
+               if (lxt /= NF90_BYTE) error stop &
+                  'dedup-logical: logical /_dict entry must be NF90_BYTE'
+               lncerr = nf90_get_var(ldict, lvid, abuf)
+               if (lncerr /= NF90_NOERR) error stop 'dedup-logical: get array bytes'
+               if (any(abuf /= [1_int8, 0_int8, 1_int8])) error stop &
+                  'dedup-logical: sp0 array 0/1 encoding wrong'
+               lncerr = nf90_inq_varid(ldict, trim(ar2), lvid)
+               if (lncerr /= NF90_NOERR) error stop 'dedup-logical: inq sp2 array entry'
+               lncerr = nf90_get_var(ldict, lvid, abuf)
+               if (lncerr /= NF90_NOERR) error stop 'dedup-logical: get sp2 array bytes'
+               if (any(abuf /= [0_int8, 1_int8, 0_int8])) error stop &
+                  'dedup-logical: sp2 array 0/1 encoding wrong'
+               lncerr = nf90_inq_varid(ldict, trim(sr0), lvid)
+               if (lncerr /= NF90_NOERR) error stop 'dedup-logical: inq scalar entry'
+               lncerr = nf90_inquire_variable(ldict, lvid, xtype=lxt)
+               if (lncerr /= NF90_NOERR) error stop 'dedup-logical: inquire scalar xtype'
+               if (lxt /= NF90_BYTE) error stop &
+                  'dedup-logical: scalar logical /_dict entry must be NF90_BYTE'
+               lncerr = nf90_get_var(ldict, lvid, sbuf)
+               if (lncerr /= NF90_NOERR) error stop 'dedup-logical: get scalar byte'
+               if (sbuf /= 1_int8) error stop &
+                  'dedup-logical: sp0 scalar .true. must encode as byte 1'
+               lncerr = nf90_inq_varid(ldict, trim(sr2), lvid)
+               if (lncerr /= NF90_NOERR) error stop 'dedup-logical: inq sp2 scalar entry'
+               lncerr = nf90_get_var(ldict, lvid, sbuf)
+               if (lncerr /= NF90_NOERR) error stop 'dedup-logical: get sp2 scalar byte'
+               if (sbuf /= 0_int8) error stop &
+                  'dedup-logical: sp2 scalar .false. must encode as byte 0'
+               lncerr = nf90_close(lncid)
+               if (lncerr /= NF90_NOERR) error stop 'dedup-logical: close failed'
+
+               write (*, '(a)') 'preserf-fortran: dedup-logical OK'
+               stop
+            end block
+         else if (scenario == 'dedup-env') then
+            ! ADR 0014 / issue #47: PRESERF_DEDUP opt-in and keyword override.
+            ! Mirrors the backend-env test for the dedup knob. The ctest
+            ! target sets PRESERF_DEDUP=1. Two sub-cases prove the resolution
+            ! precedence in ppser_resolve_dedup (explicit arg > env > default):
+            !   (i)  an OMITTED `dedup` keyword honours PRESERF_DEDUP=1, so the
+            !        store is written deduplicated (schema 2, /_dict present,
+            !        identical payloads collapse);
+            !   (ii) an explicit `dedup=.false.` OVERRIDES the enabled
+            !        environment, so the store stays a default one (schema 1,
+            !        no /_dict, one data variable per savepoint).
+            block
+               real(real64) :: eu(3), eu_b(3)
+               integer :: encid, edict, ever, evar, encerr, egrp
+               character(len=256) :: er0, er1, er2
+               real(real64), parameter :: ea(3) = [1.0_real64, 2.0_real64, 3.0_real64]
+               real(real64), parameter :: eb(3) = [4.0_real64, 5.0_real64, 6.0_real64]
+
+               ! (i) Omitted dedup keyword -> PRESERF_DEDUP=1 enables dedup.
+               call ppser_initialize(out_dir, 'fdeenv_on', 'w')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('sp0', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', ea)
+               call fs_create_savepoint('sp1', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', ea)
+               call fs_create_savepoint('sp2', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', eb)
+               call ppser_finalize()
+
+               encerr = nf90_open(out_dir//'/fdeenv_on.nc', NF90_NOWRITE, encid)
+               if (encerr /= NF90_NOERR) error stop 'dedup-env: reopen fdeenv_on failed'
+               encerr = nf90_get_att(encid, NF90_GLOBAL, '_preserf_schema_version', ever)
+               if (encerr /= NF90_NOERR) error stop 'dedup-env: get schema (on) failed'
+               if (ever /= 2) error stop &
+                  'dedup-env: PRESERF_DEDUP=1 with no keyword must enable dedup (schema 2)'
+               encerr = nf90_inq_ncid(encid, '_dict', edict)
+               if (encerr /= NF90_NOERR) error stop &
+                  'dedup-env: env-enabled store is missing /_dict'
+               call dedup_sp_ref(encid, 'sp_000000', er0, egrp, evar)
+               call dedup_sp_ref(encid, 'sp_000001', er1, egrp, evar)
+               call dedup_sp_ref(encid, 'sp_000002', er2, egrp, evar)
+               if (trim(er0) /= trim(er1)) error stop &
+                  'dedup-env: identical payloads did not collapse under env opt-in'
+               if (trim(er0) == trim(er2)) error stop &
+                  'dedup-env: distinct payloads wrongly shared an entry under env opt-in'
+               encerr = nf90_close(encid)
+               if (encerr /= NF90_NOERR) error stop 'dedup-env: close fdeenv_on failed'
+
+               ! Read-back through the dedup-aware Fortran path still works.
+               ! The reader matches savepoints positionally, so recreate them
+               ! in write order; sp0 resolves the collapsed entry, sp2 the
+               ! distinct one.
+               call ppser_initialize(out_dir, 'fdeenv_on', 'r')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('sp0', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', eu_b)
+               if (any(eu_b /= ea)) error stop 'dedup-env: env-enabled sp0 read-back mismatch'
+               call fs_create_savepoint('sp1', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', eu_b)
+               if (any(eu_b /= ea)) error stop 'dedup-env: env-enabled sp1 read-back mismatch'
+               call fs_create_savepoint('sp2', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', eu_b)
+               if (any(eu_b /= eb)) error stop 'dedup-env: env-enabled sp2 read-back mismatch'
+               call ppser_finalize()
+
+               ! (ii) Explicit dedup=.false. overrides the enabled environment.
+               call ppser_initialize(out_dir, 'fdeenv_off', 'w', dedup=.false.)
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('sp0', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', ea)
+               call fs_create_savepoint('sp1', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', ea)
+               call ppser_finalize()
+
+               encerr = nf90_open(out_dir//'/fdeenv_off.nc', NF90_NOWRITE, encid)
+               if (encerr /= NF90_NOERR) error stop 'dedup-env: reopen fdeenv_off failed'
+               encerr = nf90_get_att(encid, NF90_GLOBAL, '_preserf_schema_version', ever)
+               if (encerr /= NF90_NOERR) error stop 'dedup-env: get schema (off) failed'
+               if (ever /= 1) error stop &
+                  'dedup-env: explicit dedup=.false. must override env (schema 1)'
+               encerr = nf90_inq_ncid(encid, '_dict', edict)
+               if (encerr == NF90_NOERR) error stop &
+                  'dedup-env: explicit dedup=.false. must not create /_dict'
+               encerr = nf90_inq_ncid(encid, 'savepoints', egrp)
+               if (encerr /= NF90_NOERR) error stop 'dedup-env: inq savepoints (off)'
+               encerr = nf90_inq_ncid(egrp, 'sp_000000', egrp)
+               if (encerr /= NF90_NOERR) error stop 'dedup-env: inq sp_000000 (off)'
+               encerr = nf90_inq_varid(egrp, 'u', evar)
+               if (encerr /= NF90_NOERR) error stop 'dedup-env: off sp missing u'
+               encerr = nf90_inquire_attribute(egrp, evar, '_preserf_dict_ref')
+               if (encerr == NF90_NOERR) error stop &
+                  'dedup-env: overridden store must not reference a dictionary entry'
+               encerr = nf90_close(encid)
+               if (encerr /= NF90_NOERR) error stop 'dedup-env: close fdeenv_off failed'
+
+               write (*, '(a)') 'preserf-fortran: dedup-env OK'
+               stop
+            end block
+         else if (scenario == 'dedup-env-bad') then
+            ! ADR 0014 / issue #47: an invalid PRESERF_DEDUP value must abort
+            ! cleanly at the ppser_initialize boundary BEFORE an existing
+            ! target store is truncated — the resolve-dedup check runs ahead
+            ! of the nf90_create that would clobber the file (the same
+            ! validate-before-truncate contract the reference-store ordering
+            ! documents). A bad env set process-wide would abort THIS process
+            ! at the first init, so the check runs in a child: this parent
+            ! (clean env) first writes a sentinel store, then spawns the
+            ! `dedup-env-bad-child` sub-scenario with PRESERF_DEDUP set to an
+            ! unparsable value against that SAME store. The child must exit
+            ! non-zero with the "unknown PRESERF_DEDUP value" message, and the
+            ! sentinel store must still read back intact — proving validation
+            ! preceded truncation.
+            block
+               real(real64) :: su(3), su_b(3)
+               real(real64), parameter :: sp(3) = [11.0_real64, 22.0_real64, 33.0_real64]
+               character(len=4096) :: exe
+               character(len=:), allocatable :: cmd, errfile
+               character(len=512) :: line
+               integer :: estat, cstat, exe_len, exe_stat, u_err, ios
+               logical :: saw_message
+
+               su = sp
+               ! Sentinel store written with a clean env (dedup off).
+               call ppser_initialize(out_dir, 'fdebad', 'w')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('sp0', ppser_savepoint)
+               call fs_write_field(ppser_serializer, ppser_savepoint, 'u', su)
+               call ppser_finalize()
+
+               ! Spawn the child against the SAME store with a bad env value.
+               ! arg0 is this test binary's absolute path under ctest.
+               call get_command_argument(0, value=exe, length=exe_len, status=exe_stat)
+               if (exe_stat /= 0) error stop 'dedup-env-bad: cannot read own exe path'
+               errfile = out_dir//'/dedup_env_bad.err'
+               cmd = 'env PRESERF_DEDUP=definitely_not_a_bool "'// &
+                     exe(1:exe_len)//'" "'//out_dir//'" dedup-env-bad-child 2> "'// &
+                     errfile//'"'
+               call execute_command_line(cmd, wait=.true., exitstat=estat, &
+                                         cmdstat=cstat)
+               if (cstat /= 0) error stop &
+                  'dedup-env-bad: could not spawn child process'
+               if (estat == 0) error stop &
+                  'dedup-env-bad: invalid PRESERF_DEDUP did not abort the child'
+
+               ! The abort is the specific resolve-dedup diagnostic, not an
+               ! incidental later failure.
+               saw_message = .false.
+               open (newunit=u_err, file=errfile, status='old', action='read', &
+                     iostat=ios)
+               if (ios /= 0) error stop 'dedup-env-bad: child stderr not captured'
+               do
+                  read (u_err, '(a)', iostat=ios) line
+                  if (ios /= 0) exit
+                  if (index(line, 'unknown PRESERF_DEDUP value') > 0) &
+                     saw_message = .true.
+               end do
+               close (u_err)
+               if (.not. saw_message) error stop &
+                  'dedup-env-bad: child did not report the unknown-value diagnostic'
+
+               ! The sentinel store survived the aborted child untouched:
+               ! validation ran before nf90_create could truncate it.
+               call ppser_initialize(out_dir, 'fdebad', 'r')
+               call fs_register_field(ppser_serializer, 'u', 'double', &
+                                      ppser_reallength, 3, 0, 0, 0, &
+                                      0, 0, 0, 0, 0, 0, 0, 0)
+               call fs_create_savepoint('sp0', ppser_savepoint)
+               call fs_read_field(ppser_serializer, ppser_savepoint, 'u', su_b)
+               if (any(su_b /= sp)) error stop &
+                  'dedup-env-bad: existing store was truncated before validation'
+               call ppser_finalize()
+
+               write (*, '(a)') 'preserf-fortran: dedup-env-bad OK'
+               stop
+            end block
+         else if (scenario == 'dedup-env-bad-child') then
+            ! Child of `dedup-env-bad`: invoked with an unparsable
+            ! PRESERF_DEDUP. ppser_resolve_dedup must abort here, before the
+            ! nf90_create for 'fdebad' truncates the parent's sentinel store.
+            call ppser_initialize(out_dir, 'fdebad', 'w')
+            ! Unreachable: resolve-dedup must abort on the bad env value.
+            call abort_unexpected('dedup-env-bad-child')
          else
             write (*, '(a,a)') &
                'preserf-test_minimal: unknown scenario argument: ', &
@@ -3435,6 +3782,28 @@ contains
       if (ncerr /= NF90_NOERR) error stop &
          'dedup: savepoint carrier has no _preserf_dict_ref'
    end subroutine dedup_sp_ref
+
+   !> Read the `_preserf_dict_ref` of an arbitrary field's savepoint carrier
+   !> (ADR 0014). Like `dedup_sp_ref` but parameterised on the field name, so
+   !> a scenario with several deduplicated fields (e.g. a logical scalar and
+   !> array) can compare per-field references.
+   subroutine dedup_field_ref(ncid, sp_name, field, ref)
+      integer, intent(in) :: ncid
+      character(len=*), intent(in) :: sp_name, field
+      character(len=*), intent(out) :: ref
+      integer :: ncerr, sps_grpid, sp_grpid, varid
+
+      ref = ''
+      ncerr = nf90_inq_ncid(ncid, 'savepoints', sps_grpid)
+      if (ncerr /= NF90_NOERR) error stop 'dedup_field_ref: inq savepoints failed'
+      ncerr = nf90_inq_ncid(sps_grpid, sp_name, sp_grpid)
+      if (ncerr /= NF90_NOERR) error stop 'dedup_field_ref: inq savepoint group failed'
+      ncerr = nf90_inq_varid(sp_grpid, field, varid)
+      if (ncerr /= NF90_NOERR) error stop 'dedup_field_ref: savepoint missing carrier'
+      ncerr = nf90_get_att(sp_grpid, varid, '_preserf_dict_ref', ref)
+      if (ncerr /= NF90_NOERR) error stop &
+         'dedup_field_ref: savepoint carrier has no _preserf_dict_ref'
+   end subroutine dedup_field_ref
 
    !> Delete a file if it exists. The init-keywords scenario uses this
    !> to clear stores left behind by a prior run before asserting on

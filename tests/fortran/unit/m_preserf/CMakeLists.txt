@@ -300,6 +300,33 @@ preserf_scenario_test(NAME kbuff_dedup SCENARIO kbuff-dedup
 preserf_scenario_test(NAME dedup_longname SCENARIO dedup-longname
     PASS "preserf-fortran: dedup-longname OK")
 
+# ADR 0014 / issue #47: logical (Boolean) dedup round-trips. The other dedup
+# scenarios cover only real64 arrays; this exercises the logical write/read
+# templates under dedup for a scalar AND an array — identical payloads collapse
+# to one /_dict entry per field, changed payloads stay distinct, the stored
+# NF90_BYTE 0/1 encoding is asserted, and both readers round-trip. The Python
+# wire-compat test reads the fdedlog store this scenario leaves behind.
+preserf_scenario_test(NAME dedup_logical SCENARIO dedup-logical
+    PASS "preserf-fortran: dedup-logical OK")
+
+# ADR 0014 / issue #47: PRESERF_DEDUP opt-in and keyword override. With
+# PRESERF_DEDUP=1, an omitted dedup keyword enables dedup (schema 2, /_dict),
+# while an explicit dedup=.false. overrides the environment (schema 1, no
+# /_dict) — the arg-beats-env precedence of ppser_resolve_dedup.
+preserf_scenario_test(NAME dedup_env SCENARIO dedup-env
+    PASS "preserf-fortran: dedup-env OK"
+    ENVIRONMENT "PRESERF_DEDUP=1")
+
+# ADR 0014 / issue #47 negative: an invalid PRESERF_DEDUP value must abort at
+# the ppser_initialize boundary BEFORE an existing target store is truncated.
+# The scenario writes a sentinel store, spawns a child with an unparsable
+# PRESERF_DEDUP against that same store (so the aborting process is isolated),
+# and asserts the child failed with the "unknown PRESERF_DEDUP value"
+# diagnostic while the sentinel store still reads back intact. No ctest-level
+# ENVIRONMENT: the parent needs a clean env to write and re-read the sentinel.
+preserf_scenario_test(NAME dedup_env_bad SCENARIO dedup-env-bad
+    PASS "preserf-fortran: dedup-env-bad OK")
+
 # Issue #32: `mode` is optional on ppser_initialize for pp_ser / Serialbox
 # `!$SER INIT` drop-in compatibility. Covers the default-write path, the derived
 # read path (set_mode(1) + omitted mode), and read-perturb preservation.
