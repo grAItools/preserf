@@ -275,6 +275,58 @@ preserf_scenario_test(NAME backend_arg_padded SCENARIO backend-arg-padded
 preserf_scenario_test(NAME read_roundtrip SCENARIO read-roundtrip
     PASS "preserf-fortran: read-roundtrip OK")
 
+# Issue #47 / ADR 0014: opt-in cross-savepoint content dedup. Writes the same
+# field at three savepoints (two identical payloads, one different) with dedup
+# ON and with the default OFF, then asserts: the dedup store collapses the
+# identical payloads to a single /_dict dataset (sp0/sp1 reference the same
+# entry, sp2 a different one) and reads back the correct values through the
+# dedup-aware read path; the default store creates no /_dict group and keeps
+# one data variable per savepoint. The Python reader additionally round-trips
+# the fdedup store this scenario leaves behind (test_fortran_wire_compat.py).
+preserf_scenario_test(NAME dedup SCENARIO dedup
+    PASS "preserf-fortran: dedup OK")
+
+# ADR 0014 regression: dedup is scoped to !$SER DATA field writes, so a
+# DATA_KBUFF flush (which reuses fs_write_field) must bypass dedup and keep its
+# on-disk variable a direct array — otherwise the k-buffer read path aborts.
+# Writes a k-buffered field with dedup ON and reads it back level-by-level.
+preserf_scenario_test(NAME kbuff_dedup SCENARIO kbuff-dedup
+    PASS "preserf-fortran: kbuff-dedup OK")
+
+# ADR 0014 regression: dictionary entries use a short store-global id, not the
+# field name, so a near-limit (248-char) field name does not overflow netCDF's
+# 256-byte name cap once the dimension suffix is appended. Round-trips such a
+# field with dedup ON.
+preserf_scenario_test(NAME dedup_longname SCENARIO dedup-longname
+    PASS "preserf-fortran: dedup-longname OK")
+
+# ADR 0014 / issue #47: logical (Boolean) dedup round-trips. The other dedup
+# scenarios cover only real64 arrays; this exercises the logical write/read
+# templates under dedup for a scalar AND an array — identical payloads collapse
+# to one /_dict entry per field, changed payloads stay distinct, the stored
+# NF90_BYTE 0/1 encoding is asserted, and both readers round-trip. The Python
+# wire-compat test reads the fdedlog store this scenario leaves behind.
+preserf_scenario_test(NAME dedup_logical SCENARIO dedup-logical
+    PASS "preserf-fortran: dedup-logical OK")
+
+# ADR 0014 / issue #47: PRESERF_DEDUP opt-in and keyword override. With
+# PRESERF_DEDUP=1, an omitted dedup keyword enables dedup (schema 2, /_dict),
+# while an explicit dedup=.false. overrides the environment (schema 1, no
+# /_dict) — the arg-beats-env precedence of ppser_resolve_dedup.
+preserf_scenario_test(NAME dedup_env SCENARIO dedup-env
+    PASS "preserf-fortran: dedup-env OK"
+    ENVIRONMENT "PRESERF_DEDUP=1")
+
+# ADR 0014 / issue #47 negative: an invalid PRESERF_DEDUP value must abort at
+# the ppser_initialize boundary BEFORE an existing target store is truncated.
+# The scenario writes a sentinel store, spawns a child with an unparsable
+# PRESERF_DEDUP against that same store (so the aborting process is isolated),
+# and asserts the child failed with the "unknown PRESERF_DEDUP value"
+# diagnostic while the sentinel store still reads back intact. No ctest-level
+# ENVIRONMENT: the parent needs a clean env to write and re-read the sentinel.
+preserf_scenario_test(NAME dedup_env_bad SCENARIO dedup-env-bad
+    PASS "preserf-fortran: dedup-env-bad OK")
+
 # Issue #32: `mode` is optional on ppser_initialize for pp_ser / Serialbox
 # `!$SER INIT` drop-in compatibility. Covers the default-write path, the derived
 # read path (set_mode(1) + omitted mode), and read-perturb preservation.

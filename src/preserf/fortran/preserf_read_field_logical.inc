@@ -8,7 +8,7 @@ subroutine PRESERF_SUB(s, sp, fieldname, data)
    type(t_savepoint), intent(in) :: sp
    character(len=*), intent(in) :: fieldname
    logical, intent(inout) PRESERF_DIMS :: data
-   integer :: ncerr, varid, read_grpid
+   integer :: ncerr, varid, read_grpid, data_grpid
    integer(int8), allocatable PRESERF_DIMS :: buf
    integer(int32), allocatable :: reg_dims(:)
 
@@ -18,12 +18,13 @@ subroutine PRESERF_SUB(s, sp, fieldname, data)
    call validate_field_shape(s, fieldname, shape(data), TID_BOOLEAN, 'read', &
                              registered_dims_out=reg_dims)
    read_grpid = resolve_savepoint_grpid(s, sp)
-   ncerr = nf90_inq_varid(read_grpid, trim(fieldname), varid)
-   call preserf_check_nf_with_msg(ncerr, 'inq_varid '//trim(fieldname))
-   call require_variable_xtype(s, read_grpid, varid, fieldname, NF90_BYTE, &
+   ! Resolve a dedup `/_dict` reference if present (ADR 0014); a default
+   ! store returns the savepoint variable unchanged.
+   call resolve_read_variable(s, read_grpid, fieldname, data_grpid, varid)
+   call require_variable_xtype(s, data_grpid, varid, fieldname, NF90_BYTE, &
                                known_dims_c=reg_dims)
    PRESERF_BUFALLOC
-   ncerr = nf90_get_var(read_grpid, varid, buf)
+   ncerr = nf90_get_var(data_grpid, varid, buf)
    call preserf_check_nf_with_msg(ncerr, 'get_var '//trim(fieldname))
    data = (buf /= 0_int8)
 end subroutine PRESERF_SUB

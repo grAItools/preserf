@@ -8,6 +8,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `ppser_initialize` (src/preserf/fortran/utils_preserf.f90) gained a
+  `dedup` keyword (resolved from the `PRESERF_DEDUP` env var when omitted,
+  else off) enabling opt-in cross-savepoint content deduplication: with it
+  on, identical `!$SER DATA` field payloads are stored once under a new
+  `/_dict` group and referenced by every savepoint that writes them
+  (`_preserf_dict_ref`), restoring the Serialbox dedup ratio (issue #47).
+  Default stores stay byte-identical; both the Python reference reader and
+  the Fortran `fs_read_field` path resolve the reference. Layout in
+  `dev/references/storage_mapping.md` §10; decision in
+  [ADR 0014](dev/adr/0014-cross-savepoint-dedup.md).
 - Wheel install-chain verification: a new `consumer`-marked integration test
   installs the built wheel into a throwaway virtual environment (borrowing
   the dev environment's runtime deps, offline) and drives the consumer CMake

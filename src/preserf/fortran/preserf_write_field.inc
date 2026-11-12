@@ -12,6 +12,12 @@ subroutine PRESERF_SUB(s, sp, fieldname, data)
    PRESERF_DTYPE, intent(in) PRESERF_DIMS :: data
    integer :: ncerr, varid
    integer, allocatable :: dimids(:)
+   ! Cross-savepoint dedup state (ADR 0014); unused when dedup is off.
+   integer :: dict_grpid
+   integer(int8), allocatable :: raw(:)
+   integer(int64) :: cksum, nbytes
+   character(len=:), allocatable :: entry_name
+   logical :: is_new
 
    if (serialisation_enabled == 0) return
    call require_open(s, 'fs_write_field')
@@ -34,8 +40,29 @@ subroutine PRESERF_SUB(s, sp, fieldname, data)
          '" in write mode but the serializer was opened read-only'
       error stop 1
    end if
-   call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
-   call ensure_variable(sp%grpid, fieldname, PRESERF_NCTYPE, dimids, varid)
-   ncerr = nf90_put_var(sp%grpid, varid, data)
-   call preserf_check_nf_with_msg(ncerr, 'put_var '//trim(fieldname))
+   if (ppser_dedup_enabled) then
+      ! Dedup path (ADR 0014): checksum the raw payload bytes, resolve (or
+      ! create) the `/_dict` entry for an identical payload, write the entry
+      ! dataset only on a miss, and point this savepoint at it via a scalar
+      ! reference carrier. `transfer(data, raw)` yields the payload's byte
+      ! image for any rank (shape(data) is zero-length for a scalar field).
+      raw = transfer(data, raw)
+      cksum = ppser_hash_bytes(raw)
+      nbytes = size(raw, kind=int64)
+      call ppser_dict_find_or_add(trim(fieldname), cksum, nbytes, &
+                                  entry_name, is_new)
+      call ensure_dict_group(s, dict_grpid)
+      if (is_new) then
+         call ensure_dims(dict_grpid, entry_name, shape(data), dimids)
+         call ensure_variable(dict_grpid, entry_name, PRESERF_NCTYPE, dimids, varid)
+         ncerr = nf90_put_var(dict_grpid, varid, data)
+         call preserf_check_nf_with_msg(ncerr, 'put_var '//entry_name)
+      end if
+      call write_dict_reference(sp%grpid, fieldname, entry_name)
+   else
+      call ensure_dims(sp%grpid, fieldname, shape(data), dimids)
+      call ensure_variable(sp%grpid, fieldname, PRESERF_NCTYPE, dimids, varid)
+      ncerr = nf90_put_var(sp%grpid, varid, data)
+      call preserf_check_nf_with_msg(ncerr, 'put_var '//trim(fieldname))
+   end if
 end subroutine PRESERF_SUB
