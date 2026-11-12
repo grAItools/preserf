@@ -73,6 +73,59 @@ def test_init_with_if_clause() -> None:
     assert "dir, &" in out and "prefix)" in out
 
 
+def test_init_compression_on_maps_to_default_level() -> None:
+    # `compression=on` feeds the integer `compression` dummy through the
+    # helper's default deflate level, so the level lives in the Fortran side
+    # rather than in every directive.
+    out = expand("!$SER INIT dir prefix compression=on\n")
+    assert "compression=PPSER_DEFAULT_DEFLATE_LEVEL)" in out
+
+
+def test_init_compression_on_imports_the_level_parameter() -> None:
+    # The parameter comes from utils_ppser, so the generated USE list must
+    # carry it next to the ppser procedures.
+    src = (
+        "MODULE m\nCONTAINS\nSUBROUTINE s()\n"
+        "!$SER INIT dir prefix compression=on\n"
+        "END SUBROUTINE s\nEND MODULE m\n"
+    )
+    out = expand(src)
+    use_line = out.split("USE utils_ppser, ONLY:")[1].split("#endif")[0]
+    assert "PPSER_DEFAULT_DEFLATE_LEVEL" in use_line
+    # A source without the keyword must not import it.
+    plain = expand(src.replace(" compression=on", ""))
+    assert "PPSER_DEFAULT_DEFLATE_LEVEL" not in plain
+
+
+def test_init_compression_off_maps_to_zero() -> None:
+    out = expand("!$SER INIT dir prefix compression=off\n")
+    assert "compression=0)" in out
+    assert "PPSER_DEFAULT_DEFLATE_LEVEL" not in out
+
+
+def test_init_compression_explicit_level_passes_through() -> None:
+    out = expand("!$SER INIT dir prefix compression=7\n")
+    assert "compression=7)" in out
+    assert "PPSER_DEFAULT_DEFLATE_LEVEL" not in out
+
+
+def test_init_compression_shorthand_is_case_insensitive() -> None:
+    # The keyword and the `on`/`off` shorthand are case-insensitive; the
+    # keyword is passed through with the caller's spelling.
+    out = expand("!$SER INIT dir prefix COMPRESSION=ON\n")
+    assert "COMPRESSION=PPSER_DEFAULT_DEFLATE_LEVEL)" in out
+    assert "compression=PPSER_DEFAULT_DEFLATE_LEVEL)" in expand(
+        "!$SER INIT dir prefix compression='on'\n"
+    )
+
+
+def test_init_compression_out_of_range_passes_to_runtime() -> None:
+    # Range validation is the Fortran boundary's job (it aborts with a message
+    # naming the level), so an out-of-range integer must reach the call.
+    out = expand("!$SER INIT dir prefix compression=42\n")
+    assert "compression=42)" in out
+
+
 def test_cleanup_expands_to_finalize_call() -> None:
     assert "call ppser_finalize()" in expand("!$SER CLEANUP\n")
 

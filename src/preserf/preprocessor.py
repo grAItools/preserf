@@ -107,6 +107,12 @@ _ALWAYS_PPSER = (
     "ppser_get_mode",
 )
 
+# Public `integer, parameter` in utils_ppser (re-exported from utils_preserf)
+# holding the deflate level `!$SER INIT compression=on` selects. Imported only
+# when that expansion references it, so a call site that never compresses does
+# not pull the symbol in.
+_DEFAULT_DEFLATE_LEVEL_PARAM = "PPSER_DEFAULT_DEFLATE_LEVEL"
+
 _RE_SER = re.compile(r"^ *!\$ser *(.*)$", re.IGNORECASE)
 _RE_SER_CONT_IN = re.compile(r"^ *!\$ser& *", re.IGNORECASE)
 _RE_TOKENS = re.compile(r"""((?:[^ "']|"[^"]*"|'[^']*')+)""")
@@ -727,7 +733,11 @@ class Preprocessor:
         # not in ``utils_preserf`` aliased by ``utils_ppser``; importing
         # them from the utility module would not compile.
         def in_ppser_module(call: str) -> bool:
-            return call.startswith("ppser") and not call.startswith(
+            # Case-folded: `_calls` also carries helper-supplied constants such
+            # as PPSER_DEFAULT_DEFLATE_LEVEL, which live in utils_ppser even
+            # though they are not spelled `ppser_...`.
+            folded = call.lower()
+            return folded.startswith("ppser") and not folded.startswith(
                 "ppser_write_tracer"
             )
 
@@ -872,11 +882,31 @@ class Preprocessor:
 
         self._calls.add(_METHODS["init"])
         pad = " " * 11
-        joined = (", &\n" + pad).join(args[1:if_pos])
+        call_args = [self._init_arg(a) for a in args[1:if_pos]]
+        joined = (", &\n" + pad).join(call_args)
         out += tab + f"call {_METHODS['init']}( &\n{pad}{joined})\n"
         if if_statement:
             out += "ENDIF\n"
         self._line = out
+
+    def _init_arg(self, arg: str) -> str:
+        """Map the `compression` keyword's shorthand onto a deflate level.
+
+        `compression=on` becomes the helper's default deflate level and
+        `compression=off` becomes 0, so the level literal lives in the Fortran
+        helper rather than in every directive. An explicit integer passes
+        through unchanged for `ppser_initialize` to range-check at runtime.
+        """
+        key, sep, value = arg.partition("=")
+        if not sep or key.strip().lower() != "compression":
+            return arg
+        shorthand = value.strip().strip("\"'").lower()
+        if shorthand == "on":
+            self._calls.add(_DEFAULT_DEFLATE_LEVEL_PARAM)
+            return f"{key}={_DEFAULT_DEFLATE_LEVEL_PARAM}"
+        if shorthand == "off":
+            return f"{key}=0"
+        return arg
 
     def _ser_cleanup(self, args: list[str]) -> None:
         out = self._annotation()

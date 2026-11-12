@@ -18,6 +18,48 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the Fortran `fs_read_field` path resolve the reference. Layout in
   `dev/references/storage_mapping.md` §10; decision in
   [ADR 0014](dev/adr/0014-cross-savepoint-dedup.md).
+- Wheel install-chain verification: a new `consumer`-marked integration test
+  installs the built wheel into a throwaway virtual environment (borrowing
+  the dev environment's runtime deps, offline) and drives the consumer CMake
+  recipe against that install.
+- Packaging metadata assertion: `test_packaging_distribution.py` asserts the
+  wheel's `METADATA` `Version:` equals `preserf.__version__`, and
+  `_EXPECTED_RUNTIME_FILES` now covers `preserf/py.typed` and
+  `preserf/fortran/README.md`.
+- `twine` (>=6) is a dev dependency, so `twine check` executes on both
+  distribution artifacts instead of skipping.
+- Documentation: the root README states the POSIX-only Fortran runtime
+  prerequisite; the shipped runtime README's repo-relative links are absolute
+  repository URLs so they resolve from `site-packages`.
+
+- `preserf_apply_perturb.inc`: read-perturb now draws its uniforms in
+  bounded 8192-element chunks (one `random_number(chunk)` call per chunk,
+  along the fastest dim) instead of one call per element, while preserving
+  the documented `1 + scale*(2u - 1)` formula and the multiplicative bounds
+  for every element; a native ctest scenario (`perturb-batched`) asserts the
+  bounds across chunk boundaries and a short final chunk for both floating
+  kinds. Perf-smoke fixtures
+  (`tests/fortran/unit/m_preserf/test_perf_smoke.f90`, driven by
+  `tests/integration_tests/test_perf_smoke.py`) measure the default-off
+  store size and read wall time through both backends, the netcdf4
+  compressed "after" store, and batched-versus-per-element perturb timing.
+- Opt-in store-wide compression: `ppser_initialize` accepts a `compression=`
+  keyword (an integer zlib deflate level 1..9, or `on` for
+  `PPSER_DEFAULT_DEFLATE_LEVEL` / `off`; `!$SER INIT compression=on` maps onto
+  that parameter), and the `PRESERF_COMPRESSION` environment variable supplies
+  the same value when the keyword is omitted. The request defaults **off**, so
+  existing stores stay contiguous and uncompressed. With it on, the `netcdf4`
+  backend creates field **and** tracer data variables chunked and deflated at
+  that level, with a chunk shape derived from the registered dims: the
+  fastest-varying dims in full up to a 4 MiB uncompressed target, never the
+  whole multi-element variable, and never above the 4 GiB HDF5 per-chunk
+  limit. Rank-0 (scalar) fields keep the backend's default layout (netCDF
+  cannot chunk a scalar), `nczarr-v2` with compression is rejected at
+  initialization until the codec work in #111, and an out-of-range level or
+  unknown `PRESERF_COMPRESSION` value aborts at the same boundary. The chunk
+  derivation is unit-tested against synthetic >4 GiB dims, and the layout is
+  asserted by native ctest scenarios plus the Python wire-compat test.
+  Documented in `dev/references/storage_mapping.md` §6/§9 and ADR 0013.
 - `fs_add_savepoint_metainfo` / `fs_add_serializer_metainfo`
   (src/preserf/fortran/m_preserf.F90) now accept 1D string-array metainfo:
   the values round-trip through the store and the Python reader as lists

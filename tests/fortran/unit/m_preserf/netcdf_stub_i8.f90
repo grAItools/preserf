@@ -28,11 +28,19 @@ module netcdf
    integer, parameter :: NF90_NETCDF4 = 4
    integer, parameter :: NF90_NOWRITE = 1
    integer, parameter :: NF90_BYTE = 1
+   integer, parameter :: NF90_CHAR = 2
+   integer, parameter :: NF90_SHORT = 3
    integer, parameter :: NF90_INT = 4
-   integer, parameter :: NF90_INT64 = 10
    integer, parameter :: NF90_FLOAT = 5
    integer, parameter :: NF90_DOUBLE = 6
+   integer, parameter :: NF90_UBYTE = 7
+   integer, parameter :: NF90_USHORT = 8
+   integer, parameter :: NF90_UINT = 9
+   integer, parameter :: NF90_INT64 = 10
+   integer, parameter :: NF90_UINT64 = 11
    integer, parameter :: NF90_STRING = 12
+   integer, parameter :: NF90_CHUNKED = 0
+   integer, parameter :: NF90_CONTIGUOUS = 1
    integer, parameter :: NF90_UNLIMITED = -1
    integer, parameter :: NF90_EBADDIM = -6054
    integer, parameter :: NF90_EINDEFINE = -6045
@@ -174,6 +182,16 @@ contains
       if (present(len)) len = 1
       nf90_inquire_dimension = NF90_NOERR
    end function nf90_inquire_dimension
+   integer function nf90_def_var_chunking(ncid, varid, storage, chunksizes)
+      integer, intent(in) :: ncid, varid, storage
+      integer, intent(in) :: chunksizes(:)
+      nf90_def_var_chunking = NF90_NOERR
+   end function nf90_def_var_chunking
+   integer function nf90_def_var_deflate(ncid, varid, shuffle, deflate, &
+                                         deflate_level)
+      integer, intent(in) :: ncid, varid, shuffle, deflate, deflate_level
+      nf90_def_var_deflate = NF90_NOERR
+   end function nf90_def_var_deflate
    integer function nf90_inquire_attribute(grpid, varid, name, len, xtype)
       integer, intent(in) :: grpid, varid
       character(len=*), intent(in) :: name

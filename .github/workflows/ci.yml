@@ -28,9 +28,11 @@ jobs:
           - label: linux-64
             runs-on: ubuntu-latest
           - label: osx-arm64
-            # macos-14 is the arm64 (Apple-silicon) hosted image that backs
-            # the osx-arm64 platform label.
-            runs-on: macos-14
+            # macos-26 is the arm64 (Apple-silicon) hosted image that backs
+            # the osx-arm64 platform label. Pinned explicitly (not
+            # macos-latest) so the OS image cannot drift underneath CI; it
+            # replaces the Sonoma (macOS 14) image retired on 2026-11-02.
+            runs-on: macos-26
     steps:
       - uses: actions/checkout@v6.0.3
 

@@ -80,5 +80,10 @@ def fortran_binary() -> Path:
 
 
 @pytest.fixture
+def fortran_perf_binary() -> Path:
+    return _require_binary("unit/m_preserf", "preserf_fortran_test_perf_smoke")
+
+
+@pytest.fixture
 def fortran_e2e_binary() -> Path:
     return _require_binary("e2e", "preserf_fortran_test_e2e")
