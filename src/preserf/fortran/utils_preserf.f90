@@ -767,7 +767,7 @@ contains
                                directory_ref, prefix_ref, &
                                singlefile, mpi_rank, rprecision, &
                                rperturb, realtype, archive, unique_id, &
-                               backend, dedup, compression)
+                               backend, compression, dedup)
       character(len=*), intent(in) :: directory
       character(len=*), intent(in) :: prefix
       ! Optional for pp_ser / Serialbox `!$SER INIT` compatibility: those
@@ -792,16 +792,19 @@ contains
       ! var, else the default. Threaded through to preserf_open_serializer,
       ! which turns it into the right on-disk URL / extension.
       character(len=*), intent(in), optional :: backend
-      ! Opt-in cross-savepoint content dedup (ADR 0014). When omitted,
-      ! resolved from the PRESERF_DEDUP env var, else the default (off).
-      ! Stored in the module flag ppser_dedup_enabled, which the write path
-      ! consumes, and recorded as the `_preserf_dedup` root attribute.
-      logical, intent(in), optional :: dedup
       ! Store-wide compression request: 1..9 deflates each field-/tracer-data
       ! variable at that zlib level, 0 leaves the backend's default layout.
       ! When omitted, resolved from PRESERF_COMPRESSION, else off — see
       ! ppser_resolve_compression.
       integer, intent(in), optional :: compression
+      ! Opt-in cross-savepoint content dedup (ADR 0014). Declared last in the
+      ! dummy-argument list — after `compression`, which shipped first — so a
+      ! positional caller that passes a compression level as its last argument
+      ! keeps its binding. When omitted, resolved from the PRESERF_DEDUP env
+      ! var, else the default (off). Stored in the module flag
+      ! ppser_dedup_enabled, which the write path consumes, and recorded as the
+      ! `_preserf_dedup` root attribute.
+      logical, intent(in), optional :: dedup
 
       ! Effective open mode passed to preserf_open_serializer. Deferred
       ! length so it mirrors `mode` exactly when present (preserving the
